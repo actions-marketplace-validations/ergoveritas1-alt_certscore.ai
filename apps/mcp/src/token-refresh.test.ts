@@ -111,7 +111,10 @@ test("authenticated HTTP sessions rotate credentials, isolate identities and pre
     }
     assert.ok(ready, "local MCP server starts");
     const blockedOrigin = await fetch(origin + "/mcp", { method: "OPTIONS", headers: { origin: "https://www.cursor.com.attacker.test", "access-control-request-method": "POST" } });
-    assert.equal(blockedOrigin.status, 403);
+    assert.equal(blockedOrigin.status, 204);
+    assert.equal(blockedOrigin.headers.get("access-control-allow-origin"), null);
+    const blockedPost = await fetch(origin + "/mcp", { method: "POST", headers: { origin: "https://www.cursor.com.attacker.test", "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: initialize }) });
+    assert.equal(blockedPost.status, 403);
     const a = token("A", { expiresInSeconds: 2 });
     const b = token("B");
     const c = token("C", { scopes: ["mcp", "scan:create", "scan:read"] });
