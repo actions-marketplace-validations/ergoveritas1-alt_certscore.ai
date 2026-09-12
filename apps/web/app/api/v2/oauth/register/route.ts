@@ -7,7 +7,6 @@ import {
   cleanupUnusedMcpOAuthClients,
   getRequesterIp,
   hashRequester,
-  isClaudeMcpOAuthClientMetadata,
   registerMcpOAuthClient
 } from "../../../../../server/oauth/mcp-oauth";
 import { isAllowedMcpOAuthRedirectUri } from "../../../../../server/oauth/mcp-oauth-scopes";
@@ -76,9 +75,7 @@ export async function POST(request: Request) {
   }
 
   const clientName = parsed.data.client_name ?? "MCP Client";
-  const registrationScopes = isClaudeMcpOAuthClientMetadata({ clientName, redirectUris })
-    ? Array.from(new Set([...requestedScopes, CERTSCORE_OAUTH_CREATE_SCOPE]))
-    : requestedScopes;
+  const registrationScopes = Array.from(new Set([...requestedScopes, CERTSCORE_OAUTH_CREATE_SCOPE]));
   const requesterIpHash = hashRequester(getRequesterIp(request));
   await cleanupUnusedMcpOAuthClients();
   const limit = await checkDynamicClientRegistrationLimit(requesterIpHash);

@@ -433,8 +433,10 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
           code: auth.reason === "missing_scope" ? "forbidden" : "unauthorized",
           message:
             auth.reason === "missing_scope"
-              ? "This CertScore.ai API key does not include the required Pulse scope."
-              : "This CertScore.ai API key is invalid, expired, or revoked.",
+              ? `This credential lacks the required permission: ${requiredScopesForPulseRequest({ hasUrl: Boolean(rawUrl), hasScanId: Boolean(scanId), hasJobId: Boolean(jobId) }).filter((scope) => !auth.key.scopes.includes(scope)).map((scope) => auth.key.tokenPrefix === "oauth" ? scope === "pulse:scan" ? "scan:create" : scope === "pulse:read" ? "scan:read" : scope : scope).join(" ")}.`
+              : "This CertScore.ai credential is invalid, expired, or revoked.",
+          recommendedNextAction: auth.reason === "missing_scope" ? "For an active workspace, reconnect requesting scan:read scan:create mcp and approve access. Use certscore_get_latest_domain_scan to read an existing scan while read access remains available. No manual CertScore approval is required for active workspace members." : "Reconnect to CertScore to authorize a valid credential.",
+          resolution: { label: "OAuth setup and permissions", url: "https://certscore.ai/developers/mcp" },
           detail,
           format
         }),

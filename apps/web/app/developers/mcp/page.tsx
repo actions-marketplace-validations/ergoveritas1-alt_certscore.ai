@@ -107,7 +107,7 @@ export default function DeveloperMcpPage() {
               <thead className="border-b border-slate-200 bg-slate-50 text-slate-700"><tr><th className="px-4 py-3 font-semibold">Route</th><th className="px-4 py-3 font-semibold">Setup method</th><th className="px-4 py-3 font-semibold">Authentication</th><th className="px-4 py-3 font-semibold">Account</th><th className="px-4 py-3 font-semibold">Quota</th><th className="px-4 py-3 font-semibold">Available tools</th><th className="px-4 py-3 font-semibold">Intended user</th><th className="px-4 py-3 font-semibold">Website / access limits</th><th className="px-4 py-3 font-semibold">Upgrade path</th></tr></thead>
               <tbody className="divide-y divide-slate-100 text-slate-600">
                 <tr><td className="min-w-56 px-4 py-3 font-semibold text-slate-900">Light MCP — no authentication</td><td className="px-4 py-3">One Codex command or remote Streamable HTTP URL</td><td className="px-4 py-3">None</td><td className="px-4 py-3">Not required</td><td className="px-4 py-3">Up to 50 new scans per UTC day across Light and 5 per rolling 10 minutes; eligible reuse is free</td><td className="px-4 py-3">certscore_scan_site, certscore_get_scan_status, certscore_get_scan_bundle</td><td className="px-4 py-3">First-time users, testing, and discovery</td><td className="px-4 py-3">Public HTTP or HTTPS websites; core tools only</td><td className="px-4 py-3">Authenticate for volume, history, teams, or advanced tools</td></tr>
-                <tr><td className="min-w-56 px-4 py-3 font-semibold text-slate-900">Hosted MCP — OAuth</td><td className="px-4 py-3">Connect the hosted endpoint from an OAuth-capable client</td><td className="px-4 py-3">OAuth authorization code with PKCE</td><td className="px-4 py-3">Required</td><td className="px-4 py-3">Higher-volume allowance based on access</td><td className="px-4 py-3">Core plus approved history and diagnostic tools</td><td className="px-4 py-3">Production, teams, and managed remote clients</td><td className="px-4 py-3">Scopes control read and scan creation; creation may require support</td><td className="px-4 py-3">Request more scopes or volume from support</td></tr>
+                <tr><td className="min-w-56 px-4 py-3 font-semibold text-slate-900">Hosted MCP — OAuth</td><td className="px-4 py-3">Connect the hosted endpoint from an OAuth-capable client</td><td className="px-4 py-3">OAuth authorization code with PKCE</td><td className="px-4 py-3">Required</td><td className="px-4 py-3">Higher-volume allowance based on access</td><td className="px-4 py-3">Core plus approved history and diagnostic tools</td><td className="px-4 py-3">Production, teams, and managed remote clients</td><td className="px-4 py-3">Active workspaces can start scans within their existing allowance</td><td className="px-4 py-3">All supported MCP scopes are self-serve; usage limits apply</td></tr>
                 <tr><td className="min-w-56 px-4 py-3 font-semibold text-slate-900">Local MCP — scoped API key</td><td className="px-4 py-3">Install and run the local stdio server</td><td className="px-4 py-3">Scoped API key in the client environment</td><td className="px-4 py-3">Required</td><td className="px-4 py-3">Higher-volume allowance based on key access</td><td className="px-4 py-3">Tools permitted by the key scopes</td><td className="px-4 py-3">Backend, local, and controlled automation</td><td className="px-4 py-3">Protect and rotate keys; scan creation is support-gated</td><td className="px-4 py-3">Request more scopes, tools, or volume</td></tr>
               </tbody>
             </table>
@@ -274,12 +274,29 @@ Authorization-server metadata:
 https://certscore.ai/.well-known/oauth-authorization-server`}</CodeBlock>
           <p className="max-w-3xl text-sm leading-7 text-slate-600">
             Read access requests the OAuth scopes <code className="rounded bg-white px-1">scan:read</code> and
-            <code className="ml-1 rounded bg-white px-1">mcp</code>. Active Trial workspaces connecting through Claude receive
+            <code className="ml-1 rounded bg-white px-1">mcp</code>. Active workspaces connecting through supported OAuth clients receive
             <code className="ml-1 rounded bg-white px-1">scan:create</code> automatically, with up to 20 genuinely new scans per hour
-            and 100 per day per workspace. Eligible recent-result reuse does not consume that allowance. Other clients still require an explicit grant.
+            and 100 per day per workspace. Eligible recent-result reuse does not consume that allowance. Existing read-only connections must reconnect requesting scan:read scan:create mcp and approve the updated permissions. Token refresh does not add permissions.
           </p>
         </Section>
         </div>
+
+        <Section eyebrow="Cursor Agents and desktop" title="Hosted OAuth setup">
+          <p className="text-sm leading-7 text-slate-600">Use one connection named CertScore Hosted OAuth. The public client ID requires the Hosted OAuth rollout; it is not a secret. Complete browser consent and request scan creation for your active workspace. If a Grok model runs inside Cursor, use this same configuration.</p>
+          <CodeBlock>{`{
+  "mcpServers": {
+    "CertScore Hosted OAuth": {
+      "url": "https://mcp.certscore.ai/mcp",
+      "auth": {
+        "CLIENT_ID": "certscore_cursor_hosted_oauth_v1",
+        "scopes": ["scan:read", "scan:create", "mcp"]
+      }
+    }
+  }
+}`}</CodeBlock>
+          <p className="text-sm leading-7 text-slate-600">Merge into .cursor/mcp.json or ~/.cursor/mcp.json. Reuse an existing connection to the same endpoint. Light at /mcp/light supports public scans but has no workspace history. The canonical sequence is certscore_scan_site → certscore_get_scan_status while active → certscore_get_scan_bundle. Report score, coverage, finding IDs, pre-consent observations, and the report URL.</p>
+          <p className="text-sm leading-7 text-slate-600">For dynamic registration, use a stable descriptive client_name identifying the host and integration. Names are client-declared labels, not verified identity. Independent hosts must use their documented configuration format; AddMcpServer is not a portable MCP protocol operation.</p>
+        </Section>
 
         <Section eyebrow="Authenticated local setup" title="Local MCP — scoped API key">
           <p className="max-w-3xl text-sm leading-7 text-slate-600">Use this route for local stdio clients, backend automation, or environments where you manage credentials directly. A CertScore account and a scoped key are required.</p>
@@ -296,8 +313,8 @@ brew install --cask certscore-mcp`}</CodeBlock>
             <code className="rounded bg-white px-1">pulse:read</code> and <code className="rounded bg-white px-1">mcp</code>. Sign in,
             verify your email, then request the key from <code className="rounded bg-white px-1">/api/v2/keys/request</code>.
             Stdio tools that create scans require <code className="rounded bg-white px-1">pulse:scan</code>; hosted OAuth uses
-            <code className="ml-1 rounded bg-white px-1">scan:create</code>. Active Trial workspaces connecting through Claude receive
-            the hosted scope automatically. Other clients and local keys remain grant-gated at{" "}
+            <code className="ml-1 rounded bg-white px-1">scan:create</code>. Active workspaces connecting through supported OAuth clients receive
+            the hosted scope automatically. Local API keys remain grant-gated at{" "}
             <a className="font-semibold text-sky-700 hover:text-sky-900" href="mailto:support@certscore.ai">
               support@certscore.ai
             </a>

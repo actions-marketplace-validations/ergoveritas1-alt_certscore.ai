@@ -1926,3 +1926,22 @@ test("completed bundle preserves unconfirmed after-click facts without a registe
   assert.match(scanBundleText(bundle), /Reject was clicked\. 4 requests were retained afterward/);
   assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
 });
+
+test("create permission errors expose structured next actions and support", () => {
+  const result=toToolError(new CertScoreError('Missing scan:create',{status:403,code:'forbidden',responseBody:{error:{recommendedNextAction:'Reauthorize with scan:create.'}}}),{scanCreation:true});
+  assert.equal(result.isError,true);
+  const error=JSON.parse((result.content[0] as {text:string}).text).error;
+  assert.equal(error.scanStarted,false);
+  assert.equal(error.alternativeTool,'certscore_get_latest_domain_scan');
+  assert.equal(error.upgradeSupportEmail,'support@certscore.ai');
+  assert.match(error.recommendedNextAction,/Reauthorize/);
+});
+
+test("bundle text reserves scan identity, risk, finding IDs and inventory counts before long sections", () => {
+  const text=scanBundleText({scanId:'00000000-0000-4000-8000-000000000123',status:'completed',score:92,riskLevel:'Monitor',findings:[{id:'storage_review'}],preConsentCookiesTrackers:{total:2,rows:[{},{}]},coverage:{summary:'x'.repeat(30000)}});
+  assert.match(text,/score=92/);
+  assert.match(text,/Risk: Monitor/);
+  assert.match(text,/storage_review/);
+  assert.match(text,/total=2; returned=2/);
+  assert.match(text,/https:\/\/certscore.ai\/scan\//);
+});

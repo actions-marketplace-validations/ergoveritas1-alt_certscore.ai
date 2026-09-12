@@ -82,6 +82,21 @@ function parseToolJson(result: Awaited<ReturnType<Client["callTool"]>>) {
   return JSON.parse(first.text) as Record<string, unknown>;
 }
 
+test("request credential failures never fall back to the initialization credential", async () => {
+  const mock = installFetch([]);
+  try {
+    for (const resolveApiKey of [() => "", () => { throw new Error("Request context missing"); }]) {
+      await withMcpClient(async client => {
+        const result = await client.callTool({ name: "certscore_get_scan_status", arguments: {
+          scanId: "00000000-0000-4000-8000-000000000123",
+        } });
+        assert.equal(result.isError, true);
+        assert.equal(mock.calls.length, 0, "no request uses the stale static credential");
+      }, { apiKey: "stale-initialization-credential", resolveApiKey });
+    }
+  } finally { mock.restore(); }
+});
+
 function assertToolOutputSchema(name: (typeof certScoreMcpToolContracts)[number]["name"], payload: Record<string, unknown>) {
   const contract = certScoreMcpToolContracts.find((candidate) => candidate.name === name);
   assert.ok(contract);
@@ -565,7 +580,7 @@ test("Cursor and OpenAI plugin packages preserve independent release versions an
   assert.deepEqual(cursorMcp.mcpServers, {
     "CertScore.ai": { type: "streamable-http", url: "https://mcp.certscore.ai/mcp/light" }
   });
-  assert.deepEqual(cursorMarketplace.plugins?.map(({ name, source, version }) => ({ name, source, version })), [{
+  assert.deepEqual(cursorMarketplace.plugins?.filter(({ name }) => name === "certscore-website-privacy-preflight").map(({ name, source, version }) => ({ name, source, version })), [{
     name: "certscore-website-privacy-preflight",
     source: "integrations/cursor/certscore-website-privacy-preflight",
     version: "1.0.4"
@@ -1868,4 +1883,35 @@ test("optional null arguments identify every rejected field without calling the 
       assert.equal(mock.calls.length, 0);
     });
   } finally { mock.restore(); }
+});
+
+test("initialize explains OAuth scopes and Light routing without inventing quota", async () => {
+  for (const scopes of [["scan:read","mcp"],["scan:read","scan:create","mcp"]]) {
+    await withMcpClient(async client => {
+      const {setup} = JSON.parse(client.getInstructions()!);
+      assert.deepEqual(setup.scopesGranted, scopes);
+      assert.equal(setup.route,"hosted_oauth");
+      assert.equal(setup.createAllowedByScope,scopes.includes("scan:create"));
+      assert.equal(setup.quotaRemaining,null);
+      assert.equal(setup.recommendedNextTool,scopes.includes("scan:create")?"certscore_scan_site":"certscore_get_latest_domain_scan");
+    },{grantedOAuthScopes:scopes});
+  }
+  await withMcpClient(async client => {
+    const {setup} = JSON.parse(client.getInstructions()!);
+    assert.equal(setup.route,"light");
+    assert.match(setup.guidance,/Light supports eligible public scans, not workspace history/);
+  },{toolProfile:"light"});
+});
+
+test("Cursor Hosted OAuth package uses the seeded public client and exact fixed callbacks", () => {
+  const config=JSON.parse(readFileSync(new URL('../../../integrations/cursor/certscore-hosted-oauth/mcp.json',import.meta.url),'utf8'));
+  const server=config.mcpServers['CertScore Hosted OAuth'];
+  assert.equal(server.url,'https://mcp.certscore.ai/mcp');
+  assert.equal(server.auth.CLIENT_ID,'certscore_cursor_hosted_oauth_v1');
+  assert.equal(server.auth.CLIENT_SECRET,undefined);
+  assert.deepEqual(server.auth.scopes,['scan:read','scan:create','mcp']);
+  const migration=readFileSync(new URL('../../../packages/db/migrations/0198_cursor_hosted_oauth_client.sql',import.meta.url),'utf8');
+  assert.ok(migration.includes(server.auth.CLIENT_ID));
+  assert.match(migration,/https:\/\/www.cursor.com\/agents\/mcp\/oauth\/callback/);
+  assert.match(migration,/http:\/\/localhost:8787\/callback/);
 });

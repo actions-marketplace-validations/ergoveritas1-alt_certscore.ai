@@ -62,6 +62,7 @@ export function getAllowedOrigins(env: Pick<McpHttpEnv, "CORS_ALLOWED_ORIGINS">)
     [
       "https://claude.ai",
       "https://api.anthropic.com",
+      "https://www.cursor.com",
       ...(env.CORS_ALLOWED_ORIGINS ?? "")
         .split(",")
         .map((origin) => origin.trim())

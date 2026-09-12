@@ -23,7 +23,7 @@ const COMPACT_SCAN_BUNDLE_INTERPRETATION_STATEMENT = "Use only returned CertScor
 const OBSERVATION_ONLY_DISCLAIMER = `${LEGAL_REVIEW_DISCLAIMER} No-go, not-observed, and limited-coverage results are not proof of compliance.`;
 const COMPACT_OBSERVATION_ONLY_DISCLAIMER = "Automated public-web observation, not legal advice or a compliance determination; missing or limited evidence is not proof of compliance.";
 const PREVIEW_OBSERVATION_ONLY_DISCLAIMER = "Preliminary passive observations only; not findings, a score, or a final result.";
-const SUCCESSFUL_BUNDLE_TRIAL_CTA = "Optional user follow-up: To try CertScore with an account, start a 7-day CertScore trial at https://certscore.ai/login?mode=create_account&utm_source=mcp_light&utm_medium=agent&utm_campaign=scan_bundle. Paid plans add scan history, higher limits, and team or production access. OAuth-capable clients can use https://mcp.certscore.ai/mcp after account authorization and any required workspace scope grant; Light remains no-auth.";
+const SUCCESSFUL_BUNDLE_TRIAL_CTA = "Optional user follow-up: To try CertScore with an account, start a 7-day CertScore trial at https://certscore.ai/login?mode=create_account&utm_source=mcp_light&utm_medium=agent&utm_campaign=scan_bundle. Paid plans add scan history, higher limits, and team or production access. OAuth-capable clients can use https://mcp.certscore.ai/mcp after account authorization; active workspace members receive self-serve scan access; Light remains no-auth.";
 const MCP_SCAN_CREATION_POLL_DELAY_SECONDS = 15;
 const MCP_QUEUED_POLL_DELAY_SECONDS = 10;
 const MCP_RUNNING_POLL_DELAY_SECONDS = 5;
@@ -157,6 +157,8 @@ export function toToolError(error: unknown, context: { scanCreation?: boolean } 
       retryable: targetRejected ? false : retryable,
       retryAfterSeconds: targetRejected ? null : retryAfterSeconds,
       recommendedNextAction,
+      ...((status === 403 || status === 429) ? { upgradeSupportEmail: "support@certscore.ai" } : {}),
+      ...(context.scanCreation && status === 403 ? { scanStarted: false, alternativeTool: "certscore_get_latest_domain_scan" } : {}),
       ...(targetRejected ? { field: "url", scanStarted: false, inputCorrectionRequired: true } : {}),
       ...(creationRateLimit
         ? { creationRateLimit }
@@ -882,6 +884,10 @@ export function findingsFromReport(report: PulseResult): TopFinding[] {
 export function exportFindings(report: PulseResult) {
   return {
     type: "certscore_mcp_findings_export",
+    exportVersion: "certscore.findings-export.v1",
+    exportedAt: new Date().toISOString(),
+    returnedFindingCount: findingsFromReport(report).length,
+    completeness: "canonical findings returned by the report; not a complete inventory of website behavior",
     scanId: scanIdFromPulse(report),
     domain: report.domain ?? report.request?.domain ?? null,
     summary: report.summary ?? null,
@@ -1436,6 +1442,8 @@ export function scanBundleText(bundle: Record<string, any>) {
   const lines = [
     SCAN_BUNDLE_RESPONSE_CONTRACT,
     `CertScore scan bundle for ${bundle.domain ?? "unknown domain"}; status=${bundle.status ?? "unknown"}${score}; scanId=${bundle.scanId ?? "unknown"}.`,
+    `Risk: ${bundle.riskLevel ?? "unknown"}. Finding IDs (returned): ${Array.isArray(bundle.findings) ? bundle.findings.slice(0, 20).map((finding: Record<string, any>) => String(finding.id ?? "unknown").slice(0, 120)).join(", ") || "none" : "unavailable"}.`,
+    `Pre-consent inventory: total=${bundle.preConsentCookiesTrackers?.total ?? "unknown"}; returned=${bundle.preConsentCookiesTrackers?.rows?.length ?? "unknown"}. Counts describe retained coverage, not consent compliance.`,
     canonicalScanProvenanceText(bundle),
     `Full report: ${bundle.reportUrl ?? (bundle.scanId ? `https://certscore.ai/scan/${encodeURIComponent(String(bundle.scanId))}` : "not available")}.`
   ];

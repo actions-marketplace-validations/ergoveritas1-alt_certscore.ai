@@ -107,22 +107,12 @@ export async function hasMcpOAuthScanCreateGrant(context: McpOAuthGrantContext) 
   const clientId = context.clientId?.trim() || null;
   const organizationId = context.organizationId?.trim() || null;
   const ownerUserId = context.ownerUserId?.trim() || null;
-  if (!clientId && !organizationId && !ownerUserId) {
+  if (!clientId || !organizationId || !ownerUserId) {
     return false;
   }
   const row = await queryOne<{ allowed: true }>(
     `select true as allowed
       where exists (
-              select 1
-                from mcp_oauth_scan_create_grants
-               where revoked_at is null
-                 and (
-                   (grant_kind = 'client' and grantee_id = $1)
-                   or (grant_kind = 'organization' and grantee_id = $2)
-                   or (grant_kind = 'user' and grantee_id = $3)
-                 )
-            )
-         or exists (
               select 1
                 from organizations
                 join organization_members
@@ -131,15 +121,8 @@ export async function hasMcpOAuthScanCreateGrant(context: McpOAuthGrantContext) 
                   on mcp_oauth_clients.client_id = $1
                where organizations.id::text = $2
                  and organization_members.user_id::text = $3
-                 and organizations.plan = 'free'
                  and organizations.plan_status = 'active'
-                 and lower(btrim(mcp_oauth_clients.client_name)) = 'claude'
                  and jsonb_array_length(mcp_oauth_clients.redirect_uris) > 0
-                 and not exists (
-                   select 1
-                     from jsonb_array_elements_text(mcp_oauth_clients.redirect_uris) redirect_uri
-                    where redirect_uri !~ '^https://claude\\.ai(?:/|$)'
-                 )
             )
       limit 1`,
     [clientId, organizationId, ownerUserId],
@@ -165,7 +148,7 @@ export async function resolveMcpOAuthRequestedScopes(input: {
   context: McpOAuthGrantContext;
 }) {
   const resolution = resolveMcpOAuthScopeRequest({
-    autoIncludeGrantedCreateScope: isClaudeMcpOAuthClientMetadata(input.client),
+    autoIncludeGrantedCreateScope: true,
     clientScopes: input.client.scope,
     requestedScopes: input.requestedScopes,
     scanCreateGranted: await hasMcpOAuthScanCreateGrant(input.context)
@@ -232,6 +215,7 @@ export async function cleanupUnusedMcpOAuthClients() {
   await query(
     `delete from mcp_oauth_clients clients
       where clients.created_at < timezone('utc', now()) - ($1::int * interval '1 day')
+        and clients.client_id <> 'certscore_cursor_hosted_oauth_v1'
         and clients.last_used_at is null
         and not exists (
           select 1
