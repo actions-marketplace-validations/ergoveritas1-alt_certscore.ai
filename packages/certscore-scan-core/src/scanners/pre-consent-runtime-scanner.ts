@@ -3,8 +3,11 @@ import { createProxyDestinationCapture } from "../proxy-destination-capture.js";
 import { captureCollectionSurfaceSnapshots, type FormSnapshotReviewer } from "../collection-surface-snapshots";
 import { createGpcSignalCapture, installGpcNavigatorSignal } from "../gpc-signal-capture.js";
 import { startGpcObservationSession } from "../gpc-observation-session.js";
+import { createGpcImpactCapture } from "../gpc-impact-capture.js";
+import { installGpcSemanticMonitor } from "../gpc-semantic-monitor.js";
+import { recoveryNavigationTimeout, resetForNavigationRecovery, passiveReadinessTimeout } from "../access-reliability.js";
 import { captureGpcOptOutObservation } from "../gpc-opt-out-capture.js";
-import type { GpcOptOutObservation, GpcObservationSession } from "@certscore/contracts";
+import type { GpcOptOutObservation, GpcObservationSession, GpcImpactCapture } from "@certscore/contracts";
 import type { GpcSignalObservation } from "@certscore/contracts";
 import {
   type ArtifactRef,
@@ -207,6 +210,7 @@ export interface PreConsentRuntimeScannerInput {
   globalPrivacyControlEnabled?: boolean;
   /** Local artifact-only evaluation. Not wired to any production dispatch. */
   gpcOptOutPrototype?: { scanId: string };
+  gpcImpactScanId?: string;
   browser?: Browser;
   browserMode?: "headless" | "headed";
   stubHeavyResources?: boolean;
@@ -533,6 +537,8 @@ export interface PreConsentRuntimeScannerResult {
   gpcSignalObservation?: GpcSignalObservation;
   gpcOptOutObservation?: GpcOptOutObservation;
   gpcObservationSession?: GpcObservationSession;
+  gpcImpactCapture?: GpcImpactCapture;
+  gpcImpactSemanticObservation?: GpcOptOutObservation;
   runtimeEvidenceGraph?: RuntimeEvidenceGraph;
   moduleRun: ScanModuleRun;
   runtimeTimeline: RuntimeEvidenceEvent[];
@@ -603,6 +609,9 @@ export async function preConsentRuntimeScanner(
   const captureRuntimeEvidence = captureScope !== "consent_proof";
   const captureConsentEvidence = captureScope !== "runtime_evidence";
   const captureRenderedPolicyEvidence = captureScope === "combined";
+  const impactCapture = captureScope === "runtime_evidence" && input.executionProfile !== "inventory_only" ? createGpcImpactCapture({
+    expectedEnabled: input.globalPrivacyControlEnabled === true, now: () => elapsed(input.scanStartedAtMs),
+  }) : undefined;
   const screenshotMode = captureConsentEvidence
     ? input.screenshotMode ?? "always"
     : "never";
@@ -686,6 +695,12 @@ export async function preConsentRuntimeScanner(
   const prototypeBinding = input.gpcOptOutPrototype && captureRuntimeEvidence ? {
     captureId: randomUUID(), documentIdentity: () => currentBrowserDocumentIdentity(page),
   } : undefined;
+  const impactSemanticBinding = impactCapture && input.gpcImpactScanId && !prototypeBinding ? {
+    captureId: randomUUID(), documentIdentity: () => currentBrowserDocumentIdentity(page),
+  } : undefined;
+  const impactMonitorKey = impactSemanticBinding ? `__certscore_gpc_${impactSemanticBinding.captureId.replaceAll("-", "")}` : undefined;
+  if (impactMonitorKey) await installGpcSemanticMonitor(browserContext, impactMonitorKey);
+  let retainedImpactSemanticObservation: GpcOptOutObservation | undefined;
   const gpcObservationSession = prototypeBinding ? await startGpcObservationSession({
     page, scanId: input.gpcOptOutPrototype!.scanId, captureId: prototypeBinding.captureId, scanStartedAtMs: input.scanStartedAtMs,
   }).catch(() => undefined) : undefined;
@@ -694,6 +709,7 @@ export async function preConsentRuntimeScanner(
     context: browserContext, page, enabled: input.globalPrivacyControlEnabled === true,
     scanStartedAtMs: input.scanStartedAtMs, waitMode: input.waitMode, internalBudgetMs: input.internalBudgetMs,
     prototypeBinding,
+    impactReadback: impactCapture ? { documentIdentity: () => currentBrowserDocumentIdentity(page), bind: impactCapture.bindReadback } : undefined,
   }) : undefined;
   const graphCapture = captureRuntimeEvidence && input.runtimeGraph
     ? await installRuntimeGraphCapture(page, input.runtimeGraph)
@@ -704,6 +720,7 @@ export async function preConsentRuntimeScanner(
   };
   let pageCrashObserved = false;
   const recordPageCrash = () => {
+    impactCapture?.invalidate();
     if (pageCrashObserved) return;
     pageCrashObserved = true;
     runtimeErrors.push("Chromium renderer crash event observed for the pre-consent page.");
@@ -712,6 +729,7 @@ export async function preConsentRuntimeScanner(
   networkMetadataSession = await installCdpNetworkMetadataCapture(page, {
     initiatorsByUrl: cdpInitiatorsByUrl,
     documentIdentityState: browserDocumentIdentityState,
+    impactCapture,
   }).catch((error) => {
     runtimeErrors.push(`CDP network metadata capture unavailable: ${errorMessageFromUnknown(error)}`);
     return null;
@@ -887,6 +905,7 @@ export async function preConsentRuntimeScanner(
       requestPayloadSignals: payloadSignals,
     };
     networkEvents.push(event);
+    impactCapture?.recordRequest(event);
     gpcObservationSession?.recordRequest(event, request);
     requestEvents.set(request, event);
     vendorResolverInputs.push({
@@ -1122,6 +1141,9 @@ export async function preConsentRuntimeScanner(
       cookieSnapshots: retainedCookieSnapshot ? [retainedCookieSnapshot] : [],
       storageSnapshots: retainedStorageSnapshot ? [retainedStorageSnapshot] : [],
       gpcSignalObservation: retainedGpcSignalObservation,
+      ...(retainedGpcObservationSession ? { gpcObservationSession: retainedGpcObservationSession } : {}),
+      ...(retainedGpcOptOutObservation ? { gpcOptOutObservation: retainedGpcOptOutObservation } : {}),
+      ...(retainedImpactSemanticObservation ? { gpcImpactSemanticObservation: retainedImpactSemanticObservation } : {}),
       scriptEvents: [...scriptEvents],
       iframeEvents: [...iframeEvents],
       consentUiObservations: retainedConsentUiObservations,
@@ -1173,19 +1195,22 @@ export async function preConsentRuntimeScanner(
             : "http_transport_fallback";
         if (index > 0) {
           if (!isNavigationTransportFailure(lastError)) throw lastError;
+          input.signal?.throwIfAborted();
+          if (recoveryNavigationTimeout(remainingModuleBudgetMs(), 7_500) <= 0) throw lastError;
           navigationNotes.push(
             `Entry navigation transport recovery attempt ${index}/${candidates.length - 1}: ${candidateUrl}`,
           );
           await measureRecovery("transport_alternate_reset", () =>
-            page.goto("about:blank", { waitUntil: "load", timeout: 1_000 }).catch(() => null),
+            // Await the reset commit before dispatching the next navigation.
+            // Swallowing a reset timeout let its late commit abort that request.
+            resetForNavigationRecovery(page, remainingModuleBudgetMs(), input.signal),
           );
-          await page.waitForTimeout(50);
+          input.signal?.throwIfAborted();
         }
         try {
-          const navigationTimeoutMs = Math.max(
-            1_000,
-            Math.min(index === 0 ? 15_000 : 7_500, input.internalBudgetMs - (Date.now() - navigationStartedAtMs)),
-          );
+          const navigationTimeoutMs = index === 0 ? Math.max(1, Math.min(15_000, remainingModuleBudgetMs())) : recoveryNavigationTimeout(remainingModuleBudgetMs(), 7_500);
+          if (navigationTimeoutMs <= 0) throw lastError ?? new Error("Navigation budget exhausted before recovery.");
+          const navigationDispatchAtMs = Date.now();
           const response = index === 0
             ? await page.goto(candidateUrl, {
               waitUntil: captureConsentEvidence ? "domcontentloaded" : "commit",
@@ -1198,7 +1223,7 @@ export async function preConsentRuntimeScanner(
           effectiveNavigationUrl = page.url() === "about:blank" ? candidateUrl : page.url();
           const passiveDocumentReady = captureConsentEvidence || await waitForPassiveRuntimeDocumentReadiness(
             page,
-            Math.max(1, Math.min(navigationTimeoutMs, remainingModuleBudgetMs())),
+            passiveReadinessTimeout(navigationTimeoutMs, Date.now() - navigationDispatchAtMs, remainingModuleBudgetMs()),
           );
           if (!passiveDocumentReady) {
             noteRecovery("committed_navigation_timeout");
@@ -1969,6 +1994,7 @@ export async function preConsentRuntimeScanner(
       })()
       : Promise.resolve(undefined);
 
+    gpcObservationSession?.prepareFinalization();
     const [pageEvidence, initialConsentObservation, lateAccessibilityObservation, gpcSignalObservation] = await recordTiming(
       timingBreakdown,
       "page evidence capture",
@@ -2001,17 +2027,18 @@ export async function preConsentRuntimeScanner(
     // Sample semantic state at the end of the existing page work. The listener
     // remains active while parallel evidence/readback tasks finish; no second
     // ping, additional settle window or increased deadline is introduced.
-    const gpcOptOutObservation = input.gpcOptOutPrototype && captureRuntimeEvidence ? await recordBoundedTiming(timingBreakdown,
+    const gpcOptOutObservation = (input.gpcOptOutPrototype && captureRuntimeEvidence) || impactSemanticBinding ? await recordBoundedTiming(timingBreakdown,
       "GPC opt-out prototype", "Passive local-only terminal semantic readback inside the existing page-capture budget.",
       Math.min(2_500, Math.max(1, remainingModuleBudgetMs())),
-      () => captureGpcOptOutObservation(page, { scanId: input.gpcOptOutPrototype!.scanId, scanStartedAtMs: input.scanStartedAtMs, binding: prototypeBinding, monitorKey: gpcObservationSession?.monitorKey, onMonitorFinished: value => { gpcMonitorResult = value; } }),
+      () => captureGpcOptOutObservation(page, { scanId: (input.gpcOptOutPrototype?.scanId ?? input.gpcImpactScanId)!, scanStartedAtMs: input.scanStartedAtMs, binding: prototypeBinding ?? impactSemanticBinding, monitorKey: gpcObservationSession?.monitorKey ?? impactMonitorKey, semanticOnly: Boolean(impactSemanticBinding), onMonitorFinished: value => { gpcMonitorResult = value; } }),
       () => undefined) : undefined;
     retainedGpcSignalObservation = gpcSignalObservation;
-    retainedGpcOptOutObservation = gpcOptOutObservation;
-    if (gpcObservationSession) retainedGpcObservationSession = await recordBoundedTiming(timingBreakdown,
-      "GPC observation finalization", "Bind bounded local observation to the terminal CDP loader without a new settle window.",
-      Math.min(500, Math.max(1, remainingModuleBudgetMs())),
-      () => gpcObservationSession.finish(gpcOptOutObservation, gpcMonitorResult, input.signal?.aborted === true), () => undefined);
+    impactCapture?.finish(gpcSignalObservation);
+    retainedGpcOptOutObservation = prototypeBinding ? gpcOptOutObservation : undefined;
+    retainedImpactSemanticObservation = impactSemanticBinding ? gpcOptOutObservation : undefined;
+    if (gpcObservationSession) retainedGpcObservationSession = await recordTiming(timingBreakdown,
+      "GPC observation finalization", "Freeze retained evidence using overlapping terminal document proof; incomplete readback preserves a limited packet.",
+      () => gpcObservationSession.finish(gpcOptOutObservation, gpcMonitorResult, input.signal?.aborted === true));
     if (retainedGpcObservationSession && retainedGpcSignalObservation) {
       retainedGpcSignalObservation.prototypeSessionSha256 = createHash("sha256").update(JSON.stringify(retainedGpcObservationSession)).digest("hex");
     }
@@ -3826,6 +3853,8 @@ export async function preConsentRuntimeScanner(
       cookieSnapshots: [cookieSnapshot],
       storageSnapshots: [storageSnapshot],
       gpcSignalObservation: retainedGpcSignalObservation,
+      ...(impactCapture ? { gpcImpactCapture: impactCapture.finish(retainedGpcSignalObservation) } : {}),
+      ...(retainedImpactSemanticObservation ? { gpcImpactSemanticObservation: retainedImpactSemanticObservation } : {}),
       scriptEvents,
       ...(retainedGpcOptOutObservation ? { gpcOptOutObservation: retainedGpcOptOutObservation } : {}),
       ...(retainedGpcObservationSession ? { gpcObservationSession: retainedGpcObservationSession } : {}),
@@ -3849,6 +3878,13 @@ export async function preConsentRuntimeScanner(
   } catch (error) {
     const parentCancellation = abortReason(parentSignal);
     if (parentCancellation) throw parentCancellation;
+    // A failed later module stage must not erase already collected GPC facts.
+    // Synchronous finalization retains an explicitly incomplete packet if the
+    // terminal document/readback did not finish; no browser work is started here.
+    if (gpcObservationSession && !retainedGpcObservationSession) {
+      retainedGpcObservationSession = await gpcObservationSession.finish(retainedGpcOptOutObservation, gpcMonitorResult, input.signal?.aborted === true)
+        .catch(() => undefined);
+    }
     const softDeadlineCancellation = abortReason(softDeadlineSignal);
     const moduleBudgetEnded = softDeadlineCancellation !== null;
     const errorMessage = moduleBudgetEnded
@@ -3955,8 +3991,12 @@ export async function preConsentRuntimeScanner(
       cookieSnapshots: retainedCookieSnapshot ? [retainedCookieSnapshot] : [],
       storageSnapshots: retainedStorageSnapshot ? [retainedStorageSnapshot] : [],
       gpcSignalObservation: retainedGpcSignalObservation,
+      ...(impactCapture ? { gpcImpactCapture: impactCapture.finish() } : {}),
+      ...(retainedImpactSemanticObservation ? { gpcImpactSemanticObservation: retainedImpactSemanticObservation } : {}),
       scriptEvents,
       iframeEvents,
+      ...(retainedGpcObservationSession ? { gpcObservationSession: retainedGpcObservationSession } : {}),
+      ...(retainedGpcOptOutObservation ? { gpcOptOutObservation: retainedGpcOptOutObservation } : {}),
       consentUiObservations: retainedConsentUiObservations,
       ...(retainedCollectionSurfaceInventory
         ? { collectionSurfaceInventory: retainedCollectionSurfaceInventory }
@@ -10888,6 +10928,7 @@ async function installCdpNetworkMetadataCapture(
   stores: {
     initiatorsByUrl: Map<string, string[][]>;
     documentIdentityState: BrowserDocumentIdentityState;
+    impactCapture?: ReturnType<typeof createGpcImpactCapture>;
   },
 ): Promise<CDPSession> {
   const session = await page.context().newCDPSession(page);
@@ -10908,18 +10949,26 @@ async function installCdpNetworkMetadataCapture(
     browserDocumentIdentityByPage.set(page, stores.documentIdentityState.current);
   };
   session.on("Page.frameNavigated", (raw: unknown) => {
-    retainMainFrameDocumentIdentity((raw as { frame?: { id?: string; loaderId?: string; parentId?: string } }).frame);
+    const frame = (raw as { frame?: { id?: string; loaderId?: string; parentId?: string; url?: string } }).frame;
+    retainMainFrameDocumentIdentity(frame);
+    if (frame) stores.impactCapture?.documentCommitted(frame);
   });
   const initialFrameTree = await session.send("Page.getFrameTree").catch(() => null) as {
     frameTree?: { frame?: { id?: string; loaderId?: string; parentId?: string } };
   } | null;
   retainMainFrameDocumentIdentity(initialFrameTree?.frameTree?.frame);
+  const mainFrameId = initialFrameTree?.frameTree?.frame?.id;
+  session.on("Page.navigatedWithinDocument", (p: { frameId?: string }) => {
+    if (p.frameId === mainFrameId) stores.impactCapture?.invalidate();
+  });
   session.on("Network.requestWillBeSent", (raw: unknown) => {
     const params = raw as {
-      request?: { url?: string };
+      type?: string; frameId?: string; loaderId?: string;
+      request?: { url?: string; headers?: Record<string, unknown> };
       initiator?: { url?: string; stack?: { callFrames?: Array<{ url?: string }>; parent?: unknown } };
     };
     const url = params.request?.url;
+    if (mainFrameId) stores.impactCapture?.documentRequested(params, mainFrameId);
     if (!url) return;
     const chain = boundedInitiatorChain([
       params.initiator?.url,

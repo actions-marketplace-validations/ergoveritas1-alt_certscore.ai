@@ -389,3 +389,17 @@ test("ordinary passive scanner has no prototype readback or sidecar", async () =
     assert.equal(result.networkEvents.some(e => e.path === "/unexpected-prototype-read"), false);
   } finally { await rm(tempRoot, { recursive: true, force: true }); }
 });
+
+test("full-site inventory pages do not collect GPC impact metadata", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-gpc-inventory-"));
+  try {
+    const result = await preConsentRuntimeScanner({
+      artifactWriter: await createArtifactWriter(tempRoot), captureScope: "runtime_evidence", executionProfile: "inventory_only",
+      internalBudgetMs: 5000, normalizedUrl: "https://gpc-inventory.test/", url: "https://gpc-inventory.test/",
+      scanStartedAtMs: Date.now(), screenshotMode: "never", waitMode: "fast",
+      routeFulfillers: [{ urlPattern: /^https:\/\/gpc-inventory\.test\/.*$/, contentType: "text/html", body: '<!doctype html><p>Inventory fixture</p>' }],
+    });
+    assert.equal(result.gpcImpactCapture, undefined);
+    assert.equal(result.gpcObservationSession, undefined);
+  } finally { await rm(tempRoot, { recursive: true, force: true }); }
+});

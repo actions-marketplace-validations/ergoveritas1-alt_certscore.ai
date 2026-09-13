@@ -1,5 +1,14 @@
 import type { Locator } from "playwright";
 
+/** A disappearing locator must not auto-wait beyond the resolver's budget.
+ * Keep Playwright's own enabled semantics and the separate final hit-target
+ * check; absence or deadline exhaustion remains unavailable. */
+export async function locatorEnabledWithinDeadline(control: Locator, deadlineAtMs: number): Promise<boolean> {
+  const remainingMs = deadlineAtMs - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return false;
+  return control.isEnabled({ timeout: Math.max(1, Math.min(100, remainingMs)) }).catch(() => false);
+}
+
 export function cmpRecipeRequiresViewportHitTarget(_cmpId: string | undefined): boolean {
   // A CSS-visible control can still be partially off-screen or covered while
   // any CMP animates its first layer. Apply the same last-mile geometry gate

@@ -594,6 +594,7 @@ export async function recordLocalV2DagLambdaResultEvent(
           scannerBuildProvenanceStatus: retainedScannerBuildProvenance.status,
           scannerExecutionMode: LOCAL_V2_DAG_SCANNER_EXECUTION_MODE,
           resultStatus: parsedMessage.status,
+          ...(parsedMessage.status === "failed" && parsedMessage.terminalLaneEvidence ? { terminalLaneEvidence: parsedMessage.terminalLaneEvidence } : {}),
           ...(parsedMessage.scannerGitSha ? { scannerGitSha: parsedMessage.scannerGitSha } : {}),
           ...(parsedMessage.scannerImageTag ? { scannerImageTag: parsedMessage.scannerImageTag } : {}),
           ...(parsedMessage.scannerRuntimeVersion ? { scannerRuntimeVersion: parsedMessage.scannerRuntimeVersion } : {}),

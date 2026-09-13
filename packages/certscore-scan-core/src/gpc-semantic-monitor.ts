@@ -24,24 +24,33 @@ export async function installGpcSemanticMonitor(context: BrowserContext, key: st
       if (history.length >= 16) { dropped++; history.shift(); }
       history.push({ at: Date.now(), ...value });
     };
-    const attach = () => {
-      if (closed || api) return;
-      if (++checks > 128 || attempts >= 2) { observer?.disconnect(); return; }
+    const attach = (lifecycle = false) => {
+      if (closed || (api && api === w.__gpp)) return;
+      if ((!lifecycle && ++checks > 128) || attempts >= 2) { observer?.disconnect(); return; }
       if (typeof w.__gpp !== "function") return;
+      // A queued stub can be replaced by the loaded CMP. Keep the bounded
+      // lifecycle hooks and attach to the new API, without wrapping its global.
+      if (api && listenerId !== null) { try { api("removeEventListener", () => {}, listenerId); } catch {} }
+      listenerId = null;
       api = w.__gpp; attempts++;
-      try { api("addEventListener", onEvent); } catch { api = undefined; }
+      const attachedApi = api;
+      try { api("addEventListener", (event: any, success: boolean) => { if (api === attachedApi) onEvent(event, success); }); } catch { api = undefined; }
       if (api) observer?.disconnect();
+      // Mutation observation is bounded; load/DOMContentLoaded/terminal hooks
+      // still detect API replacement after the mutation budget is exhausted.
     };
-    document.addEventListener("DOMContentLoaded", attach);
-    document.addEventListener("load", attach, true);
-    observer = new MutationObserver(attach);
+    const onLifecycle = () => attach(true);
+    document.addEventListener("DOMContentLoaded", onLifecycle);
+    document.addEventListener("load", onLifecycle, true);
+    observer = new MutationObserver(() => attach());
     observer.observe(document, { childList: true, subtree: true });
     attach();
     Object.defineProperty(w, key, { configurable: false, value: {
+      checkpoint: onLifecycle,
       finish: () => {
-        attach(); closed = true; observer?.disconnect();
-        document.removeEventListener("DOMContentLoaded", attach);
-        document.removeEventListener("load", attach, true);
+        attach(true); closed = true; observer?.disconnect();
+        document.removeEventListener("DOMContentLoaded", onLifecycle);
+        document.removeEventListener("load", onLifecycle, true);
         if (api && listenerId !== null) { try { api("removeEventListener", () => {}, listenerId); } catch {} }
         return { startedAt, endedAt: Date.now(), callbacks, dropped, listenerRegistered: listenerId !== null, history };
       },

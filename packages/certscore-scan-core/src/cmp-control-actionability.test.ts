@@ -4,10 +4,39 @@ import { chromium } from "playwright";
 import {
   dispatchLocatorClickWithVerifiedGeometry,
   inspectLocatorActionability,
+  locatorEnabledWithinDeadline,
   locatorActionabilitySupportsVerifiedDispatch,
   locatorHasViewportHitTarget,
   waitForLocatorVerifiedGeometry,
 } from "./cmp-control-actionability.js";
+
+test("a control removed after visibility inspection cannot start an unbounded locator wait", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(30_000);
+    await page.setContent('<button id="initial">Reject non-essential</button>');
+    const stale = page.locator("#initial");
+    assert.equal(await stale.isVisible(), true);
+    await stale.evaluate(node => node.remove());
+    // Deterministically reproduce the detach between visibility and the next
+    // actionability read. The production helper must not auto-wait for revival.
+    const started = Date.now();
+    assert.equal(await locatorEnabledWithinDeadline(stale, Date.now() + 2000), false);
+    assert.ok(Date.now() - started < 1_000, "missing control must stay inside its bounded lookup");
+    await page.evaluate(() => {
+      const button = document.createElement("button");
+      button.id = "replacement"; button.textContent = "Reject non-essential";
+      document.body.appendChild(button);
+    });
+    assert.equal(locatorActionabilitySupportsVerifiedDispatch(await inspectLocatorActionability(page.locator("#replacement"))), true);
+    assert.equal(await locatorEnabledWithinDeadline(page.locator("#replacement"), Date.now() - 1), false);
+    assert.equal(await locatorEnabledWithinDeadline(page.locator("#replacement"), Date.now() + 1000), true);
+    await page.locator("#replacement").evaluate(node => node.setAttribute("disabled", ""));
+    assert.equal(await locatorEnabledWithinDeadline(page.locator("#replacement"), Date.now() + 1000), false);
+    assert.equal(await locatorEnabledWithinDeadline(stale, Date.now() + 10), false);
+  } finally { await browser.close(); }
+});
 
 test("an animated CMP control becomes actionable only after entering the viewport", async () => {
   const browser = await chromium.launch({ headless: true });

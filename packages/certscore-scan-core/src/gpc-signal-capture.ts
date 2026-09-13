@@ -23,6 +23,7 @@ export function createGpcSignalCapture(input: {
   context: BrowserContext; page: Page; enabled: boolean; scanStartedAtMs: number;
   waitMode?: string; internalBudgetMs: number;
   prototypeBinding?: { captureId: string; documentIdentity: () => BrowserDocumentIdentity | undefined };
+  impactReadback?: { documentIdentity: () => BrowserDocumentIdentity | undefined; bind: (token: string | undefined) => void };
 }) {
   const workers = new Set<Worker>();
   input.page.on("worker", (worker) => workers.add(worker));
@@ -34,6 +35,7 @@ export function createGpcSignalCapture(input: {
   return {
     async snapshot(): Promise<GpcSignalObservation | undefined> {
       const before = input.prototypeBinding?.documentIdentity();
+      const impactBefore = input.impactReadback?.documentIdentity();
       const frames = input.page.frames();
       const samples = await Promise.all(frames.slice(0, 32).map(async (frame) => {
         try {
@@ -61,6 +63,8 @@ export function createGpcSignalCapture(input: {
         limitationKeys.push("frames_changed_during_readback");
       }
       const after = input.prototypeBinding?.documentIdentity();
+      const impactAfter = input.impactReadback?.documentIdentity();
+      input.impactReadback?.bind(impactBefore?.token && impactBefore.token === impactAfter?.token ? impactAfter.token : undefined);
       const bindingStable = before?.token && before.token === after?.token;
       if (input.prototypeBinding && !bindingStable) limitationKeys.push("prototype_document_identity_unverified");
       return gpcSignalObservationSchema.parse({

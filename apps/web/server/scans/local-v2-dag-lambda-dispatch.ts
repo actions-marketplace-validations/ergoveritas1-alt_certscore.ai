@@ -186,7 +186,10 @@ export type LocalV2DagLambdaLaneTimingSummary = {
   rejectTailDeltaMs: number | null;
 };
 
+import { terminalLaneEvidenceSchema, type TerminalLaneEvidence } from "@certscore/contracts";
+
 export type LocalV2DagLambdaResultMessage = {
+  terminalLaneEvidence?: TerminalLaneEvidence;
   artifactOnly: true;
   artifactMetadata?: {
     failureDiagnosticUri?: {
@@ -897,6 +900,10 @@ export function parseLocalV2DagLambdaResultMessage(
     parsed.handlerTiming = handlerTiming;
   }
   const laneTimingSummary = parseLaneTimingSummary(record.laneTimingSummary);
+  if (record.terminalLaneEvidence !== undefined) {
+    const retained = terminalLaneEvidenceSchema.safeParse(record.terminalLaneEvidence);
+    if (status === "failed" && retained.success && retained.data.scanId === parsed.scanId) parsed.terminalLaneEvidence = retained.data;
+  }
   if (laneTimingSummary) {
     parsed.laneTimingSummary = laneTimingSummary;
   }

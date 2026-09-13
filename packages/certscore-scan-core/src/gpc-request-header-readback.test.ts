@@ -26,6 +26,7 @@ async function closeServer(server: Server) {
 }
 
 async function finishFixture(page: Page, session: Awaited<ReturnType<typeof startGpcObservationSession>>, scanId: string, captureId: string, started: number) {
+  session.prepareFinalization();
   const cdp = await page.context().newCDPSession(page);
   const tree = await cdp.send("Page.getFrameTree");
   const loaderId = tree.frameTree.frame.loaderId as string;

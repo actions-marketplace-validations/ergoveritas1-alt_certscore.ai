@@ -24,6 +24,11 @@ export const gpcObservationSessionSchema = z.object({
   observationScope: z.literal("main_document_and_retained_http_requests"),
   captureStartedAtMs: time, captureEndedAtMs: time,
   terminal: z.enum(["completed", "aborted", "incomplete"]),
+  finalization: z.object({
+    contractVersion: z.literal("certscore.gpc-overlapped-finalization.v1"),
+    readbackStartedAtMs: time.nullable(), readbackCompletedAtMs: time.nullable(),
+    requestedGeneration: time.nullable(), terminalGeneration: time, documentUnchanged: z.boolean(),
+  }).strict().optional(),
   mainDocument: z.object({
     documentToken: z.string().min(1).max(160), documentUrlSha256: hash, requestUrlSha256: hash,
     requestId: z.string().min(1).max(160), requestAtMs: time,
@@ -62,6 +67,13 @@ export const gpcObservationSessionSchema = z.object({
   }).strict().optional(),
   limitationKeys: z.array(z.string().min(1).max(160)).max(32),
 }).strict().superRefine((p, ctx) => {
+  const f = p.finalization;
+  if (f && ((f.readbackStartedAtMs !== null && (f.readbackStartedAtMs < p.captureStartedAtMs || f.readbackStartedAtMs > p.captureEndedAtMs)) ||
+    (f.readbackCompletedAtMs !== null && (f.readbackStartedAtMs === null || f.readbackCompletedAtMs < f.readbackStartedAtMs || f.readbackCompletedAtMs > p.captureEndedAtMs)) ||
+    (f.documentUnchanged && (f.requestedGeneration !== f.terminalGeneration || f.readbackCompletedAtMs === null)) ||
+    (p.terminal === "completed" && !f.documentUnchanged))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Overlapping finalization must retain its timing and unchanged document generation." });
+  }
   if ((p.terminal === "completed" && p.limitationKeys.length > 0) ||
     p.captureEndedAtMs < p.captureStartedAtMs || p.requestsObserved !== p.requests.length + p.requestsDropped ||
     new Set(p.requests.map(r => r.eventId)).size !== p.requests.length ||

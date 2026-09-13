@@ -65,6 +65,7 @@ import {
   cmpRecipeRequiresViewportHitTarget,
   dispatchLocatorClickWithVerifiedGeometry,
   inspectLocatorActionability,
+  locatorEnabledWithinDeadline,
   locatorActionabilitySupportsVerifiedDispatch,
   locatorHasViewportHitTarget,
   waitForLocatorVerifiedGeometry,
@@ -1288,7 +1289,7 @@ async function waitForDeterministicRecipe(
           const control = locator.nth(index);
           const [visible, enabled] = await Promise.all([
             control.isVisible().catch(() => false),
-            control.isEnabled().catch(() => false),
+            locatorEnabledWithinDeadline(control, deadlineAtMs),
           ]);
           const expectedLabelPresent = recipe.controlExpectedNormalizedLabel === undefined ||
             (await normalizedAcceptLocatorLabels(control)).includes(
@@ -1560,7 +1561,7 @@ async function waitForCanonicalAcceptControlRecipe(
       for (let index = 0; index < controlCount; index += 1) {
         const control = controls.nth(index);
         if (!await control.isVisible().catch(() => false)) { failed("control_hidden"); continue; }
-        if (!await control.isEnabled().catch(() => false)) { failed("control_disabled"); continue; }
+        if (!await locatorEnabledWithinDeadline(control, deadlineAtMs)) { failed("control_disabled"); continue; }
         if (!(await normalizedAcceptLocatorLabels(control)).includes(candidate.normalizedLabel)) { failed("label_mismatch"); continue; }
         if (!await locatorHasViewportHitTarget(control)) { failed("control_not_hit_target"); continue; }
         actionableControls.push(control);

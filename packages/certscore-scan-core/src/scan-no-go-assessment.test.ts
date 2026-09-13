@@ -12,6 +12,7 @@ import type {
   RuntimeCoverageSummary,
   ScreenshotArtifact,
 } from "@certscore/contracts";
+import { scanEvidenceLaneAssessmentSchema } from "@certscore/contracts";
 import {
   buildScanEvidenceLaneAssessment,
   buildScanNoGoAssessment,
@@ -19,6 +20,20 @@ import {
   shouldAttemptIncompleteConsentVisualFallback,
   shouldAttemptScreenshotOnlyFallback,
 } from "./index.js";
+
+test("overlong retained policy identities do not invalidate the compact lane summary", () => {
+  const policy = usablePolicySurface();
+  policy.url = `https://example.test/privacy?state=${"x".repeat(850)}`;
+  policy.normalizedUrl = policy.url;
+  const original = JSON.stringify(policy);
+  const assessment = buildScanEvidenceLaneAssessment({ normalizedUrl: "https://example.test/", policySurfaceObservations: [policy],
+    runtimeCoverage: unavailableRuntimeCoverage(), scanNoGoAssessment: terminalNoGoAssessment(), transportSecurityObservationCount: 1 });
+  assert.equal(scanEvidenceLaneAssessmentSchema.safeParse(assessment).success, true);
+  assert.equal(assessment.lanes.policyGdpr, "usable");
+  assert.deepEqual(assessment.usablePolicySurfaceUrls, []);
+  assert.ok(assessment.limitationKeys.includes("policy_url_summary_limited"));
+  assert.equal(JSON.stringify(policy), original, "full retained source remains intact");
+});
 
 test("verified first-party policy evidence produces a partial outcome when homepage runtime is no-go", () => {
   const assessment = buildScanEvidenceLaneAssessment({

@@ -24,6 +24,8 @@ import {
   postRefusalEvidencePacketSchema,
 } from "@certscore/contracts";
 import { buildPreConsentRuntimePreview, buildGpcResponseAssessment } from "@certscore/scan-core";
+import { gpcRuntimeFixture } from "../../../packages/certscore-contracts/src/test-fixtures/gpc-runtime";
+import { PassiveLaneFailure, retainFailedTerminalLaneEvidence } from "./handler";
 import { parseLocalV2DagLambdaResultMessage } from "../../web/server/scans/local-v2-dag-lambda-dispatch";
 import {
   LOCAL_V2_DAG_LAMBDA_DEFAULT_ARTIFACT_CHAIN_TIMEOUT_MS,
@@ -200,6 +202,39 @@ test("sharded orchestration fans out exactly one consent, runtime, and policy ev
     "runtime_evidence",
     "policy_evidence",
   ]);
+});
+
+test("required lane failure waits for sibling terminal outcomes and retains verified sources only in the failed result", async () => {
+  const parent=parseLocalV2DagLambdaDispatchPayload(validPayload({orchestrationMode:"sharded"}));
+  let siblingReturned=false;
+  let failure: PassiveLaneFailure | undefined;
+  try { await invokeLocalV2DagLambdaWorkers({parentPayload:parent,parentScanId:parent.scanId,workerLanes:["runtime_evidence","policy_evidence"],lambdaClient:{async send(command){
+    const p=JSON.parse(Buffer.from(command.input.Payload??[]).toString());
+    if(p.workerLane==='policy_evidence') throw Error('policy schema failure');
+    await new Promise(resolve=>setTimeout(resolve,5));siblingReturned=true;
+    return {StatusCode:200,Payload:Buffer.from(JSON.stringify({scanId:p.scanId,workerLane:p.workerLane,status:'completed',artifactPointers:{scanArtifactUri:'s3://fixture/runtime.json'}}))};
+  }}}); } catch(e) { assert.ok(e instanceof PassiveLaneFailure);failure=e; }
+  assert.ok(siblingReturned);assert.equal(failure!.results.length,2);
+  const bundle=gpcRuntimeFixture({enabled:false});bundle.scanId=parent.scanId;
+  const bytes=Buffer.from(JSON.stringify(bundle));
+  const successful=failure!.results.find(r=>r.workerLane==='runtime_evidence')!;
+  successful.artifactPointers={scanArtifactUri:'s3://fixture/runtime.json'};
+  successful.artifactMetadata={scanArtifactUri:{sha256:createHash('sha256').update(bytes).digest('hex'),sizeBytes:bytes.length}};
+  const summary=await retainFailedTerminalLaneEvidence(failure!.results,parent.scanId,{s3GetClient:{async send(){return {Body:bytes};}}});
+  assert.equal(summary.lanes[0]!.status,'verified_retained');assert.equal(summary.lanes[1]!.status,'failed');
+  const message=buildLocalV2DagLambdaResultMessage({payload:parent,completedAt:new Date(),status:'failed',terminalLaneEvidence:summary});
+  assert.deepEqual(parseLocalV2DagLambdaResultMessage(JSON.stringify(message)).terminalLaneEvidence,summary);
+  assert.equal(buildLocalV2DagLambdaResultMessage({payload:parent,completedAt:new Date(),status:'completed',terminalLaneEvidence:summary}).terminalLaneEvidence,undefined);
+  successful.artifactMetadata.scanArtifactUri!.sha256='0'.repeat(64);
+  const bad=await retainFailedTerminalLaneEvidence(failure!.results,parent.scanId,{s3GetClient:{async send(){return {Body:bytes};}}});
+  assert.equal(bad.lanes[0]!.status,'unverifiable');assert.equal(bad.lanes[0]!.source,null);
+});
+
+test("a first successful redirect does not override a terminal navigation no-go",()=>{
+ const bundle=gpcRuntimeFixture({enabled:true});
+ bundle.modulesRun[0]!.status='failed';bundle.modulesRun[0]!.siteFacingNavigation={requestedUrl:bundle.url,firstResponseAt:bundle.startedAt,firstResponseOffsetMs:0,firstHttpStatus:302,firstEffectiveUrl:bundle.url,navigationCount:1,challengeDetected:false,challengeType:null};
+ bundle.scanNoGoAssessment={status:'available',version:'scan-no-go-assessment-v1',decision:'no_go',scanNoGoConfidence:0.92,reasonCodes:['navigation_transport_failure'],corroboratorCodes:[],contradictorCodes:[],supportingSignals:{},evidenceRefs:[]};
+ assert.equal(buildLocalV2DagLambdaLaneRun({bundle,workerLane:'gpc_observation',region:'us-west-1'})!.accessOutcome,'navigation_failed');
 });
 
 test("GPC observation binds its worker to the exact parent dispatch", async () => {

@@ -67,6 +67,7 @@ import {
   cmpRecipeRequiresViewportHitTarget,
   dispatchLocatorClickWithVerifiedGeometry,
   inspectLocatorActionability,
+  locatorEnabledWithinDeadline,
   locatorActionabilitySupportsVerifiedDispatch,
   locatorHasViewportHitTarget,
   waitForLocatorVerifiedGeometry,
@@ -2557,7 +2558,7 @@ async function waitForDeterministicRecipe(
       for (let index = 0; index < count; index += 1) {
         const control = controls.nth(index);
         const visible = await control.isVisible().catch(() => false);
-        const enabled = await control.isEnabled().catch(() => false);
+        const enabled = await locatorEnabledWithinDeadline(control, deadlineAtMs);
         const labelMatches = !recipe.controlExpectedNormalizedLabel ||
           (await normalizedLocatorLabels(control)).includes(recipe.controlExpectedNormalizedLabel);
         if (visible) visibleCount += 1;
@@ -2839,7 +2840,7 @@ async function waitForCanonicalRejectControlRecipe(
       for (let index = 0; index < controlCount; index += 1) {
         const control = controls.nth(index);
         if (!await control.isVisible().catch(() => false)) { failed("control_hidden"); continue; }
-        if (!await control.isEnabled().catch(() => false)) { failed("control_disabled"); continue; }
+        if (!await locatorEnabledWithinDeadline(control, deadlineAtMs)) { failed("control_disabled"); continue; }
         if (!(await normalizedLocatorLabels(control)).includes(candidate.normalizedLabel)) { failed("label_mismatch"); continue; }
         if (!await locatorHasViewportHitTarget(control)) { failed("control_not_hit_target"); continue; }
         actionableControls.push(control);

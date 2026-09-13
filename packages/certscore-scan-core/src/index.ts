@@ -1,4 +1,5 @@
 export { buildGpcProductionAssessment, buildGpcProductionObservation } from "./gpc-production-observation.js";
+export { buildGpcImpactAssessment } from "./gpc-impact-assessment.js";
 import { createHash } from "node:crypto";
 import type { FormSnapshotReviewer } from "./collection-surface-snapshots";
 import { inventoryConfiguration, inventoryHash } from "./full-site-inventory";
@@ -546,6 +547,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
             : "combined",
         globalPrivacyControlEnabled: evidenceLane === "gpc_observation",
         gpcOptOutPrototype: evidenceLane === "gpc_observation" && (input.retainGpcObservation === true || typeof input.onGpcObservationSession === "function") ? { scanId } : undefined,
+        gpcImpactScanId: evidenceLane === "runtime_evidence" ? scanId : undefined,
         onInventoryPage: input.resourceInventoryCrawl && evidenceLane === "runtime_evidence" ? async page => {
           const configuration = inventoryConfiguration(input.region ?? "local", input.profile === "tiny" ? "tiny" : "standard", leanPreConsent ? "fast" : "full");
           resourceInventoryContext = { finalUrl: page.url(), configuration, configurationHash: inventoryHash(configuration),
@@ -662,6 +664,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
             : "combined",
         globalPrivacyControlEnabled: evidenceLane === "gpc_observation",
         gpcOptOutPrototype: evidenceLane === "gpc_observation" && (input.retainGpcObservation === true || typeof input.onGpcObservationSession === "function") ? { scanId } : undefined,
+        gpcImpactScanId: evidenceLane === "runtime_evidence" ? scanId : undefined,
         onInventoryPage: input.resourceInventoryCrawl && evidenceLane === "runtime_evidence" ? async page => {
           const configuration = inventoryConfiguration(input.region ?? "local", input.profile === "tiny" ? "tiny" : "standard", leanPreConsent ? "fast" : "full");
           resourceInventoryContext = { finalUrl: page.url(), configuration, configurationHash: inventoryHash(configuration),
@@ -1343,6 +1346,8 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
     automatedAccessObservation: preConsentResult.automatedAccessObservation,
     siteResourceSizeSummary: summarizeSiteResourceSizes(networkResponseEvents),
     gpcSignalObservation: preConsentResult.gpcSignalObservation,
+    ...(preConsentResult.gpcImpactCapture ? { gpcImpactCapture: preConsentResult.gpcImpactCapture } : {}),
+    ...(preConsentResult.gpcImpactSemanticObservation ? { gpcImpactSemanticObservation: preConsentResult.gpcImpactSemanticObservation } : {}),
     ...(input.retainGpcObservation && preConsentResult.gpcObservationSession ? { gpcObservationSession: preConsentResult.gpcObservationSession } : {}),
     ...(preConsentResult.gpcObservationSession ? { gpcPrototypeSessionBinding: {
       contractVersion: "certscore.gpc-prototype-session-binding.v1" as const,
@@ -2726,6 +2731,11 @@ export function buildScanEvidenceLaneAssessment(input: {
   const usablePolicySurfaces = input.policySurfaceObservations.filter((observation) =>
     isIndependentlyUsablePolicySurface(observation, input.normalizedUrl)
   );
+  // Policy artifacts retain full identities. The compact lane summary has a
+  // narrower contract; omit overlong summaries rather than truncate a URL into
+  // a different identity or fail the entire independent-lane scan.
+  const policyUrls = usablePolicySurfaces.map(o => o.normalizedUrl ?? o.url);
+  const policyRefs = usablePolicySurfaces.flatMap(o => o.evidenceRefs.map(ref => ref.refId));
   const runtimeUsable = !homepageNoGo && input.runtimeCoverage.coverageStatus === "usable";
   const runtimeLimited = !homepageNoGo && input.runtimeCoverage.coverageStatus === "limited_partial";
   const outcome: ScanEvidenceLaneAssessment["outcome"] = authenticationNoGo
@@ -2752,8 +2762,7 @@ export function buildScanEvidenceLaneAssessment(input: {
       policyGdpr: policyLane,
       transport: input.transportSecurityObservationCount > 0 ? "usable" : "not_testable",
     },
-    usablePolicySurfaceUrls: usablePolicySurfaces
-      .map((observation) => observation.normalizedUrl ?? observation.url)
+    usablePolicySurfaceUrls: policyUrls.filter(url => url.length <= 500)
       .slice(0, 8),
     limitationKeys: uniqueStrings([
       ...input.runtimeCoverage.limitationKeys,
@@ -2762,9 +2771,11 @@ export function buildScanEvidenceLaneAssessment(input: {
       authenticationNoGo ? "authentication_required" : null,
       outcome === "partial_with_diagnostics" ? "partial_policy_evidence_only" : null,
       policyLane !== "usable" ? "verified_policy_surface_unavailable" : null,
+      policyUrls.some(url => url.length > 500) ? "policy_url_summary_limited" : null,
+      policyRefs.some(ref => ref.length > 160) ? "policy_reference_summary_limited" : null,
     ].filter((value): value is string => Boolean(value))).slice(0, 24),
     evidenceRefs: uniqueStrings([
-      ...usablePolicySurfaces.flatMap((observation) => observation.evidenceRefs.map((ref) => ref.refId)),
+      ...policyRefs.filter(ref => ref.length <= 160),
       ...(homepageNoGo ? ["scan_runtime_artifacts.scan_no_go_assessment"] : []),
     ]).slice(0, 24),
   };

@@ -10,6 +10,8 @@ const safeFields = new Set([
   "nonEssentialItemsPersistingAfterRefusal", "network", "requests", "observations",
   "acceptanceRegistration", "refusalRegistration", "decisionEvidence", "captureCoverage",
   "actionControlProof", "afterActionCapture", "timing", "resolver", "limitations",
+  "scanEvidenceLaneAssessment", "scan_evidence_lane_assessment", "usablePolicySurfaceUrls", "evidenceRefs",
+  "gpcImpactCapture", "gpcImpactSemanticObservation", "gpcObservationSession", "semanticObservation", "gppDiagnostics", "stateTransitions",
 ]);
 
 export function evidenceValidationFailure(error: unknown): { code: string; message: string } | undefined {

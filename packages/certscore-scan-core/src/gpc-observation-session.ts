@@ -21,7 +21,18 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
   const documents: Array<{ loader: string; frame: string; requestId: string; requestAtMs: number; urlHash: string; secGpc: string | null }> = [];
   let committed: { loader: string; urlHash: string; at: number } | null = null;
   let documentDrops = 0, stopped = false, requestsObserved = 0, requestsDropped = 0;
+  let generation = 0;
+  let terminalReadback: { generation: number; loaderId: string; url: string } | undefined;
+  let terminalReadbackStarted = false;
+  let readbackStartedAtMs: number | null = null, readbackCompletedAtMs: number | null = null;
+  let requestedGeneration: number | null = null;
+  let invalidated = false;
+  const invalidate = () => { generation++; };
+  const unavailable = () => { invalidated = true; generation++; };
+  page.on("crash", unavailable);
+  page.on("close", unavailable);
   const requests: GpcObservationSession["requests"] = [];
+  let frozenPacket: GpcObservationSession | undefined;
   const requestHandles = new Map<string, Request>();
   const requestLoaders = new Map<string, string>();
   const responses = new Set<Request>();
@@ -31,6 +42,7 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
   page.on("response", onResponse);
   const onRequest = (p: any) => {
     if (stopped || p.type !== "Document" || p.frameId !== mainFrameId || typeof p.loaderId !== "string" || !/^https?:/.test(p.request?.url ?? "")) return;
+    invalidate();
     if (documents.length >= 32) { documentDrops++; documents.shift(); }
     const header = Object.entries(p.request.headers ?? {}).find(([key]) => key.toLowerCase() === "sec-gpc")?.[1];
     documents.push({ loader: p.loaderId, frame: p.frameId, requestId: p.requestId, requestAtMs: now(),
@@ -38,18 +50,34 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
   };
   const onNavigated = (p: any) => {
     if (stopped || p.frame?.id !== mainFrameId || !p.frame.loaderId || !/^https?:/.test(p.frame.url ?? "")) return;
+    invalidate();
     committed = { loader: p.frame.loaderId, urlHash: gpcDocumentHash(p.frame.url), at: now() };
   };
   // A same-document URL change retains the loader; keep the actual request URL
   // separate so history.pushState cannot invent a request to the new URL.
   const onWithinDocument = (p: any) => {
-    if (!stopped && committed && p.frameId === mainFrameId && /^https?:/.test(p.url ?? "")) committed.urlHash = gpcDocumentHash(p.url);
+    if (!stopped && committed && p.frameId === mainFrameId && /^https?:/.test(p.url ?? "")) { invalidate(); committed.urlHash = gpcDocumentHash(p.url); }
   };
   cdp.on("Network.requestWillBeSent", onRequest);
   cdp.on("Page.frameNavigated", onNavigated);
   cdp.on("Page.navigatedWithinDocument", onWithinDocument);
   return {
     monitorKey,
+    /** Overlap the existing terminal readback with page evidence work. Finalization
+     * never waits for CDP; any navigation since dispatch invalidates this proof. */
+    prepareFinalization() {
+      if (stopped || terminalReadbackStarted) return;
+      terminalReadbackStarted = true;
+      const startedGeneration = generation;
+      readbackStartedAtMs = now(); requestedGeneration = startedGeneration;
+      void cdp.send("Page.getFrameTree").then(tree => {
+        if (stopped) return;
+        readbackCompletedAtMs = now();
+        if (invalidated || generation !== startedGeneration) return;
+        const frame = tree.frameTree.frame;
+        terminalReadback = { generation: startedGeneration, loaderId: frame.loaderId, url: frame.url };
+      }).catch(() => { /* Missing proof is retained as an incomplete terminal packet. */ });
+    },
     recordRequest(event: Pick<NetworkEvent, "eventId" | "timestampMs" | "requestUrl" | "requestHeaders">,
       request?: Pick<Request, "allHeaders"> & Partial<Pick<Request, "timing" | "method" | "resourceType" | "serviceWorker" | "failure" | "frame">>) {
       if (stopped) return;
@@ -81,15 +109,15 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
       }
     },
     async finish(semanticObservation: GpcOptOutObservation | undefined, listener: { callbacks: number; dropped: number; registered: boolean } | undefined, aborted: boolean) {
+      if (frozenPacket) return frozenPacket;
       const limitations: string[] = [];
-      const terminalTree = await cdp.send("Page.getFrameTree").catch(() => null);
-      const final = terminalTree?.frameTree.frame;
+      const final = !invalidated && terminalReadback?.generation === generation ? terminalReadback : undefined;
       const commit = committed as { loader: string; urlHash: string; at: number } | null;
       const matching = commit ? documents.filter(d => d.loader === commit.loader && d.frame === mainFrameId) : [];
       // The last redirect hop within this exact browser loader delivered the
       // committed document. Multiple same-URL requests are not borrowed across loaders.
       const delivered = matching.at(-1);
-      if (!commit || !delivered || final?.loaderId !== commit.loader || !final.url || gpcDocumentHash(final.url) !== commit.urlHash ||
+      if (!commit || !delivered || page.isClosed() || final?.loaderId !== commit.loader || !final.url || gpcDocumentHash(final.url) !== commit.urlHash || gpcDocumentHash(page.url()) !== commit.urlHash ||
         semanticObservation?.captureBinding?.documentToken !== commit.loader || semanticObservation.documentUrlSha256 !== commit.urlHash) limitations.push("terminal_document_unverified");
       if (documentDrops) limitations.push("document_capture_overflow");
       if (!listener) limitations.push("semantic_monitor_unavailable");
@@ -117,6 +145,8 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
         contractVersion: "certscore.gpc-observation-session.v2", scanId: input.scanId, captureId: input.captureId,
         observationScope: "main_document_and_retained_http_requests", captureStartedAtMs, captureEndedAtMs: now(),
         terminal: aborted ? "aborted" : limitations.length ? "incomplete" : "completed",
+        finalization: { contractVersion: "certscore.gpc-overlapped-finalization.v1", readbackStartedAtMs, readbackCompletedAtMs,
+          requestedGeneration, terminalGeneration: generation, documentUnchanged: Boolean(final) && !page.isClosed() },
         mainDocument: limitations.includes("terminal_document_unverified") || !commit || !delivered ? null : {
           documentToken: commit.loader, documentUrlSha256: commit.urlHash, requestUrlSha256: delivered.urlHash,
           requestId: delivered.requestId, requestAtMs: delivered.requestAtMs, secGpc: delivered.secGpc, committedAtMs: commit.at,
@@ -125,8 +155,9 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
         listener: listener ?? { callbacks: 0, dropped: 0, registered: false },
         requestDiagnostics: requestDiagnostics.finish(requests), limitationKeys: limitations,
       });
+      frozenPacket = packet;
       return packet;
     },
-    async close() { stopped = true; requestHandles.clear(); requestLoaders.clear(); responses.clear(); page.off("response", onResponse); requestDiagnostics.close(); await cdp.detach().catch(() => {}); },
+    async close() { stopped = true; requestHandles.clear(); requestLoaders.clear(); responses.clear(); page.off("response", onResponse); page.off("crash", unavailable); page.off("close", unavailable); requestDiagnostics.close(); await cdp.detach().catch(() => {}); },
   };
 }

@@ -1,5 +1,9 @@
 export * from "./policy-date-evidence";
 import { gpcObservationSessionSchema, type GpcObservationSession, gpcPrototypeSessionBindingSchema } from "./gpc-observation-session";
+import { gpcImpactCaptureSchema } from "./gpc-impact";
+import { gpcOptOutObservationSchema } from "./gpc-opt-out-prototype";
+export { terminalLaneEvidenceSchema, type TerminalLaneEvidence } from "./terminal-lane-evidence";
+export * from "./gpc-impact";
 import { FIELD_REVIEW_CATEGORIES } from "./collection-field-review";
 export * from "./collection-field-review";
 import { siteMetadataSchema } from "./site-metadata";
@@ -66,6 +70,8 @@ export * from "./gpc-opt-out-prototype";
 export * from "./gpc-observation-session";
 export * from "./gpc-bounded-observation";
 const canonicalGpcSessionSchema: z.ZodType<GpcObservationSession> = gpcObservationSessionSchema;
+const canonicalImpactSemanticSchema: z.ZodType<import("./gpc-opt-out-prototype").GpcOptOutObservation> = gpcOptOutObservationSchema;
+const canonicalImpactCaptureSchema: z.ZodType<import("./gpc-impact").GpcImpactCapture> = gpcImpactCaptureSchema;
 
 const canonicalBundleGpcSignalObservationSchema: z.ZodType<import("./gpc-observation").GpcSignalObservation> = gpcSignalObservationSchema;
 const canonicalBundleGpcResponseAssessmentSchema: z.ZodType<GpcResponseAssessment> =
@@ -3374,6 +3380,8 @@ export const displaySafeEvidenceExcerptSchema = z.object({
   directVsInferred: directVsInferredSchema,
 });
 
+// Type annotation bounds declaration size; runtime validation is unchanged.
+const canonicalPolicyObservationSchema: z.ZodType<z.output<typeof policySurfaceObservationSchema>, z.ZodTypeDef, unknown> = policySurfaceObservationSchema;
 const canonicalEvidenceBundleBaseSchema = z.object({
   runtimeMetadataSnapshots: z.array(domSnapshotArtifactSchema).max(1).optional(),
   resourceInventoryContext: z.object({
@@ -3397,6 +3405,8 @@ const canonicalEvidenceBundleBaseSchema = z.object({
   gpcSignalObservation: canonicalBundleGpcSignalObservationSchema.optional(),
   gpcPrototypeSessionBinding: gpcPrototypeSessionBindingSchema.optional(),
   gpcObservationSession: canonicalGpcSessionSchema.optional(),
+  gpcImpactCapture: canonicalImpactCaptureSchema.optional(),
+  gpcImpactSemanticObservation: canonicalImpactSemanticSchema.optional(),
   runtimeTimeline: z.array(runtimeEvidenceEventSchema),
   networkEvents: z.array(networkEventSchema),
   networkResponseEvents: z.array(networkResponseEventSchema).default([]),
@@ -3416,7 +3426,7 @@ const canonicalEvidenceBundleBaseSchema = z.object({
   consentActionCandidates: z.array(consentActionCandidateSchema).default([]),
   consentActionAttempts: z.array(consentActionAttemptSchema).default([]),
   consentFlowComparisons: z.array(consentFlowComparisonSchema).default([]),
-  policySurfaceObservations: z.array(policySurfaceObservationSchema).default([]),
+  policySurfaceObservations: z.array(canonicalPolicyObservationSchema).default([]),
   transportSecurityObservations: z.array(transportSecurityObservationSchema).default([]),
   cmpRuntimeObservations: z.array(cmpRuntimeObservationSchema).default([]),
   screenshots: z.array(screenshotArtifactSchema),

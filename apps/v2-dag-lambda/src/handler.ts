@@ -15,6 +15,7 @@ import { chromium } from "playwright";
 import { consentActionPassiveBarrierLimits } from "./consent-action-tail-policy.js";
 import { actionLanePassiveAbsenceDisposition } from "./action-lane-passive-absence.js";
 import { evidenceValidationFailure } from "./evidence-validation-failure.js";
+import { terminalLaneEvidenceSchema, type TerminalLaneEvidence } from "@certscore/contracts";
 import {
   VERIFIED_PRE_CONSENT_RUNTIME_PREVIEW_PACKET_VERSION,
   VERIFIED_POLICY_EVIDENCE_PACKET_VERSION,
@@ -176,6 +177,7 @@ export type LocalV2DagLambdaDispatchPayload = {
 };
 
 export type LocalV2DagLambdaResultMessage = {
+  terminalLaneEvidence?: TerminalLaneEvidence;
   artifactOnly: true;
   artifactMetadata?: {
     failureDiagnosticUri?: {
@@ -1155,14 +1157,15 @@ export function buildLocalV2DagLambdaLaneRun(input: {
   const accessOutcome: ScanLaneRun["accessOutcome"] = challengeDetected
     ? "bot_challenge"
     : noGoReason === "access_denied_or_forbidden_page" ||
+        noGoReason === "authentication_required" ||
         noGoReason === "rate_limited_429" ||
         firstHttpStatus === 401 || firstHttpStatus === 403 || firstHttpStatus === 429 || firstHttpStatus === 451
       ? "access_denied"
       : noGoReason === "blank_or_unusable_page" || noGoReason === "loading_or_stalled"
         ? "blank_or_unusable"
-        : executionOutcome === "failed" && firstHttpStatus === null
+        : noGoReason === "navigation_transport_failure" || (executionOutcome === "failed" && firstHttpStatus === null)
           ? "navigation_failed"
-          : firstHttpStatus !== null && firstHttpStatus >= 200 && firstHttpStatus < 400
+          : input.bundle.scanNoGoAssessment?.decision !== "no_go" && firstHttpStatus !== null && firstHttpStatus >= 200 && firstHttpStatus < 400
             ? "representative_page"
             : "unknown";
   const completedAt = moduleRun.completedAt ?? null;
@@ -2573,6 +2576,13 @@ export async function runLocalV2DagLambdaShardedArtifactChain(
       parentScanId: payload.scanId,
       workerLanes: evidenceWorkerLanes,
       signal: options.signal,
+    }).catch(async (error: unknown) => {
+      if (error instanceof PassiveLaneFailure) {
+        error.terminalLaneEvidence = await retainFailedTerminalLaneEvidence(error.results, payload.scanId, {
+          awsRegion: payload.awsRegion, s3GetClient: options.s3GetClient,
+        });
+      }
+      throw error;
     })
   );
   const passiveLaneBarrierCompletedAtMs = Date.now();
@@ -2587,11 +2597,19 @@ export async function runLocalV2DagLambdaShardedArtifactChain(
     postAcceptState.cancelledNoAccept = true;
     postAcceptAbortController.abort(new Error("accept_path_incomplete_at_passive_barrier"));
   }
-  const workerBundles = await timeLambdaPhase(phaseTimings, "worker_bundle_download", () =>
-    Promise.all(workerResults.map((result) => readLocalV2DagLambdaWorkerBundle(result, {
+  const workerBundles = await timeLambdaPhase(phaseTimings, "worker_bundle_download", async () => {
+    const settled = await Promise.allSettled(workerResults.map((result) => readLocalV2DagLambdaWorkerBundle(result, {
       awsRegion: payload.awsRegion, s3GetClient: options.s3GetClient,
-    })))
-  );
+    })));
+    const failed = settled.find(r => r.status === "rejected");
+    if (failed?.status === "rejected") {
+      const results = workerResults.map((r, i) => settled[i]?.status === "rejected" ? { ...r, status: "failed" as const } : r);
+      const error = new PassiveLaneFailure("Required passive worker artifact could not be verified.", results);
+      error.terminalLaneEvidence = await retainFailedTerminalLaneEvidence(results, payload.scanId, { awsRegion: payload.awsRegion, s3GetClient: options.s3GetClient });
+      throw error;
+    }
+    return settled.map(r => r.status === "fulfilled" ? r.value : undefined);
+  });
   // Worker artifacts are already durable and checksum-addressed in S3. Mirror
   // their bounded auxiliary files into the final retained root concurrently
   // with typed bundle verification/merge, then join before the single final
@@ -3103,6 +3121,28 @@ function skippedLambdaPhaseTiming(label: string): LocalV2DagLambdaPhaseTiming {
   };
 }
 
+export class PassiveLaneFailure extends Error {
+  terminalLaneEvidence?: TerminalLaneEvidence;
+  constructor(message: string, readonly results: LocalV2DagLambdaShardResult[]) { super(message); }
+}
+
+export async function retainFailedTerminalLaneEvidence(results: LocalV2DagLambdaShardResult[], scanId: string,
+  options: { awsRegion?: LocalV2DagLambdaAwsRegion; s3GetClient?: S3GetClient }): Promise<TerminalLaneEvidence> {
+  const lanes = await Promise.all(results.filter(r => ["consent_proof", "runtime_evidence", "policy_evidence", "gpc_observation"].includes(r.workerLane)).map(async r => {
+    const metadata = r.artifactMetadata?.scanArtifactUri, uri = r.artifactPointers?.scanArtifactUri;
+    if (r.status === "failed") return { lane: r.workerLane, status: "failed", source: null };
+    try {
+      if (!metadata || !uri || uri.length > 1000 || !uri.startsWith("s3://") || !/^[a-f0-9]{64}$/.test(metadata.sha256) ||
+        !Number.isSafeInteger(metadata.sizeBytes) || metadata.sizeBytes <= 0 || metadata.sizeBytes > 20_000_000) throw Error("Missing retained pointer");
+      const bundle = await readWorkerBundleFromArtifactResult(r, options);
+      if (bundle.scanId !== scanId || !bundle.scanLaneRuns.some(l => l.laneId === r.workerLane)) throw Error("Lane identity mismatch");
+      return { lane: r.workerLane, status: "verified_retained", source: { uri, ...metadata } };
+    } catch { return { lane: r.workerLane, status: "unverifiable", source: null }; }
+  }));
+  return terminalLaneEvidenceSchema.parse({ contractVersion: "certscore.failed-terminal-lane-evidence.v1", scanId,
+    mode: "internal_only", productionProjectable: false, scoreEffect: "none", lanes });
+}
+
 export async function invokeLocalV2DagLambdaWorkers(input: {
   coordinatorPlanSummary?: LocalV2DagLambdaCoordinatorPlanSummary;
   lambdaClient?: LambdaInvokeClient;
@@ -3113,7 +3153,8 @@ export async function invokeLocalV2DagLambdaWorkers(input: {
   signal?: AbortSignal;
 }): Promise<LocalV2DagLambdaShardResult[]> {
   const lambdaClient = input.lambdaClient ?? new LambdaClient({ region: input.parentPayload.awsRegion });
-  return Promise.all(input.workerLanes.map(async (workerLane) => {
+  let primaryFailure: string | undefined;
+  const results = await Promise.all(input.workerLanes.map(async (workerLane) => {
     const startedAtMs = Date.now();
     try {
       const result = await invokeLocalV2DagLambdaWorker({
@@ -3127,11 +3168,11 @@ export async function invokeLocalV2DagLambdaWorkers(input: {
       input.onWorkerResult?.(result);
       return result;
     } catch (error) {
-      if (workerLane !== "gpc_observation") throw error;
+      if (workerLane !== "gpc_observation") primaryFailure ??= error instanceof Error ? error.message : "Required passive lane failed";
       const completedAtMs = Date.now();
       // Coordinator-owned terminal failure, not a synthesized worker bundle.
       const failed: LocalV2DagLambdaShardResult = {
-        scanId: input.parentScanId, workerLane, status: "failed", failureReason: "gpc_worker_failed",
+        scanId: input.parentScanId, workerLane, status: "failed", ...(workerLane === "gpc_observation" ? { failureReason: "gpc_worker_failed" as const } : {}),
         coordinatorTiming: { invocationStartedAt: new Date(startedAtMs).toISOString(),
           responseReceivedAt: new Date(completedAtMs).toISOString(), durationMs: completedAtMs - startedAtMs },
       };
@@ -3139,6 +3180,8 @@ export async function invokeLocalV2DagLambdaWorkers(input: {
       return failed;
     }
   }));
+  if (primaryFailure) throw new PassiveLaneFailure(primaryFailure, results);
+  return results;
 }
 
 export async function invokeLocalV2DagLambdaWorker(input: {
@@ -5151,11 +5194,13 @@ export function buildLocalV2DagLambdaResultMessage(input: {
   phaseTimings?: LocalV2DagLambdaPhaseTiming[];
   policyEvidence?: LocalV2DagLambdaPolicyEvidenceMessage;
   status: "completed" | "failed";
+  terminalLaneEvidence?: TerminalLaneEvidence;
 }): LocalV2DagLambdaResultMessage {
   const scannerBuildProvenance = buildScannerBuildProvenance();
   const scannerRuntimeProvenance = buildScannerRuntimeProvenance(input.payload);
   return {
     artifactOnly: true,
+    ...(input.status === "failed" && input.terminalLaneEvidence ? { terminalLaneEvidence: input.terminalLaneEvidence } : {}),
     ...(input.artifactMetadata ? { artifactMetadata: input.artifactMetadata } : {}),
     ...(input.artifactPointers ? { artifactPointers: input.artifactPointers } : {}),
     completedAt: input.completedAt.toISOString(),
@@ -6050,7 +6095,8 @@ export async function handler(event: unknown, options: HandlerOptions = {}) {
         phaseTimings
       }),
       payload,
-      status: "failed"
+      status: "failed",
+      ...(error instanceof PassiveLaneFailure && error.terminalLaneEvidence ? { terminalLaneEvidence: error.terminalLaneEvidence } : {}),
     });
     const terminalPublicationStartedAt = now();
     const terminalPublicationTimeoutMs = remainingResultPublishMs();

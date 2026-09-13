@@ -9,6 +9,7 @@ import { gpcDocumentHash } from "./gpc-signal-capture.js";
 export async function captureGpcOptOutObservation(page: Page, input: {
   scanId: string; scanStartedAtMs: number;
   monitorKey?: string;
+  semanticOnly?: boolean;
   onMonitorFinished?: (value: { callbacks: number; dropped: number; registered: boolean }) => void;
   binding?: { captureId: string; documentIdentity: () => BrowserDocumentIdentity | undefined };
 }) {
@@ -80,7 +81,7 @@ export async function captureGpcOptOutObservation(page: Page, input: {
       monitor: monitor ? { callbacks: monitor.callbacks, dropped: monitor.dropped, registered: monitor.listenerRegistered } : null,
       history: monitor?.history ?? [] };
   };
-  const argumentsJson = JSON.stringify({ scopes: KNOWN_CMP_REGISTRY.map(cmp => ({ name: cmp.canonicalName, selectors: cmp.domSelectors ?? [] })), messages: GPC_STATUS_MESSAGES, monitorKey: input.monitorKey });
+  const argumentsJson = JSON.stringify({ scopes: input.semanticOnly ? [] : KNOWN_CMP_REGISTRY.map(cmp => ({ name: cmp.canonicalName, selectors: cmp.domSelectors ?? [] })), messages: GPC_STATUS_MESSAGES, monitorKey: input.monitorKey });
   // Keep tsx name helpers lexical; never patch the website global to run a probe.
   const sample = await page.evaluate<ReturnType<typeof readback>>(`(() => { const __name = (fn) => fn; return (${readback.toString()})(${argumentsJson}); })()`);
   if (sample.monitor) input.onMonitorFinished?.(sample.monitor);
