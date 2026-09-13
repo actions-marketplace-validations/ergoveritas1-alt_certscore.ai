@@ -50,9 +50,11 @@ function readCallFromRequest(value: unknown): McpReadCall | null {
   const scanId = stringValue(args?.scanId);
   if (scanId) {
     const detail = stringValue(args?.detail);
-    const costClass: ApiReadRateCostClass = tool === "certscore_get_scan_bundle"
+    const costClass: ApiReadRateCostClass = tool === "certscore_get_report_evidence_page"
+      ? "report_page"
+      : tool === "certscore_get_scan_bundle"
       ? "bundle"
-      : tool === "certscore_get_report_evidence_page" || tool === "certscore_get_evidence" || tool === "certscore_get_pre_consent_cookies_trackers"
+      : tool === "certscore_get_evidence" || tool === "certscore_get_pre_consent_cookies_trackers"
         ? "evidence"
         : tool === "certscore_export_findings"
           ? "export"

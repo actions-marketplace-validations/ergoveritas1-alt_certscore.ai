@@ -22,7 +22,7 @@ export async function GET(request: Request, context: { params: Promise<{ scanId:
     return reply(buildApiV2Error({ code: "invalid_url", message: "Invalid scan ID or cursor. Restart without a cursor." }), 400);
   }
   try {
-    const throttled = await enforceApiV2ScanReadThrottle({ request, requestId, route, scanId, detail: "evidence" });
+    const throttled = await enforceApiV2ScanReadThrottle({ request, requestId, route, scanId, costClass: "report_page" });
     if (throttled) return throttled;
     const record = await loadAuthorizedReportEvidence({
       scanId, bearer: parseBearerToken(request), validate: validateCertScoreBearerToken,

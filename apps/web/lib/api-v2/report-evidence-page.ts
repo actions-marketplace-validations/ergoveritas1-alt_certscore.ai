@@ -39,7 +39,7 @@ export function buildReportEvidencePage(input: { scanId: string; report: unknown
   }
   const page: Entry[] = [];
   for (let i = offset; i < entries.length; i++) {
-    if (page.length && bytes([...page, entries[i]]) > 16000) break;
+    if (page.length && bytes([...page, entries[i]]) > 64000) break;
     page.push(entries[i]!);
   }
   const next = offset + page.length;

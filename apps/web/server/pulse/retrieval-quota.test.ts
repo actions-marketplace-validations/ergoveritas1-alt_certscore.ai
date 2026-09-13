@@ -251,3 +251,11 @@ test("full relationship graph API reads claim canonical evidence quota before lo
     assert.match(source.slice(claimAt, source.indexOf("if (throttled)", claimAt)), /detail: "evidence"/);
   }
 });
+
+test("bounded report export pages cost one unit at the API while full exports stay heavy", () => {
+  const decision = decidePulseRetrievalQuota({ detail: "evidence", costClass: "report_page", now, usage: usage({principalScanUnits: 119}) });
+  assert.equal(decision.allowed, true);
+  assert.equal(decision.weight, 1);
+  assert.equal(decidePulseRetrievalQuota({ detail: "evidence", costClass: "report_page", now, usage: usage({principalScanUnits: 120}) }).allowed, false);
+  assert.equal(decidePulseRetrievalQuota({ detail: "evidence", now, usage: usage({principalScanUnits: 119}) }).allowed, false);
+});

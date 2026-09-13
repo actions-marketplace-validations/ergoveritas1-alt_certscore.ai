@@ -41,10 +41,11 @@ test("keeps status polling separate and heavy reads at four units", () => {
     caller: 600
   });
   assert.equal(apiReadRateUnits("ordinary"), 1);
+  assert.equal(apiReadRateUnits("report_page"), 1);
   for (const costClass of ["evidence", "full", "diagnostics", "export", "bundle"] as const) {
     assert.equal(apiReadRateUnits(costClass), 4);
   }
-  assert.equal(API_READ_RATE_POLICY.version, "2026-08-14");
+  assert.equal(API_READ_RATE_POLICY.version, "2026-09-12");
   assert.equal(API_READ_RATE_POLICY_OPENAPI_EXTENSION.policyVersion, API_READ_RATE_POLICY.version);
   assert.equal(API_READ_RATE_POLICY_OPENAPI_EXTENSION.profiles, API_READ_RATE_POLICY.profiles);
   assert.equal(API_READ_RATE_POLICY_OPENAPI_EXTENSION.throttledResponse.retryHeader, "Retry-After");

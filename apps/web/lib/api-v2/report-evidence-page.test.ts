@@ -29,7 +29,7 @@ test("pages reconstruct all report fields without truncation, including oversize
   do {
     const page = buildReportEvidencePage({ scanId, report, cursor });
     reportEvidencePageSchema.parse(page);
-    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 20000);
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 68000);
     assert.equal(page.coverage.exportTruncated, false);
     assert.equal(page.coverage.observationCompleteness, "see_report_coverage");
     if (snapshot) assert.equal(page.snapshot, snapshot);
@@ -62,4 +62,22 @@ test("snapshot binds scan, report content and schema; malformed and stale cursor
   assert.throws(() => buildReportEvidencePage({ scanId, report: { ...report, changed: true }, cursor }), ReportPageCursorError);
   assert.throws(() => buildReportEvidencePage({ scanId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', report, cursor }), ReportPageCursorError);
   assert.equal(buildReportEvidencePage({ scanId, report: { a: 1, b: 2 } }).snapshot, buildReportEvidencePage({ scanId, report: { b: 2, a: 1 } }).snapshot);
+});
+
+test("multi-megabyte retained inventories complete within the existing ordinary-read allowance", () => {
+  const rows = Array.from({length: 1920}, (_, i) => ({ id: i, fields: [{name: `field_${i}`, evidence: "retained".repeat(240)}] }));
+  const report = { fullSiteReport: { collectionSurfaces: { rows } } };
+  let cursor: string | undefined;
+  let pageCount = 0;
+  const returnedRows: unknown[] = [];
+  do {
+    const page = buildReportEvidencePage({scanId, report, cursor});
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 68000);
+    for (const entry of page.entries) if (/^\/fullSiteReport\/collectionSurfaces\/rows\/\d+$/.test(entry.path)) returnedRows.push(entry.value);
+    cursor = page.pagination.nextCursor ?? undefined;
+    pageCount++;
+    assert.ok(pageCount <= 120, "one large export must fit the existing 120-unit allowance");
+  } while (cursor);
+  assert.ok(pageCount > 30, "fixture exceeds the old 30-heavy-read ceiling");
+  assert.deepEqual(returnedRows, rows);
 });

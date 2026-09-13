@@ -1,5 +1,5 @@
 import { query, queryOne, withWriteTransaction } from "@website-signal-risk-scanner/db";
-import { DEFAULT_SCAN_FROM, normalizeScanFrom, type ScanFrom } from "@website-signal-risk-scanner/shared";
+import { DEFAULT_SCAN_FROM, normalizeScanFrom, type ScanFrom, type ApiReadRateCostClass } from "@website-signal-risk-scanner/shared";
 import { randomUUID } from "node:crypto";
 import {
   PULSE_API_VERSION,
@@ -199,6 +199,7 @@ export async function createPulseRequestWithRetrievalQuota(input: CreatePulseReq
 }
 
 export async function claimPulseReadQuota(input: {
+  costClass?: ApiReadRateCostClass;
   detail: PulseRequestContext["detail"];
   principal: string;
   profile: PulseRetrievalProfile;
@@ -273,6 +274,7 @@ export async function claimPulseReadQuota(input: {
     );
     const row = usageResult.rows[0];
     const decision = decidePulseRetrievalQuota({
+      costClass: input.costClass,
       detail: input.detail,
       profile: input.profile,
       usage: {

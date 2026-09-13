@@ -125,8 +125,9 @@ export function ApiReadRatePolicyDetails() {
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <h3 className="font-semibold text-slate-950">Read weights</h3>
           <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+            <li>Bounded report-evidence export page (up to 64 KB of entries): {API_READ_RATE_POLICY.weights.report_page} unit. Follow its cursor; repeated pages still consume quota.</li>
             <li>Ordinary scan, finding, inventory, or domain read: {API_READ_RATE_POLICY.weights.ordinary} unit.</li>
-            <li>Evidence, full report, diagnostics, export, or composite bundle: {API_READ_RATE_POLICY.weights.bundle} units.</li>
+            <li>Evidence, full report, diagnostics, findings export, or composite bundle: {API_READ_RATE_POLICY.weights.bundle} units.</li>
             <li>
               That permits {heavyReadsPerBurstWindow} direct heavy reads per caller and resource in 10 minutes, and{" "}
               {heavyReadsPerDailyWindow} in a rolling 24 hours.

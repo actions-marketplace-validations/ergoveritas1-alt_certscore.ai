@@ -24,7 +24,7 @@ test("full-site export preserves all pages, resources, form fields and coverage 
   let cursor: string | undefined;
   do {
     const page = buildReportEvidencePage({ scanId, report: { fullSiteReport }, cursor });
-    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 20000);
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 68000);
     entries.push(...page.entries);
     cursor = page.pagination.nextCursor ?? undefined;
   } while (cursor);

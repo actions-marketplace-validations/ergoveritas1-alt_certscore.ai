@@ -2,6 +2,7 @@ export type ApiReadRateProfile = "terminal" | "status";
 export type ApiReadRateScope = "callerTarget" | "target" | "caller";
 export type ApiReadRateWindowId = "burst" | "daily";
 export type ApiReadRateCostClass =
+  | "report_page"
   | "ordinary"
   | "evidence"
   | "full"
@@ -32,9 +33,10 @@ type ApiReadRatePolicy = {
  * duplicate these windows, limits, or weights in service-local code.
  */
 export const API_READ_RATE_POLICY = {
-  version: "2026-08-14",
+  version: "2026-09-12",
   weights: {
     ordinary: 1,
+    report_page: 1,
     evidence: 4,
     full: 4,
     diagnostics: 4,
