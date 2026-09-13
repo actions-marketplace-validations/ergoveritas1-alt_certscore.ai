@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { certScoreMcpToolContracts } from "@certscore/api-contracts";
 import { CERTSCORE_MCP_VERSION, getCertScoreMcpDoctorReport } from "./index.js";
@@ -1946,5 +1947,22 @@ test("OAuth and Light retrieve typed report pages, forward cursors, and guide co
         assert.ok(fetch.calls.every(url => new URL(url).pathname.endsWith('/report-evidence')));
       }, { toolProfile, timeout: 5 });
     } finally { fetch.restore(); }
+  }
+});
+
+
+test("new sessions announce their current tool catalog for cached hosts", async () => {
+  for (const toolProfile of ["full", "light"] as const) {
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const server = createCertScoreMcpServer({ toolProfile });
+    const client = new Client({ name: "catalog-refresh-test", version: "1" });
+    let notices = 0;
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => { notices++; });
+    try {
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      const tools = await client.listTools();
+      assert.ok(tools.tools.some(tool => tool.name === "certscore_get_report_evidence_page"));
+      assert.equal(notices, 1);
+    } finally { await client.close(); await server.close(); }
   }
 });

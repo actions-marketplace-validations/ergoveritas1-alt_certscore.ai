@@ -448,8 +448,10 @@ Report-evidence export pages contain up to 64 KB of JSON entries and cost one te
 `certscore_get_scan_bundle` remains the default for concise summaries. For a full
 report export, call `certscore_get_report_evidence_page` once: `download.url`
 returns the entire report display JSON in one HTTP response, with its byte size.
-Workspace downloads require the same OAuth bearer credential; eligible public
-reports can be downloaded anonymously. Never place credentials in URLs or chat.
+Workspace download URLs contain a report-only capability that expires after five
+minutes. Fetch the returned URL directly without OAuth headers. Treat private
+links as confidential; do not publish them. Request a fresh page for a new link
+after expiry. Eligible public reports remain anonymously downloadable.
 If the host cannot fetch authenticated files, follow `pagination.nextCursor`
 through MCP instead. This does not require adding another connector.
 

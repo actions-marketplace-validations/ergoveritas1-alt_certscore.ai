@@ -9,8 +9,9 @@ export const reportEvidencePageSchema = z.object({
   download: z.object({
     url: z.string().url(),
     mediaType: z.literal("application/json"),
+    expiresAt: z.string().datetime().optional(),
     bytes: z.number().int().nonnegative(),
-    authentication: z.literal("same_access_rules_as_mcp"),
+    authentication: z.enum(["same_access_rules_as_mcp", "short_lived_report_link", "public"]),
     instructions: z.string(),
   }).strict().optional(),
   entries: z.array(z.object({

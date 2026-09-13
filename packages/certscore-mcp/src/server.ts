@@ -938,5 +938,12 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   );
 
   server.server.setRequestHandler = registerRequest;
+  // Reconnecting hosts may retain a tool catalog from an older release.
+  // Announce the current catalog once the new session has initialized.
+  server.server.oninitialized = () => {
+    void server.server.sendToolListChanged().catch(() => {
+      // A host without a notification channel can still call tools/list normally.
+    });
+  };
   return server;
 }
