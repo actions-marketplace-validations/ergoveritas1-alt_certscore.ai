@@ -1,14 +1,16 @@
 # CertScore Hosted OAuth for Cursor
 
-Release status: prepared locally; requires migration 0198 and the self-serve trial release before installation. Not yet published.
+Package status: prepared locally; marketplace publication is not verified. The static client requires migration 0198. Use the verification checklist below to check the deployed service independently of package availability.
 
 Use this package for workspace scan creation and history. Install only one connection to `https://mcp.certscore.ai/mcp`, named **CertScore Hosted OAuth**. If it is already configured as `certscore` or `certscore-oauth`, reuse that connection. The server cannot remove or deduplicate client-side installs.
 
-Copy `mcp.json` into your project’s `.cursor/mcp.json` (merge with existing servers), or configure it globally in `~/.cursor/mcp.json`. Cursor Agents uses the same remote server configuration. No client secret or manually registered client is needed. Complete the human OAuth consent step. Active trial workspaces can approve scan creation within existing limits. Existing read-only connections must reauthorize; token refresh does not add scopes.
+Copy `mcp.json` into your project’s `.cursor/mcp.json` (merge with existing servers), or configure it globally in `~/.cursor/mcp.json`. Cursor Agents uses the same remote server configuration. No client secret or manually registered client is needed. Complete the browser sign-in/authorization flow and verify the granted scopes through the connection-status tool. Active trial workspaces can authorize scan creation within existing limits. Existing read-only connections must reauthorize; token refresh does not add scopes.
 
 First prompt for Cursor, Claude, or ChatGPT after configuring the hosted endpoint:
 
-> Scan https://your-site.com with CertScore. Use certscore_scan_site, poll certscore_get_scan_status only while active, then retrieve certscore_get_scan_bundle. Summarize score, coverage, finding IDs, pre-consent observations, and the report link. Do not describe an existing reused scan as a fresh scan.
+> Use the CertScore Hosted OAuth connection. First require the host to report connected with tools loaded, then call certscore_get_connection_status and require authenticated=true, diagnostics.mode=hosted_oauth, diagnostics.workspaceAccess=active, and diagnostics.createAllowedByScope=true. Check diagnostics.canRequestScanNow before creating a scan. Stop and report the failed gate if unavailable; a browser callback or Added card is not connection success. Then scan https://your-site.com with certscore_scan_site, poll certscore_get_scan_status only while active at the returned interval, and retrieve certscore_get_scan_bundle with detail=findings. Summarize score, coverage, finding IDs, pre-consent observations, and the report link. Do not describe an existing reused scan as a fresh scan. Do not substitute Light for this Hosted OAuth workflow.
+
+For independent service diagnostics and actual Grok acceptance criteria, see [the Grok Hosted OAuth checklist](../../../docs/ops/grok-hosted-oauth-2026-09-13.md). Current source automatically authorizes after successful sign-in, including `prompt=consent`; an interactive approval page is not currently guaranteed.
 
 For a Grok model running inside Cursor, use Cursor’s configuration. A separate Grok host must document its own OAuth configuration; there is no assumed portable AddMcpServer API.
 
