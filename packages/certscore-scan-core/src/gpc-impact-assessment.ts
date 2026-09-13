@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { canonicalEvidenceBundleSchema, gpcImpactAssessmentSchema, type CanonicalEvidenceBundle, type GpcImpactCapture, type GpcImpactAssessment, type NetworkEvent } from "@certscore/contracts";
 import { gpcImpactRequestSetHash } from "./gpc-impact-capture.js";
 import { evaluateGpcObservationSession } from "./gpc-observation-completion.js";
+import { gpcEndpointEvidence } from "./gpc-vendor-evidence.js";
 
 export type GpcImpactSource = { bytes: Uint8Array; pointer: { sha256: string; sizeBytes: number } };
 export function readVerifiedGpcImpactSource(source: GpcImpactSource | undefined): CanonicalEvidenceBundle | null {
@@ -29,8 +30,8 @@ function validSignal(bundle: CanonicalEvidenceBundle, enabled: boolean, scanId: 
 }
 function inventory(bundle: CanonicalEvidenceBundle, events: NetworkEvent[], purposes: Set<string>) {
   const evidence = new Set(events.map(e => e.eventId));
-  const vendors = bundle.normalizedVendorObservations.filter(v => purposes.has(v.purpose) && v.matchedEvidenceIds.some(id => evidence.has(id)));
-  const classified = new Set(vendors.flatMap(v => v.matchedEvidenceIds.filter(id => evidence.has(id))));
+  const vendors = bundle.normalizedVendorObservations.filter(v => purposes.has(v.purpose) && v.matchedEvidenceIds.some(id => evidence.has(id) && gpcEndpointEvidence(v, id) === "verified"));
+  const classified = new Set(vendors.flatMap(v => v.matchedEvidenceIds.filter(id => evidence.has(id) && gpcEndpointEvidence(v, id) === "verified")));
   return {
     identities: new Set(vendors.map(v => JSON.stringify([v.vendor, v.product ?? "unspecified", v.purpose]))),
     requests: events.filter(e => classified.has(e.eventId)).length,
@@ -61,6 +62,12 @@ export function buildGpcImpactAssessment(input: { scanId: string; baseline?: Gpc
   const windows = bc?.windows.filter(w => gc?.windows.some(g => g.durationMs === w.durationMs)) ?? [];
   const horizon = windows.at(-1)?.durationMs;
   if (!horizon) limits.push("common_window_unavailable");
+  for (const [label, bundle] of [["baseline", baseline], ["gpc", gpc]] as const) {
+    if (!bundle?.gpcImpactCapture?.document || !horizon) continue;
+    const ids = new Set(eventsFor(bundle, bundle.gpcImpactCapture, horizon).map(event => event.eventId));
+    if (bundle.normalizedVendorObservations.some(v => ["advertising", "marketing", "analytics", "session_replay"].includes(v.purpose) &&
+      v.matchedEvidenceIds.some(id => ids.has(id) && gpcEndpointEvidence(v, id) === "unknown"))) limits.push(`${label}_endpoint_attribution_unverified`);
+  }
   // Recompute every declared window from the full original event arrays. A
   // downstream truncation, duplicate, mutation or lost request fails closed.
   for (const [label, b] of [["baseline", baseline], ["gpc", gpc]] as const) {

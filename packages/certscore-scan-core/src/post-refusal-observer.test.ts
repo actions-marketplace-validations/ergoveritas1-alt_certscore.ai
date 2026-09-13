@@ -534,10 +534,11 @@ test("resolver timeline retains a bounded selector-absent failure diagnosis", as
 
     assert.equal(packet.resolver.found, false);
     assert.equal(packet.resolver.reason, "deterministic_reject_control_not_found");
-    assert.deepEqual(
-      packet.interactionDiagnostics.resolver?.snapshots.map((snapshot) => snapshot.state),
-      ["selector_absent"],
-    );
+    const states = packet.interactionDiagnostics.resolver?.snapshots.map((snapshot) => snapshot.state);
+    // Navigation may return before the document becomes interactive. The
+    // resolver legitimately records that initial state before selector absence.
+    assert.deepEqual(states, states?.[0] === "document_loading"
+      ? ["document_loading", "selector_absent"] : ["selector_absent"]);
     assert.equal(packet.interactionDiagnostics.resolver?.truncated, false);
   });
 });

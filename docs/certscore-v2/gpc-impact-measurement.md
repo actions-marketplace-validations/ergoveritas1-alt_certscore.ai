@@ -100,6 +100,43 @@ The September 13 follow-up adds no browser calls, requests, retries, waits, or m
 
 ## Comparison retention and finalizer follow-up
 
+### Local endpoint-attribution correction
+
+GPC fixed-window request counts and newly constructed response comparisons now
+require event-specific endpoint provenance from the existing canonical vendor
+`matchSources`: the exact event ID plus a network/script/endpoint URL or hostname
+match. A cookie transmitted with a request remains a cookie association and
+does not establish the endpoint's purpose. Aggregated vendor match strength or
+another request's endpoint proof cannot qualify it. Cookie/storage facts remain
+retained and descriptive. Journeys must intersect an independently qualified
+purpose-bearing event rather than reintroduce cookie-only associations.
+
+Relevant vendor activity without event-specific provenance makes the new
+comparison explicitly limited/indeterminate, not a manufactured zero. Existing
+stored assessments are not rewritten or recomputed on read. The California
+deduction schedule, canonical projection flow, and response-reduction rule are
+unchanged; this corrects their evidence input and can change a future result
+that previously counted a cookie-only association. No display fallbacks,
+registry/site exceptions, browser work, extra retention, or waiting are added.
+Expected recurring cost change: $0/month. Local only; no deployment.
+
+Heise endpoint attribution is now at diminishing returns without stronger
+retained provenance. Its unresolved fetch traffic and the two-site sample do
+not justify a new vendor rule, longer observation window, or GPC-honoring claim.
+
+Local frame-readback diagnostics distinguish an attached frame, detached frame,
+and changed URL on a surviving frame using the existing before/after inventory.
+The parent `frames_changed_during_readback` limitation remains authoritative;
+these reasons do not recover or promote a comparison. Same-count replacement
+is attachment plus detachment; inventory reordering alone remains harmless.
+These endpoint differences are not a complete lifecycle trace and cannot prove
+the absence of intermediate same-URL reloads or change-then-return navigation.
+The elcorreo.com retained cohort has only the historical parent reason, so its
+specific frame change remains unknown. No browser calls, waits, retries, or
+model usage are added. Added reason strings are estimated below $0.01/month
+at 100,000 scans and 30-day retention, including repeated retained copies.
+This diagnostic follow-up is local only; no deployment was requested.
+
 The larger retained cohort identified twelve failed lane comparisons across seven scans where the capture's full request-set digest survived but the canonical retention tier reduced network events to 80. Three scans had no other comparison limitation. Historical missing events cannot be reconstructed from these hashes.
 
 New materializations protect the full union of events inside declared impact windows after normal priority retention. Restoration uses only the original already-sanitized events, preserves their ordering and all priority-selected events, and changes neither recorded window counts nor digests. It is limited to 16 KiB additional network-event bytes per lane and must fit the existing core serialized-byte ceiling; it does not increase that ceiling or displace other evidence. If restoration cannot fit, optional `retentionStatus: incomplete` preserves the original capture manifest while making retained comparison loss explicit. The impact assessor keeps such packets insufficient and score-neutral, even if a later supplied array happens to match. Legacy records without the field remain unchanged.

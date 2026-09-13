@@ -58,9 +58,17 @@ export function createGpcSignalCapture(input: {
       if (workers.size > 0) limitationKeys.push("worker_navigator_delivery_unverified");
       if (gpcDocumentHash(input.page.url()) !== main.documentUrlSha256) limitationKeys.push("document_changed_during_readback");
       const finalFrames = input.page.frames();
-      if (finalFrames.length !== frames.length || frames.some((frame, index) =>
-        !finalFrames.includes(frame) || (samples[index] && gpcDocumentHash(frame.url()) !== samples[index]!.documentUrlSha256))) {
+      const attached = finalFrames.some((frame) => !frames.includes(frame));
+      const detached = frames.some((frame) => !finalFrames.includes(frame));
+      const urlChanged = frames.some((frame, index) => finalFrames.includes(frame) &&
+        samples[index] && gpcDocumentHash(frame.url()) !== samples[index]!.documentUrlSha256);
+      if (attached || detached || urlChanged) {
         limitationKeys.push("frames_changed_during_readback");
+        // Explain the failed inventory using existing reads only. These are
+        // endpoint differences, not a complete frame-lifecycle event history.
+        if (attached) limitationKeys.push("frame_attached_during_readback");
+        if (detached) limitationKeys.push("frame_detached_during_readback");
+        if (urlChanged) limitationKeys.push("frame_url_changed_during_readback");
       }
       const after = input.prototypeBinding?.documentIdentity();
       const impactAfter = input.impactReadback?.documentIdentity();

@@ -7,6 +7,8 @@ import { gpcProductionRuntimeFixture } from "../../certscore-contracts/src/test-
 import { createGpcImpactCapture } from "./gpc-impact-capture";
 import { buildGpcImpactAssessment } from "./gpc-impact-assessment";
 import { buildGpcResponseAssessment } from "./gpc-response-assessment";
+import { resolveVendorObservations } from "@certscore/vendor-resolver";
+import { gpcEndpointEvidence } from "./gpc-vendor-evidence";
 
 function source(bundle: CanonicalEvidenceBundle) {
   const bytes = Buffer.from(JSON.stringify(bundle));
@@ -30,6 +32,69 @@ function fixture(enabled: boolean, names: string[], end = 1500) {
   bundle.modulesRun[0]!.timingBreakdown![0]!.outcome = "timed_out";
   return canonicalEvidenceBundleSchema.parse(bundle);
 }
+
+test("canonical resolver preserves cookie association separately from endpoint match", () => {
+  const observations = resolveVendorObservations([
+    { type: "cookie", cookieName: "_ga", hostname: "example.test", evidenceId: "asset", matchSource: "request_cookie" },
+    { type: "request", url: "https://www.google-analytics.com/g/collect", evidenceId: "collection" },
+  ]);
+  const vendor = observations.find(v => v.matchedEvidenceIds.includes("asset"));
+  assert.ok(vendor);
+  assert.equal(gpcEndpointEvidence(vendor, "asset"), "association_only");
+  assert.ok(observations.some(v => gpcEndpointEvidence(v, "collection") === "verified"));
+  assert.equal(gpcEndpointEvidence(vendor, "unrelated"), "unknown");
+});
+
+test("cookie transmission cannot impersonate endpoint activity in either GPC comparison", () => {
+  const baseline = fixture(false, ["Cookie vendor"]), gpc = fixture(true, []);
+  baseline.normalizedVendorObservations[0]!.matchSources = [{ source: "request_cookie", sourceEventId: "vendor_0", matchedField: "cookie_name", confidence: 1, resolverBasis: ["cookie_name_match"] }];
+  baseline.normalizedVendorObservations[0]!.matchedCookieNames = ["_test_cookie"];
+  const impact = buildGpcImpactAssessment({ scanId: baseline.scanId, baseline: source(baseline), gpc: source(gpc) });
+  assert.equal(impact.status, "measured");
+  assert.equal(impact.activity?.trackers.outcome, "no_activity_observed");
+  assert.equal(impact.activity?.trackers.baselineRequests, 0);
+  for (const b of [baseline, gpc]) b.modulesRun[0]!.timingBreakdown![0]!.outcome = "completed";
+  const response = buildGpcResponseAssessment({ baseline, baselineArtifact: source(baseline).pointer, gpc, gpcArtifact: source(gpc).pointer });
+  assert.equal(response.status, "no_observable_response");
+  assert.equal(response.comparison.deltas.trackers.baselineCount, 0);
+  assert.deepEqual(baseline.normalizedVendorObservations[0]!.matchedCookieNames, ["_test_cookie"], "retain original cookie association");
+});
+
+test("endpoint purpose cannot leak between same-vendor request IDs", () => {
+  const baseline = fixture(false, ["Vendor"]), gpc = fixture(true, []);
+  const vendor = baseline.normalizedVendorObservations[0]!;
+  vendor.matchedEvidenceIds.push("late_endpoint");
+  vendor.matchSources = [{ source: "request_cookie", sourceEventId: "vendor_0", matchedField: "cookie_name", confidence: 1, resolverBasis: [] },
+    { source: "network_request", sourceEventId: "late_endpoint", matchedField: "hostname", confidence: 1, resolverBasis: [] }];
+  const result = buildGpcImpactAssessment({ scanId: baseline.scanId, baseline: source(baseline), gpc: source(gpc) });
+  assert.equal(result.activity?.trackers.baselineRequests, 0);
+  vendor.matchSources.push({ source: "network_request", sourceEventId: "vendor_0", matchedField: "hostname", confidence: 1, resolverBasis: [] });
+  const verified = buildGpcImpactAssessment({ scanId: baseline.scanId, baseline: source(baseline), gpc: source(gpc) });
+  assert.equal(verified.activity?.trackers.baselineRequests, 1, "independent endpoint evidence remains countable");
+});
+
+test("missing legacy endpoint provenance limits comparison rather than inventing zero activity", () => {
+  const baseline = fixture(false, ["Legacy"]), gpc = fixture(true, []);
+  baseline.normalizedVendorObservations[0]!.matchSources = [];
+  const impact = buildGpcImpactAssessment({ scanId: baseline.scanId, baseline: source(baseline), gpc: source(gpc) });
+  assert.equal(impact.status, "insufficient_evidence");
+  assert.ok(impact.limitationKeys.includes("baseline_endpoint_attribution_unverified"));
+  for (const b of [baseline, gpc]) b.modulesRun[0]!.timingBreakdown![0]!.outcome = "completed";
+  const response = buildGpcResponseAssessment({ baseline, baselineArtifact: source(baseline).pointer, gpc, gpcArtifact: source(gpc).pointer });
+  assert.equal(response.status, "indeterminate");
+  assert.ok(response.comparison.limitationKeys.includes("baseline_endpoint_attribution_unverified"));
+});
+
+test("frame-change diagnostics preserve insufficient paired delivery and neutral impact", () => {
+  for (const reason of ["frame_attached_during_readback", "frame_detached_during_readback", "frame_url_changed_during_readback"]) {
+    const baseline = fixture(false, []), gpc = fixture(true, []);
+    for (const bundle of [baseline, gpc]) bundle.gpcSignalObservation!.limitationKeys = ["frames_changed_during_readback", reason];
+    const result = buildGpcImpactAssessment({ scanId: baseline.scanId, baseline: source(baseline), gpc: source(gpc) });
+    assert.equal(result.status, "insufficient_evidence");
+    assert.deepEqual(result.delivery, { baselineVerified: false, gpcVerified: false });
+    assert.equal(result.scoreEffect, "none");
+  }
+});
 
 test("explicit retention loss remains neutral even when supplied events happen to match", () => {
   const baseline = fixture(false, []), gpc = fixture(true, []);

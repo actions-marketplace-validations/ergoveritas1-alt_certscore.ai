@@ -5,6 +5,7 @@ import {
   type GpcSignalObservation,
 } from "@certscore/contracts";
 import { gpcDocumentHash } from "./gpc-signal-capture.js";
+import { gpcEndpointEvidence } from "./gpc-vendor-evidence.js";
 
 export type GpcVerifiedArtifactPointer = { sha256: string; sizeBytes: number; uri: string };
 
@@ -63,9 +64,12 @@ function comparableInventory(bundle: CanonicalEvidenceBundle | undefined, proof:
   const network = (bundle?.networkEvents ?? []).filter((event) => inWindow(event.timestampMs));
   const cookies = (bundle?.cookieEvents ?? []).filter((event) => inWindow(event.timestampMs));
   const scripts = (bundle?.scriptEvents ?? []).filter((event) => inWindow(event.timestampMs));
-  const evidenceIds = new Set([...network, ...cookies, ...scripts].map((event) => event.eventId));
+  const evidenceIds = new Set([...network, ...scripts].map((event) => event.eventId));
+  const attributionIncomplete = (bundle?.normalizedVendorObservations ?? []).some(v =>
+    ["advertising", "marketing", "analytics", "session_replay", "performance_monitoring"].includes(v.purpose) &&
+    v.matchedEvidenceIds.some(id => evidenceIds.has(id) && gpcEndpointEvidence(v, id) === "unknown"));
   const observedVendors = (bundle?.normalizedVendorObservations ?? []).filter((observation) =>
-    observation.matchedEvidenceIds.some((id) => evidenceIds.has(id)));
+    observation.matchedEvidenceIds.some((id) => evidenceIds.has(id) && gpcEndpointEvidence(observation, id) === "verified"));
   const vendorsById = new Map(observedVendors.map((observation) => [observation.observationId, observation]));
   const observedJourneys = (bundle?.observedJourneys ?? []).filter((journey) => {
     const refs = new Set(journey.eventRefs.filter((ref) => evidenceIds.has(ref.eventId)).map((ref) => ref.eventId));
@@ -76,7 +80,7 @@ function comparableInventory(bundle: CanonicalEvidenceBundle | undefined, proof:
       const vendor = vendorsById.get(id);
       return vendor && vendor.purpose === journey.purpose && vendor.vendor === journey.vendor &&
         (!journey.product || journey.product === vendor.product) &&
-        vendor.matchedEvidenceIds.some((eventId) => refs.has(eventId));
+        vendor.matchedEvidenceIds.some((eventId) => refs.has(eventId) && gpcEndpointEvidence(vendor, eventId) === "verified");
     });
   });
   const classified = (purposes: Set<string>) => uniqueSorted([
@@ -92,6 +96,7 @@ function comparableInventory(bundle: CanonicalEvidenceBundle | undefined, proof:
       ...snapshot.sessionStorageKeys.map((key) => `${origin}|sessionStorage|${key}`)];
   });
   return {
+    attributionIncomplete,
     cookies: uniqueSorted([...cookies.map((event) => JSON.stringify([event.cookieName, event.cookieDomain ?? event.hostname, event.cookiePath ?? "/"])),
       ...(bundle?.cookieSnapshots ?? []).flatMap((snapshot) => snapshot.cookies.map((cookie) => JSON.stringify([cookie.name, cookie.domain, cookie.path ?? "/"])))]),
     webStorage: uniqueSorted(storage),
@@ -148,6 +153,8 @@ export function buildGpcResponseAssessment(input: {
     baselineProof.capturedAtMs - baselineProof.documentStartedAtMs, gpcProof.capturedAtMs - gpcProof.documentStartedAtMs) : null;
   if (throughMs === null || throughMs < 250) coverageLimits.add("paired_observation_window_insufficient");
   const b = comparableInventory(input.baseline, baselineProof, throughMs), g = comparableInventory(input.gpc, gpcProof, throughMs);
+  if (b.attributionIncomplete) coverageLimits.add("baseline_endpoint_attribution_unverified");
+  if (g.attributionIncomplete) coverageLimits.add("gpc_endpoint_attribution_unverified");
   const deltas = {
     cookies: compareGpcSets(b.cookies, g.cookies), webStorage: compareGpcSets(b.webStorage, g.webStorage),
     trackers: compareGpcSets(b.trackers, g.trackers),

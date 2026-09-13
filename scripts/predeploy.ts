@@ -73,6 +73,7 @@ const GPC_OBSERVATION_RELEASE_CHECK: Check = {
     "packages/certscore-scan-core/src/gpc-impact-assessment.test.ts",
     "packages/certscore-scan-core/src/gpc-impact-browser.test.ts",
     "packages/certscore-scan-core/src/gpc-impact-cohort.test.ts",
+    "packages/certscore-scan-core/src/gpc-signal-capture.test.ts",
     "packages/certscore-scan-core/src/gpc-semantic-monitor.test.ts",
     "packages/certscore-scan-core/src/access-reliability.test.ts",
     "packages/certscore-scan-core/src/cross-lane-access.test.ts",
