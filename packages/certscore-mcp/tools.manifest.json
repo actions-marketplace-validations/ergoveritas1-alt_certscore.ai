@@ -1,5 +1,9 @@
 [
   {
+    "name": "certscore_get_connection_status",
+    "description": "Read current authenticated connection mode, granted scopes, workspace access, rolling scan quota and recovery action. No scan ID is needed and no scan is created. Use this to diagnose read-only access or quota limits; reconnect only for expired, revoked or expanded access."
+  },
+  {
     "name": "certscore_scan_site",
     "description": "Creates a public-website privacy scan or reuses an eligible recent completed scan. Coverage includes pre-consent storage, trackers, consent and CMP signals, privacy-policy disclosures, transport security, and GDPR/ePrivacy or CCPA/CPRA review signals. The response contains a stable scanId, lifecycle status, retry timing, and sometimes a bounded preliminary preConsentPreview; preliminary data contains no final findings or score. Results are automated public-web observations, not legal advice, certification, or a compliance determination. Tool and workflow documentation: https://certscore.ai/developers/mcp."
   },
@@ -18,6 +22,10 @@
   {
     "name": "certscore_get_evidence",
     "description": "Focused follow-up: retrieve a bounded public-safe evidence packet with a concise TextContent digest and typed structuredContent. For broad privacy questions, use certscore_get_scan_bundle first. Excludes raw cookie values, raw bodies, sensitive payloads, full DOM, and unredacted query values."
+  },
+  {
+    "name": "certscore_get_report_evidence_page",
+    "description": "Retrieve every field of the canonical public-safe scan report as paginated JSON, including evidence tables, full-site page and resource inventories, all retained additional-page form fields, form snapshot download references, and retained limitations. Snapshot images are downloaded separately from the returned URLs, with OAuth bearer authentication for workspace scans. Available on OAuth and Light. Start with scanId; follow pagination.nextCursor until complete. Pages share a snapshot; restart if it changes. Each entry has a JSON Pointer path and value; oversized strings use numbered parts. Export completion is not complete observation coverage. Use the concise scan bundle for summaries; use this tool for exhaustive report evidence. No new scan is created."
   },
   {
     "name": "certscore_get_scan_bundle",

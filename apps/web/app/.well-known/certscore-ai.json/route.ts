@@ -171,6 +171,8 @@ const discoveryDocument = {
       intendedUse: "Low-volume agent discovery, evaluation, and public-web review workflows without account or OAuth setup."
     },
     currentTools: [
+      "certscore_get_connection_status",
+      "certscore_get_report_evidence_page",
       "certscore_scan_site",
       "certscore_get_scan",
       "certscore_get_scan_status",

@@ -108,7 +108,7 @@ try {
   send({ jsonrpc: "2.0", method: "notifications/initialized" });
 
   const tools = await request("tools/list");
-  assert.equal(tools.tools.length, 12);
+  assert.equal(tools.tools.length, 14);
   assert.ok(tools.tools.some((tool) => tool.name === "certscore_get_evidence"));
   for (const tool of tools.tools) {
     assert.ok(tool.annotations, `${tool.name} missing annotations`);

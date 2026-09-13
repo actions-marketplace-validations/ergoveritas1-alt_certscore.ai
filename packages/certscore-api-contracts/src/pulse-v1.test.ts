@@ -143,6 +143,7 @@ test("MCP contracts expose the current scoped tool surface", () => {
       "certscore_get_latest_domain_scan",
       "certscore_get_pre_consent_cookies_trackers",
       "certscore_get_report",
+      "certscore_get_report_evidence_page",
       "certscore_get_scan",
       "certscore_get_scan_bundle",
       "certscore_get_scan_status",

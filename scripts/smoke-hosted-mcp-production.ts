@@ -6,6 +6,7 @@ import { isCanonicalScanId } from "../packages/certscore-api-contracts/src/api-v
 const DEFAULT_MCP_ORIGIN = "https://mcp.certscore.ai";
 
 export const LIGHT_TOOL_NAMES = [
+  "certscore_get_report_evidence_page",
   "certscore_get_scan_bundle",
   "certscore_get_scan_status",
   "certscore_scan_site",
@@ -14,11 +15,13 @@ export const LIGHT_TOOL_NAMES = [
 export const FULL_TOOL_NAMES = [
   "certscore_explain_finding",
   "certscore_export_findings",
+  "certscore_get_connection_status",
   "certscore_get_evidence",
   "certscore_get_latest_domain_pre_consent_cookies_trackers",
   "certscore_get_latest_domain_scan",
   "certscore_get_pre_consent_cookies_trackers",
   "certscore_get_report",
+  "certscore_get_report_evidence_page",
   "certscore_get_scan",
   "certscore_get_scan_bundle",
   "certscore_get_scan_status",
