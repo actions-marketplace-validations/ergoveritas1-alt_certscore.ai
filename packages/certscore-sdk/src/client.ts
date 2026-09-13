@@ -277,7 +277,7 @@ export class CertScoreClient {
     return this.fetchJson<FindingDetail>(`/api/v2/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(findingId)}`, options);
   }
 
-  async getReportEvidencePage(scanId: string, options: ApiV2RequestOptions & { cursor?: string } = {}): Promise<ReportEvidencePage> {
+  async getReportEvidencePage(scanId: string, options: ApiV2RequestOptions & { cursor?: string; timeout?: number } = {}): Promise<ReportEvidencePage> {
     const endpoint = this.url(`/api/v2/scans/${encodeURIComponent(scanId)}/report-evidence`);
     if (options.cursor) endpoint.searchParams.set("cursor", options.cursor);
     return this.fetchJson<ReportEvidencePage>(endpoint, options);
