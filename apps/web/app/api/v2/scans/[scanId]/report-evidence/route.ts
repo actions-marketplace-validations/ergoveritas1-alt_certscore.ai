@@ -51,7 +51,7 @@ export async function GET(request: Request, context: { params: Promise<{ scanId:
     } });
     const page = buildReportEvidencePage({ scanId, report: displayReport, cursor });
     return reply(reportEvidencePageSchema.parse({ ...page, download: {
-      url: `https://certscore.ai/api/v2/scans/${scanId}/report-evidence?format=download`,
+      url: new URL(`/api/v2/scans/${scanId}/report-evidence?format=download`, process.env.NEXT_PUBLIC_APP_URL || "https://certscore.ai").toString(),
       mediaType: "application/json", bytes: Buffer.byteLength(serialized, "utf8"),
       authentication: "same_access_rules_as_mcp",
       instructions: "One HTTP download returns the full report display JSON. Workspace reports require the same OAuth bearer credential; eligible public reports allow anonymous reads. Never paste credentials into chat or URLs. If your host cannot fetch authenticated files, continue with this MCP tool and nextCursor. Resolve reportContentRef pointers within the downloaded document. Snapshot images remain separate links.",
