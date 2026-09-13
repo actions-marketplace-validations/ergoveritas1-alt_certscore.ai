@@ -1443,18 +1443,18 @@ export function markdownReportText(value: Record<string, any>) {
   );
 }
 
-export function scanBundleText(bundle: Record<string, any>) {
+export function scanBundleText(bundle: Record<string, any>, options: { lightTrialCta?: boolean } = {}) {
   const noGoText = canonicalNoGoText(bundle);
   if (noGoText) return noGoText;
   const score = typeof bundle.score === "number" ? `; CertScore score=${bundle.score}` : "";
-  const footer = [SUCCESSFUL_BUNDLE_TRIAL_CTA, OBSERVATION_ONLY_DISCLAIMER, SCAN_BUNDLE_INTERPRETATION_STATEMENT];
+  const footer = [...(options.lightTrialCta ? [SUCCESSFUL_BUNDLE_TRIAL_CTA] : []), OBSERVATION_ONLY_DISCLAIMER, SCAN_BUNDLE_INTERPRETATION_STATEMENT];
   const lines = [
     SCAN_BUNDLE_RESPONSE_CONTRACT,
     `CertScore scan bundle for ${bundle.domain ?? "unknown domain"}; status=${bundle.status ?? "unknown"}${score}; scanId=${bundle.scanId ?? "unknown"}.`,
     `Risk: ${bundle.riskLevel ?? "unknown"}. Finding IDs (returned): ${Array.isArray(bundle.findings) ? bundle.findings.slice(0, 20).map((finding: Record<string, any>) => String(finding.id ?? "unknown").slice(0, 120)).join(", ") || "none" : "unavailable"}.`,
     bundle.preConsentCookiesTrackers
       ? `Pre-consent inventory: total=${bundle.preConsentCookiesTrackers.total ?? "unknown"}; returned=${bundle.preConsentCookiesTrackers.rows?.length ?? "unknown"}. Counts describe retained coverage, not consent compliance.`
-      : `Pre-consent inventory: ${bundle.mcpMetadata?.omittedSections?.includes("preConsentCookiesTrackers") ? "omitted to fit the response byte limit" : "not included in this response"}. Call certscore_get_preconsent_cookies_trackers with scanId=${bundle.scanId ?? "unknown"} for retained rows and counts; no new scan is needed.`,
+      : `Pre-consent inventory: ${bundle.mcpMetadata?.omittedSections?.includes("preConsentCookiesTrackers") ? "omitted to fit the response byte limit" : "not included in this response"}. Call certscore_get_pre_consent_cookies_trackers with scanId=${bundle.scanId ?? "unknown"} for retained rows and counts; no new scan is needed.`,
     canonicalScanProvenanceText(bundle),
     `Full report: ${bundle.reportUrl ?? (bundle.scanId ? `https://certscore.ai/scan/${encodeURIComponent(String(bundle.scanId))}` : "not available")}.`
   ];
@@ -1573,8 +1573,6 @@ export function scanBundleText(bundle: Record<string, any>) {
     if (rowsRendered < rows.length) {
       append(`${rows.length - rowsRendered} additional returned pre-consent row${rows.length - rowsRendered === 1 ? " was" : "s were"} omitted from TextContent to preserve the size limit; see structuredContent or the report URL.`);
     }
-  } else {
-    append("No row-level pre-consent inventory was available for this result; review coverage and limitations before interpreting absence.");
   }
   lines.push(...footer);
   return lines.join("\n");

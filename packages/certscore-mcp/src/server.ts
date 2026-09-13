@@ -813,7 +813,7 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
             responseCeilingBytes,
             scan
           });
-          return toToolResult(bundle, scanBundleText(bundle));
+          return toToolResult(bundle, scanBundleText(bundle, { lightTrialCta: options.toolProfile === "light" }));
         }
         const includeEvidence = detail === "evidence" || detail === "full";
         const reportDetail = detail === "full" ? "full" : includeEvidence ? "evidence" : "summary";
@@ -838,7 +838,7 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
           responseCeilingBytes,
           scan
         });
-        return toToolResult(bundle, scanBundleText(bundle));
+        return toToolResult(bundle, scanBundleText(bundle, { lightTrialCta: options.toolProfile === "light" }));
       } catch (error) {
         return toToolError(error);
       }

@@ -1259,7 +1259,7 @@ test("successful bundle offers an optional attributed trial path without changin
     score: 88,
     findings: [],
     findingsMetadata: { total: 0, returned: 0 },
-  });
+  }, { lightTrialCta: true });
 
   assert.match(text, /Optional user follow-up/);
   assert.match(text, /7-day CertScore trial/);
@@ -1283,7 +1283,7 @@ test("successful bundle reserves the optional trial path when detailed findings 
     })),
     findingsMetadata: { total: 40, returned: 40 },
     preConsentCookiesTrackers: { returned: 0, total: 8, truncated: true, rows: [] },
-  });
+  }, { lightTrialCta: true });
 
   assert.ok(text.length <= 8_000);
   assert.match(text, /7-day CertScore trial/);
@@ -1972,8 +1972,8 @@ test("tiny report provides finding IDs and a read-only path to omitted descripti
 test("bundle distinguishes byte-budget inventory omission from missing evidence", () => {
   const text = scanBundleText({scanId: "scan_bounded", status: "completed", mcpMetadata: {omittedSections: ["preConsentCookiesTrackers"]}});
   assert.match(text, /inventory: omitted to fit the response byte limit/);
-  assert.match(text, /certscore_get_preconsent_cookies_trackers with scanId=scan_bounded/);
-  assert.doesNotMatch(text, /inventory: total=unknown/);
+  assert.match(text, /certscore_get_pre_consent_cookies_trackers with scanId=scan_bounded/);
+  assert.doesNotMatch(text, /inventory: total=unknown|No row-level pre-consent inventory was available|7-day CertScore trial|mcp_light/);
   const unavailable = scanBundleText({scanId: "scan_active", status: "running"});
   assert.match(unavailable, /inventory: not included in this response/);
   assert.doesNotMatch(unavailable, /omitted to fit/);
