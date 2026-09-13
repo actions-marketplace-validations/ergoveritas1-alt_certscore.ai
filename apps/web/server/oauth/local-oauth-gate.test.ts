@@ -59,8 +59,10 @@ test('local real OAuth token exchange, status, bundle, refresh and same MCP sess
 
       const {certScoreMcpToolContracts}=await import('@certscore/api-contracts');
       const advertised=await rpc('tools/list',{});
-      assert.equal(advertised.tools.length,13);
+      assert.equal(advertised.tools.length,14);
       const cases:Array<[string,Record<string,unknown>]>=[
+        ['certscore_get_connection_status',{}],
+        ['certscore_get_report_evidence_page',{scanId}],
         ['certscore_scan_site',{url:'https://ergoveritas.com/.well-known/certscore-canary/sentinels/broad-baseline.html',freshness:'latest',scanFrom:'eu_ie'}],
         ['certscore_get_scan',{scanId}],
         ['certscore_get_scan_status',{scanId}],
