@@ -442,3 +442,21 @@ Direct JSON endpoint: `GET /api/v2/scans/{scanId}/report-evidence?cursor={nextCu
 - `certscore_get_report_evidence_page` - Retrieve every field of the canonical public-safe scan report as paginated JSON, including evidence tables, full-site page and resource inventories, all retained additional-page form fields, form snapshot download references, and retained limitations. Snapshot images are downloaded separately from the returned URLs, with OAuth bearer authentication for workspace scans. Available on OAuth and Light. Start with scanId; follow pagination.nextCursor until complete. Pages share a snapshot; restart if it changes. Each entry has a JSON Pointer path and value; oversized strings use numbered parts. Export completion is not complete observation coverage. Use the concise scan bundle for summaries; use this tool for exhaustive report evidence. No new scan is created.
 
 Report-evidence export pages contain up to 64 KB of JSON entries and cost one terminal-read unit on both hosted MCP and the API. Existing 120-unit/10-minute and daily limits remain enforced, including repeated cursors. Full evidence reports, findings exports and bundles remain four units. If a larger export reaches a limit, retain the last nextCursor, wait for Retry-After, and resume rather than restarting.
+
+### Full report JSON download
+
+`certscore_get_scan_bundle` remains the default for concise summaries. For a full
+report export, call `certscore_get_report_evidence_page` once: `download.url`
+returns the entire report display JSON in one HTTP response, with its byte size.
+Workspace downloads require the same OAuth bearer credential; eligible public
+reports can be downloaded anonymously. Never place credentials in URLs or chat.
+If the host cannot fetch authenticated files, follow `pagination.nextCursor`
+through MCP instead. This does not require adding another connector.
+
+Exports exclude diagnostic JSON downloads and internal runtime graphs. Repeated
+records use `reportContentRef` RFC 6901 pointers within the exported document;
+resolve these after loading it. Form fields, inventory rows, coverage limitations,
+and available snapshot links remain included. Image bytes are separate downloads.
+The download uses the existing report read quota and creates no new scan or stored
+export artifact. Actual host download support must be tested separately; a returned
+URL is not proof that Cursor or Claude can retrieve it.

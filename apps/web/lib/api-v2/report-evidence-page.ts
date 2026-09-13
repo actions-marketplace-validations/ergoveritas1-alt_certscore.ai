@@ -48,7 +48,7 @@ export function buildReportEvidencePage(input: { scanId: string; report: unknown
     reportUrl: `https://certscore.ai/scan/${input.scanId}`,
     entries: page,
     pagination: { offset, returned: page.length, total: entries.length, complete: next === entries.length, nextCursor: next < entries.length ? `v1.${snapshot}.${next}` : null },
-    coverage: { scope: "public_report_projection", exportTruncated: false, observationCompleteness: "see_report_coverage", exclusions: ["raw_scanner_artifacts_not_shown_in_report", "image_binary_bytes"] },
-    reconstruction: "Apply entries in order at their RFC 6901 JSON Pointer paths (empty path is the root). Containers precede children. For stringPart entries concatenate value by stringPart, zero-based, through stringParts. Follow nextCursor until complete; keep one snapshot. Complete means the report projection was fully exported, not that scan observations were complete. Report coverage, retained samples and limitations remain authoritative. Images remain report links, not binary data.",
+    coverage: { scope: "public_report_projection", exportTruncated: false, observationCompleteness: "see_report_coverage", exclusions: ["raw_scanner_artifacts_not_shown_in_report", "diagnostic_json_downloads", "internal_runtime_graph", "image_binary_bytes"] },
+    reconstruction: "Apply entries in order at their RFC 6901 JSON Pointer paths (empty path is the root). Containers precede children. For stringPart entries concatenate value by stringPart, zero-based, through stringParts. Follow nextCursor until complete; keep one snapshot. Complete means the report projection was fully exported, not that scan observations were complete. Report coverage, retained samples and limitations remain authoritative. Images remain report links, not binary data. reportContentRef values point to identical display records stored once in the reconstructed document; resolve these RFC 6901 pointers after reconstruction.",
   };
 }

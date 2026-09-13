@@ -1927,7 +1927,7 @@ test("Cursor Hosted OAuth package uses the seeded public client and exact fixed 
 test("OAuth and Light retrieve typed report pages, forward cursors, and guide continuation", async () => {
   const scanId = '9ba99a8c-b1ad-44c1-985f-92cef760ab40';
   const cursor = `v1.${'a'.repeat(64)}.1`;
-  const page = { type: 'certscore_report_evidence_page', version: 1, scanId, snapshot: 'a'.repeat(64), reportUrl: `https://certscore.ai/scan/${scanId}`, entries: [{ path: '/findings', value: [{ id: 'retained' }] }], pagination: { offset: 0, returned: 1, total: 2, complete: false, nextCursor: cursor }, coverage: { scope: 'public_report_projection', exportTruncated: false, observationCompleteness: 'see_report_coverage', exclusions: [] }, reconstruction: 'JSON Pointer entries' };
+  const page = { type: 'certscore_report_evidence_page', version: 1, scanId, snapshot: 'a'.repeat(64), reportUrl: `https://certscore.ai/scan/${scanId}`, entries: [{ path: '/findings', value: [{ id: 'retained' }] }], pagination: { offset: 0, returned: 1, total: 2, complete: false, nextCursor: cursor }, coverage: { scope: 'public_report_projection', exportTruncated: false, observationCompleteness: 'see_report_coverage', exclusions: [] }, reconstruction: 'JSON Pointer entries', download: { url: `https://certscore.ai/api/v2/scans/${scanId}/report-evidence?format=download`, mediaType: 'application/json', bytes: 790000, authentication: 'same_access_rules_as_mcp', instructions: 'Use MCP pagination if authenticated downloads are unavailable.' } };
   for (const toolProfile of ['full', 'light'] as const) {
     const fetch = installFetch([{ status: 200, body: page, delayMs: 30 }, { status: 200, body: { ...page, pagination: { offset: 1, returned: 1, total: 2, complete: true, nextCursor: null } } }]);
     try {
@@ -1935,6 +1935,8 @@ test("OAuth and Light retrieve typed report pages, forward cursors, and guide co
         const first = await client.callTool({ name: 'certscore_get_report_evidence_page', arguments: { scanId } });
         assert.equal(first.isError, undefined);
         assert.deepEqual(first.structuredContent, page);
+        assert.ok(JSON.stringify(first.content).includes('format=download'));
+        assert.ok(JSON.stringify(first.content).includes('authenticated downloads are unavailable'));
         const guidance = (first._meta as any)['ai.certscore/responseGuidance'];
         assert.deepEqual(guidance.nextAction.arguments, { scanId, cursor });
         assert.equal(guidance.pagination.complete, false);

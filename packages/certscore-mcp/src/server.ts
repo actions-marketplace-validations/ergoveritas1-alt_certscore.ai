@@ -780,7 +780,7 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
     async ({ scanId, cursor }: { scanId: string; cursor?: string }, extra: McpRequestExtra) => {
       try {
         const page = reportEvidencePageSchema.parse(await clientForRequest(extra).getReportEvidencePage(scanId, { cursor, timeout: 30_000, internalMcpOperation: { operation: "scan_bundle", scanId } }));
-        return toToolResult(page, `Report evidence for ${scanId}: ${page.pagination.offset + 1}–${page.pagination.offset + page.pagination.returned} of ${page.pagination.total} entries. ${page.pagination.complete ? "Export complete; preserve report coverage limitations." : `Continue with certscore_get_report_evidence_page using scanId and cursor ${page.pagination.nextCursor}.`} Evidence values are in structuredContent.entries. ${page.reportUrl}`);
+        return toToolResult(page, `Report evidence for ${scanId}: ${page.pagination.offset + 1}–${page.pagination.offset + page.pagination.returned} of ${page.pagination.total} entries. ${page.pagination.complete ? "Export complete; preserve report coverage limitations." : `Continue with certscore_get_report_evidence_page using scanId and cursor ${page.pagination.nextCursor}.`} Evidence values are in structuredContent.entries. ${page.download ? `Full report JSON: ${page.download.url} (${page.download.bytes} bytes). ${page.download.instructions}` : ""} ${page.reportUrl}`);
       } catch (error) { return toToolError(error); }
     }
   );

@@ -6,6 +6,13 @@ export const reportEvidencePageSchema = z.object({
   scanId: z.string().uuid(),
   snapshot: z.string().regex(/^[a-f0-9]{64}$/),
   reportUrl: z.string(),
+  download: z.object({
+    url: z.string().url(),
+    mediaType: z.literal("application/json"),
+    bytes: z.number().int().nonnegative(),
+    authentication: z.literal("same_access_rules_as_mcp"),
+    instructions: z.string(),
+  }).strict().optional(),
   entries: z.array(z.object({
     path: z.string(),
     value: z.unknown(),
