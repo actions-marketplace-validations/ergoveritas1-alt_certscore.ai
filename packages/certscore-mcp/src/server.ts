@@ -779,7 +779,7 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
     toolContract("certscore_get_report_evidence_page"),
     async ({ scanId, cursor }: { scanId: string; cursor?: string }, extra: McpRequestExtra) => {
       try {
-        const page = reportEvidencePageSchema.parse(await clientForRequest(extra).getReportEvidencePage(scanId, { cursor, internalMcpOperation: { operation: "scan_bundle", scanId } }));
+        const page = reportEvidencePageSchema.parse(await clientForRequest(extra).getReportEvidencePage(scanId, { cursor, timeout: 30_000, internalMcpOperation: { operation: "scan_bundle", scanId } }));
         return toToolResult(page, `Report evidence for ${scanId}: ${page.pagination.offset + 1}–${page.pagination.offset + page.pagination.returned} of ${page.pagination.total} entries. ${page.pagination.complete ? "Export complete; preserve report coverage limitations." : `Continue with certscore_get_report_evidence_page using scanId and cursor ${page.pagination.nextCursor}.`} Evidence values are in structuredContent.entries. ${page.reportUrl}`);
       } catch (error) { return toToolError(error); }
     }

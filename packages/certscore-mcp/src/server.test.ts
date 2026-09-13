@@ -8,6 +8,7 @@ import { CERTSCORE_MCP_VERSION, getCertScoreMcpDoctorReport } from "./index.js";
 import { createCertScoreMcpServer } from "./server.js";
 
 type MockResponse = {
+  delayMs?: number;
   status: number;
   body?: unknown;
   text?: string;
@@ -41,6 +42,11 @@ function installFetch(responses: MockResponse[]) {
     if (!next) {
       throw new Error("Unexpected fetch call");
     }
+    if (next.delayMs) await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(init?.signal?.reason); };
+      const timer = setTimeout(() => { init?.signal?.removeEventListener("abort", abort); resolve(); }, next.delayMs);
+      if (init?.signal?.aborted) abort(); else init?.signal?.addEventListener("abort", abort, { once: true });
+    });
     if (next.text !== undefined) {
       return textResponse(next.status, next.text, next.headers);
     }
@@ -1923,7 +1929,7 @@ test("OAuth and Light retrieve typed report pages, forward cursors, and guide co
   const cursor = `v1.${'a'.repeat(64)}.1`;
   const page = { type: 'certscore_report_evidence_page', version: 1, scanId, snapshot: 'a'.repeat(64), reportUrl: `https://certscore.ai/scan/${scanId}`, entries: [{ path: '/findings', value: [{ id: 'retained' }] }], pagination: { offset: 0, returned: 1, total: 2, complete: false, nextCursor: cursor }, coverage: { scope: 'public_report_projection', exportTruncated: false, observationCompleteness: 'see_report_coverage', exclusions: [] }, reconstruction: 'JSON Pointer entries' };
   for (const toolProfile of ['full', 'light'] as const) {
-    const fetch = installFetch([{ status: 200, body: page }, { status: 200, body: { ...page, pagination: { offset: 1, returned: 1, total: 2, complete: true, nextCursor: null } } }]);
+    const fetch = installFetch([{ status: 200, body: page, delayMs: 30 }, { status: 200, body: { ...page, pagination: { offset: 1, returned: 1, total: 2, complete: true, nextCursor: null } } }]);
     try {
       await withMcpClient(async (client) => {
         const first = await client.callTool({ name: 'certscore_get_report_evidence_page', arguments: { scanId } });
@@ -1936,7 +1942,7 @@ test("OAuth and Light retrieve typed report pages, forward cursors, and guide co
         assert.equal((last.structuredContent as any).pagination.complete, true);
         assert.equal(new URL(fetch.calls[1]).searchParams.get('cursor'), cursor);
         assert.ok(fetch.calls.every(url => new URL(url).pathname.endsWith('/report-evidence')));
-      }, { toolProfile });
+      }, { toolProfile, timeout: 5 });
     } finally { fetch.restore(); }
   }
 });

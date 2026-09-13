@@ -122,7 +122,7 @@ export function toToolError(error: unknown, context: { scanCreation?: boolean } 
   const status = error instanceof CertScoreError ? error.status : undefined;
   const retryable = typeof terminalError?.retryable === "boolean"
     ? terminalError.retryable
-    : status === 429 || (typeof status === "number" && status >= 500);
+    : (error instanceof Error && error.name === "TimeoutError") || status === 429 || (typeof status === "number" && status >= 500);
   const retryAfterSeconds = typeof terminalError?.retryAfterSeconds === "number"
     ? terminalError.retryAfterSeconds
     : error instanceof CertScoreError && "retryAfterSeconds" in error && typeof error.retryAfterSeconds === "number"

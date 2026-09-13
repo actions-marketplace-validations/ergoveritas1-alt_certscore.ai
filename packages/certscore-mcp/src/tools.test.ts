@@ -1978,3 +1978,13 @@ test("bundle distinguishes byte-budget inventory omission from missing evidence"
   assert.match(unavailable, /inventory: not included in this response/);
   assert.doesNotMatch(unavailable, /omitted to fit/);
 });
+
+test("read deadline expiration is retryable rather than an input correction", () => {
+  const result = toToolError(new DOMException("CertScore request timed out.", "TimeoutError"));
+  const item = result.content[0]; assert.equal(item.type, "text");
+  const {error} = JSON.parse(item.text as string);
+  assert.equal(error.retryable, true);
+  assert.equal(error.retryAfterSeconds, 30);
+  assert.match(error.recommendedNextAction, /retry the same request/);
+  assert.doesNotMatch(error.recommendedNextAction, /Correct the request/);
+});
