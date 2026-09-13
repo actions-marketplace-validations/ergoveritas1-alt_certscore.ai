@@ -9667,7 +9667,6 @@ function stripPageChromeHtml(html: string): string {
     .replace(/<svg\b[\s\S]*?<\/svg>/gi, " ")
     .replace(/<template\b[\s\S]*?<\/template>/gi, " ")
     .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, " ")
-    .replace(/<code\b[\s\S]*?<\/code>/gi, " ")
     .replace(/<pre\b[\s\S]*?<\/pre>/gi, " ")
     .replace(/<header\b[\s\S]*?<\/header>/gi, " ")
     .replace(/<nav\b[\s\S]*?<\/nav>/gi, " ")
@@ -9896,7 +9895,6 @@ function htmlToVisibleText(html: string): string {
     .replace(/<svg\b[\s\S]*?<\/svg>/gi, " ")
     .replace(/<template\b[\s\S]*?<\/template>/gi, " ")
     .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, " ")
-    .replace(/<code\b[\s\S]*?<\/code>/gi, " ")
     .replace(/<pre\b[\s\S]*?<\/pre>/gi, " ")
     .replace(/<[^>]+>/g, " ")));
 }

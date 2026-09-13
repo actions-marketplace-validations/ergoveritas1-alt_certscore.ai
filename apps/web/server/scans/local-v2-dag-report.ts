@@ -2155,6 +2155,12 @@ export function hasConcreteCanonicalVendorAnchor(vendor: NormalizedVendorObserva
 }
 
 function buildVendorEvidence(bundle: Partial<Pick<CanonicalEvidenceBundle, "networkEvents" | "scriptEvents" | "iframeEvents" | "cookieEvents" | "normalizedVendorObservations" | "observedJourneys">>) {
+  const eventsById = new Map([
+    ...(bundle.networkEvents ?? []),
+    ...(bundle.scriptEvents ?? []),
+    ...(bundle.iframeEvents ?? []),
+    ...(bundle.cookieEvents ?? [])
+  ].map((event) => [event.eventId, event]));
   const retainedNormalizedVendors = (bundle.normalizedVendorObservations ?? [])
     .filter(hasConcreteCanonicalVendorAnchor);
   const vendors = [
@@ -2193,7 +2199,13 @@ function buildVendorEvidence(bundle: Partial<Pick<CanonicalEvidenceBundle, "netw
     );
     const matchedEventIds = new Set([
       ...(vendor.matchedEvidenceIds ?? []),
-      ...(vendor.matchedEvidenceRefs ?? []).map((ref) => ref.eventId)
+      ...(vendor.matchedEvidenceRefs ?? []).map((ref) => ref.eventId),
+      // Legacy references used refId for the event identifier. Bind only to
+      // an actual event, with an exact URL match when the reference retains one.
+      ...(vendor.matchedEvidenceRefs ?? []).flatMap((ref) => {
+        const event = eventsById.get(ref.refId);
+        return event && (!ref.url || ref.url === event.url) ? [event.eventId] : [];
+      })
     ].filter((value): value is string => typeof value === "string" && value.length > 0));
     const relatedEventFirstSeenMs = minimumNumber(
       ...[
@@ -5521,13 +5533,9 @@ function buildMaterializedLocalV2Detail(
     event: (typeof networkEvents)[number] | (typeof cookieEvents)[number],
     candidates = reportableVendorRows,
   ) =>
-    candidates.find((vendor) => vendor.matchedEventIds.has(event.eventId)) ??
-    candidates.find((vendor) => {
-      const host = hostnameFromUrl(event.hostname ?? event.url);
-      return Boolean(host && vendor.matchedHostnames.some((matchedHost) =>
-        host === matchedHost || host.endsWith(`.${matchedHost}`)
-      ));
-    }) ?? null;
+    // Resolver matches are event-bound. A cookie on the document's hostname
+    // must not classify unrelated navigation, stylesheet, or script requests.
+    candidates.find((vendor) => vendor.matchedEventIds.has(event.eventId)) ?? null;
   const thirdPartyRequestCount = countCanonicalNetworkEvents(thirdPartyRequests);
   // Customer-facing cookie totals use canonical domain + path + name identity.
   // Raw Set-Cookie and browser-snapshot events remain available as evidence.

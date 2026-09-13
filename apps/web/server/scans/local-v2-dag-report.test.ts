@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
 import type { CanonicalEvidenceBundle } from "@certscore/contracts";
+import { CANONICAL_VENDOR_RESOLVER_VERSION } from "@certscore/vendor-resolver";
 import { SCAN_NO_GO_REASON_CODES, SCAN_NO_GO_REASON_PRESENTATIONS } from "@website-signal-risk-scanner/shared";
 import { deriveGdprEprivacyCoverageChecklist } from "../../lib/scans/gdpr-eprivacy-coverage-checklist";
 import { deriveGdprEprivacyCoveragePolicyOutcomes } from "../../lib/scans/gdpr-eprivacy-coverage-policy";
@@ -6065,7 +6066,7 @@ test("materializeLocalV2DagScanDetail projects row-specific runtime signal summa
     // legacy compatibility is checked independently at the retained contract.
     const registry = vendorObservations.find(row => row.vendor === "Microsoft Clarity")?.registryAttribution as Record<string, unknown>;
     assert.equal(registry.contractVersion, "vendor-registry-attribution-v1");
-    assert.equal(registry.resolverVersion, "certscore-vendor-resolver-2026-09-05-attribution-v1");
+    assert.equal(registry.resolverVersion, CANONICAL_VENDOR_RESOLVER_VERSION);
     assert.match(String(registry.serviceId), /^svc_[a-f0-9]{12}$/);
     assert.deepEqual(embeddedSummary.embeddedContentHosts, ["youtube.com", "google.com", "connect.facebook.net"]);
     assert.deepEqual(embeddedSummary.embeddedContentPurposeBuckets, {
@@ -9212,4 +9213,42 @@ test("materializeLocalV2DagScanDetail marks failed pre-consent runtime counts as
     }
     await rm(outDir, { recursive: true, force: true });
   }
+});
+
+test("canonical request attribution does not spread cookie vendors to the host's page or assets", async () => {
+  const { materializeLocalV2DagScanDetail } = await loadLocalV2DagReport();
+  const { buildExecutiveTimelineEvents } = await import("../../components/scans/shared-scan-detail-view");
+  const previousAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+  const outDir = await mkdtemp(path.join(process.cwd(), "artifacts/local-v2-dag-scans/event-attribution-"));
+  try {
+    const request = (eventId: string, url: string, timestampMs: number, resourceType: string) => ({
+      eventId, eventType: "network_request", requestId: eventId, url, requestUrl: url,
+      hostname: new URL(url).hostname, timestampMs, resourceType, thirdParty: new URL(url).hostname !== "example.test", collectionEndpointObserved: resourceType === "fetch",
+      consentStateAtTime: "pre_consent", sourceScanner: "pre_consent_runtime", evidenceRefs: [],
+    });
+    await writeFile(path.join(outDir, "CanonicalEvidenceBundle.json"), JSON.stringify({
+      scanId: "event-attribution-fixture", url: "https://example.test/", normalizedUrl: "https://example.test/",
+      startedAt: "2026-09-13T05:16:04.000Z", completedAt: "2026-09-13T05:16:18.000Z",
+      schemaVersion: "certscore.v2.canonical-evidence-bundle.v1",
+      networkEvents: [request("page", "https://example.test/", 1638, "document"), request("css", "https://example.test/styles.css", 1900, "stylesheet"), request("collect", "https://www.google-analytics.com/g/collect", 2601, "fetch")],
+      cookieEvents: [{ eventId: "ga_cookie", eventType: "cookie_snapshot", cookieName: "_ga", cookieDomain: "example.test", hostname: "example.test", url: "https://example.test/", timestampMs: 4416, operation: "browser_snapshot", consentStateAtTime: "pre_consent", cookiePurpose: "analytics", cookieEssentiality: "non_essential", evidenceRefs: [] }],
+      normalizedVendorObservations: [], observedJourneys: [], policySurfaceObservations: [], modulesRun: [], consentUiObservations: [], derivedRuntimeSignals: {},
+      runtimeCoverage: { coverageStatus: "usable", limitationKeys: [], fallbackModesUsed: [], notes: [], silentEmpty: false, observationCounts: {} },
+    }));
+    const base = makeScanRecord();
+    const detail = await materializeLocalV2DagScanDetail(makeScanRecord({ scan: { ...base.scan, domainHostname: "example.test", scanConfigJson: {
+      hostname: "example.test", normalizedUrl: "https://example.test/", processor: LOCAL_V2_DAG_SCAN_PROCESSOR,
+      execution: { localV2Dag: { outDir }, v2DagParallel: { artifactOnly: true, localOnly: true, productionFindingIntegration: false } },
+    } } }));
+    const hybrid = detail.runtimeArtifacts?.hybridRuntimeEvidence as Record<string, unknown>;
+    const rows = hybrid.requestPurposeClassificationConfidence as Array<Record<string, unknown>>;
+    assert.ok(rows.some(row => row.requestUrl === "https://www.google-analytics.com/g/collect" && row.category === "analytics"));
+    assert.ok(!rows.some(row => ["https://example.test/", "https://example.test/styles.css"].includes(String(row.requestUrl))));
+    const timeline = buildExecutiveTimelineEvents(detail.runtimeArtifacts, []);
+    const analytics = timeline.find(event => /analytics/i.test(JSON.stringify(event)));
+    assert.ok(analytics);
+    assert.equal(analytics.atMs, 2601);
+    assert.equal(detail.snapshot?.preconsent_tracking_detected, true);
+  } finally { process.env.NEXT_PUBLIC_APP_URL = previousAppUrl; await rm(outDir, { recursive: true, force: true }); }
 });
