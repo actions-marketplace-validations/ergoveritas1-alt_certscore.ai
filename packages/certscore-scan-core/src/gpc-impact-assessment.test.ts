@@ -31,6 +31,15 @@ function fixture(enabled: boolean, names: string[], end = 1500) {
   return canonicalEvidenceBundleSchema.parse(bundle);
 }
 
+test("explicit retention loss remains neutral even when supplied events happen to match", () => {
+  const baseline = fixture(false, []), gpc = fixture(true, []);
+  gpc.gpcImpactCapture!.retentionStatus = "incomplete";
+  const result = buildGpcImpactAssessment({ scanId: baseline.scanId, baseline: source(baseline), gpc: source(gpc) });
+  assert.equal(result.status, "insufficient_evidence");
+  assert.ok(result.limitationKeys.includes("gpc_retained_request_set_incomplete"));
+  assert.equal(result.scoreEffect, "none");
+});
+
 test("busy matched windows measure both directions without changing the legacy response", () => {
   for (const [baselineNames, gpcNames, outcome] of [[['A','B'],['A'],'lower'], [['A'],['A','B'],'higher'], [['A'],['A'],'unchanged'], [[],[],'no_activity_observed'], [[],['A'],'new_activity_observed']] as const) {
     const baseline = fixture(false, [...baselineNames]), gpc = fixture(true, [...gpcNames]);

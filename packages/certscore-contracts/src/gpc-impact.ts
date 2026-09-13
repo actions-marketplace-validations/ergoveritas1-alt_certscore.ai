@@ -15,6 +15,7 @@ export const gpcImpactCaptureSchema = z.object({
   document: z.object({ token: z.string().min(1).max(160), urlSha256: hash,
     committedAtMs: time, secGpc: z.string().max(8).nullable() }).strict().nullable(),
   requestsDropped: time,
+  retentionStatus: z.enum(["incomplete"]).optional(),
   invalidationReasons: z.array(z.enum(["document_requested_after_commit", "document_recommitted", "commit_binding_mismatch", "same_document_url_changed", "same_document_identity_unverified", "renderer_crash", "unspecified"])).max(7).optional(),
   windows: z.array(z.object({ durationMs: z.union([z.literal(250), z.literal(500), z.literal(1000)]),
     requestCount: time, requestSetSha256: hash }).strict()).max(3),

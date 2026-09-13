@@ -20,7 +20,7 @@ test("overlapping finalization is additive to old sessions and requires honest g
   const finalization={contractVersion:'certscore.gpc-overlapped-finalization.v1',readbackStartedAtMs:800,readbackCompletedAtMs:850,
     requestedGeneration:2,terminalGeneration:2,documentUnchanged:true};
   assert.ok(gpcObservationSessionSchema.safeParse({...session,finalization}).success);
-  for(const mutation of [{readbackCompletedAtMs:1100},{terminalGeneration:3},{documentUnchanged:false},{readbackCompletedAtMs:null}]) {
+  for(const mutation of [{readbackCompletedAtMs:1100},{terminalGeneration:3},{documentUnchanged:false},{readbackCompletedAtMs:null},{invalidationReasons:["document_commit"]}]) {
     assert.equal(gpcObservationSessionSchema.safeParse({...session,finalization:{...finalization,...mutation}}).success,false);
   }
 });

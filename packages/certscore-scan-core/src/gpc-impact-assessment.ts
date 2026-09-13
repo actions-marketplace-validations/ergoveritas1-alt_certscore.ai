@@ -48,6 +48,7 @@ export function buildGpcImpactAssessment(input: { scanId: string; baseline?: Gpc
     if (bundle.scanId !== input.scanId || !bundle.scanLaneRuns.some(l => l.laneId === lane)) limits.push(`${label}_provenance_mismatch`);
     const capture = bundle.gpcImpactCapture;
     if (!capture) { limits.push(`${label}_impact_capture_missing`); continue; }
+    if (capture.retentionStatus === "incomplete") limits.push(`${label}_retained_request_set_incomplete`);
     if (capture.limitationKeys.length || capture.requestsDropped || !capture.windows.length) limits.push(`${label}_capture_incomplete`);
     if (!validSignal(bundle, enabled, input.scanId)) limits.push(`${label}_delivery_or_document_unverified`);
     if (capture.capturedAtMs > Date.parse(bundle.completedAt) - Date.parse(bundle.startedAt)) limits.push(`${label}_capture_after_completion`);

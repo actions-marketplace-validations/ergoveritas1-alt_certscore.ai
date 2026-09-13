@@ -28,6 +28,39 @@ async function fixture() {
 }
 const listener = {callbacks:0,dropped:0,registered:false};
 
+test("same-URL history while readback is pending adds no read and cannot override cancellation", async () => {
+  for (const aborted of [false, true]) {
+    const f = await fixture(); f.s.prepareFinalization();
+    f.cdp.emit('Page.navigatedWithinDocument', { frameId: 'main', url: f.page.url(), navigationType: 'historyApi' });
+    await f.resolve();
+    const packet = await f.s.finish(f.semantic, listener, aborted);
+    assert.equal(packet.terminal, aborted ? 'aborted' : 'completed');
+    assert.equal(f.treeCalls(), 2);
+    await f.s.close();
+  }
+});
+
+test("exact-URL history no-ops preserve terminal proof; changed or unknown history stays stale", async () => {
+  for (const change of ['noop', 'return', 'fragment', 'unknown', 'missing']) {
+    const f = await fixture();
+    f.s.prepareFinalization(); await f.resolve();
+    const url = f.page.url();
+    if (change === 'return') f.cdp.emit('Page.navigatedWithinDocument', { frameId: 'main', url: `${url}?changed=1`, navigationType: 'historyApi' });
+    f.cdp.emit('Page.navigatedWithinDocument', { frameId: 'main', url: change === 'missing' ? undefined : change === 'fragment' ? `${url}#other` : url,
+      navigationType: change === 'unknown' ? undefined : 'historyApi' });
+    const packet = await f.s.finish(f.semantic, listener, false);
+    assert.equal(packet.terminal, change === 'noop' ? 'completed' : 'incomplete', change);
+    assert.equal(packet.finalization!.invalidationReasons!.length > 0, change !== 'noop');
+    const frozen = JSON.stringify(packet);
+    f.cdp.emit('Page.navigatedWithinDocument', { frameId: 'main', url: `${url}?late=1` });
+    assert.equal(JSON.stringify(await f.s.finish(f.semantic, listener, false)), frozen);
+    assert.equal(f.treeCalls(), 2);
+    await f.s.close();
+    assert.equal(f.page.listenerCount('crash'), 0);
+    assert.equal(f.page.listenerCount('close'), 0);
+  }
+});
+
 test("a stalled final readback preserves a terminal packet immediately; late resolution cannot mutate it", async()=>{
   const f=await fixture();
   f.s.prepareFinalization();

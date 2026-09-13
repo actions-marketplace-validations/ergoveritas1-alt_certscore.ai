@@ -1538,8 +1538,25 @@ export function compactCanonicalEvidenceBundleForRetention(
       : undefined,
   });
 
+  // Restore only original, already-sanitized window events. Never displace the
+  // priority-selected evidence or recompute a digest from a truncated sample.
+  const completeNetworkEvents = compacted.networkEvents;
+  const finishRetention = (result: CanonicalEvidenceBundle): CanonicalEvidenceBundle => {
+    const capture = result.gpcImpactCapture;
+    if (!capture?.document || !capture.windows.length) return result;
+    const start = capture.document.committedAtMs;
+    const end = start + Math.max(...capture.windows.map(window => window.durationMs));
+    const retainedIds = new Set(result.networkEvents.map(event => event.eventId));
+    const missing = completeNetworkEvents.filter(event => event.timestampMs >= start && event.timestampMs < end && !retainedIds.has(event.eventId));
+    if (!missing.length) return result;
+    const restoreIds = new Set(missing.map(event => event.eventId));
+    const restored = { ...result, networkEvents: completeNetworkEvents.filter(event => retainedIds.has(event.eventId) || restoreIds.has(event.eventId)) };
+    if (serializedBytes(restored.networkEvents) - serializedBytes(result.networkEvents) <= 16 * 1024 && coreBytes(restored) <= maxSerializedBytes) return restored;
+    return { ...result, gpcImpactCapture: { ...capture, retentionStatus: "incomplete" } };
+  };
+
   if (coreBytes(compacted) <= maxSerializedBytes) {
-    return compacted;
+    return finishRetention(compacted);
   }
 
   const referencedEventIds = collectReferencedEventIds(compacted);
@@ -1553,17 +1570,17 @@ export function compactCanonicalEvidenceBundleForRetention(
   });
 
   if (coreBytes(compacted) <= maxSerializedBytes) {
-    return compacted;
+    return finishRetention(compacted);
   }
 
-  return canonicalEvidenceBundleSchema.parse({
+  return finishRetention(canonicalEvidenceBundleSchema.parse({
     ...compacted,
     networkEvents: retainPriorityEvents(compacted.networkEvents, referencedEventIds, 80),
     networkResponseEvents: retainPriorityEvents(compacted.networkResponseEvents, referencedEventIds, 60),
     scriptEvents: retainPriorityEvents(compacted.scriptEvents, referencedEventIds, 40),
     iframeEvents: retainPriorityEvents(compacted.iframeEvents, referencedEventIds, 40),
     runtimeTimeline: retainPriorityEvents(compacted.runtimeTimeline, referencedEventIds, 40),
-  });
+  }));
 }
 
 function journeyEstablishesPreConsentTracking(journey: ObservedJourney): boolean {

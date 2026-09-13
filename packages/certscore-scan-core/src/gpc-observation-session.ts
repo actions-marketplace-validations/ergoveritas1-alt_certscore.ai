@@ -20,6 +20,7 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
   const requestDiagnostics = createGpcRequestDiagnostics(cdp, mainFrameId);
   const documents: Array<{ loader: string; frame: string; requestId: string; requestAtMs: number; urlHash: string; secGpc: string | null }> = [];
   let committed: { loader: string; urlHash: string; at: number } | null = null;
+  let exactCommittedUrl: string | undefined;
   let documentDrops = 0, stopped = false, requestsObserved = 0, requestsDropped = 0;
   let generation = 0;
   let terminalReadback: { generation: number; loaderId: string; url: string } | undefined;
@@ -27,10 +28,14 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
   let readbackStartedAtMs: number | null = null, readbackCompletedAtMs: number | null = null;
   let requestedGeneration: number | null = null;
   let invalidated = false;
-  const invalidate = () => { generation++; };
-  const unavailable = () => { invalidated = true; generation++; };
-  page.on("crash", unavailable);
-  page.on("close", unavailable);
+  type Reason = NonNullable<NonNullable<GpcObservationSession["finalization"]>["invalidationReasons"]>[number];
+  const invalidationReasons = new Set<Reason>();
+  const invalidate = (reason: Reason) => { if (!stopped) { generation++; if (terminalReadbackStarted) invalidationReasons.add(reason); } };
+  const unavailable = (reason: Reason) => { if (!stopped) { invalidated = true; invalidate(reason); } };
+  const onCrash = () => unavailable("renderer_crash");
+  const onClose = () => unavailable("page_closed");
+  page.on("crash", onCrash);
+  page.on("close", onClose);
   const requests: GpcObservationSession["requests"] = [];
   let frozenPacket: GpcObservationSession | undefined;
   const requestHandles = new Map<string, Request>();
@@ -42,7 +47,7 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
   page.on("response", onResponse);
   const onRequest = (p: any) => {
     if (stopped || p.type !== "Document" || p.frameId !== mainFrameId || typeof p.loaderId !== "string" || !/^https?:/.test(p.request?.url ?? "")) return;
-    invalidate();
+    invalidate("document_request");
     if (documents.length >= 32) { documentDrops++; documents.shift(); }
     const header = Object.entries(p.request.headers ?? {}).find(([key]) => key.toLowerCase() === "sec-gpc")?.[1];
     documents.push({ loader: p.loaderId, frame: p.frameId, requestId: p.requestId, requestAtMs: now(),
@@ -50,13 +55,19 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
   };
   const onNavigated = (p: any) => {
     if (stopped || p.frame?.id !== mainFrameId || !p.frame.loaderId || !/^https?:/.test(p.frame.url ?? "")) return;
-    invalidate();
+    invalidate("document_commit");
     committed = { loader: p.frame.loaderId, urlHash: gpcDocumentHash(p.frame.url), at: now() };
+    exactCommittedUrl = p.frame.url;
   };
   // A same-document URL change retains the loader; keep the actual request URL
   // separate so history.pushState cannot invent a request to the new URL.
   const onWithinDocument = (p: any) => {
-    if (!stopped && committed && p.frameId === mainFrameId && /^https?:/.test(p.url ?? "")) { invalidate(); committed.urlHash = gpcDocumentHash(p.url); }
+    if (stopped || p.frameId !== mainFrameId) return;
+    // A history API no-op does not change the active loader or complete URL.
+    // Unknown identity and URL change-then-return still invalidate pending proof.
+    if (committed && p.navigationType === "historyApi" && p.url === exactCommittedUrl) return;
+    invalidate(committed && typeof p.url === "string" && /^https?:/.test(p.url) ? "same_document_url_changed" : "same_document_identity_unverified");
+    if (committed && typeof p.url === "string" && /^https?:/.test(p.url)) { committed.urlHash = gpcDocumentHash(p.url); exactCommittedUrl = p.url; }
   };
   cdp.on("Network.requestWillBeSent", onRequest);
   cdp.on("Page.frameNavigated", onNavigated);
@@ -146,7 +157,7 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
         observationScope: "main_document_and_retained_http_requests", captureStartedAtMs, captureEndedAtMs: now(),
         terminal: aborted ? "aborted" : limitations.length ? "incomplete" : "completed",
         finalization: { contractVersion: "certscore.gpc-overlapped-finalization.v1", readbackStartedAtMs, readbackCompletedAtMs,
-          requestedGeneration, terminalGeneration: generation, documentUnchanged: Boolean(final) && !page.isClosed() },
+          requestedGeneration, terminalGeneration: generation, documentUnchanged: Boolean(final) && !page.isClosed(), invalidationReasons: [...invalidationReasons] },
         mainDocument: limitations.includes("terminal_document_unverified") || !commit || !delivered ? null : {
           documentToken: commit.loader, documentUrlSha256: commit.urlHash, requestUrlSha256: delivered.urlHash,
           requestId: delivered.requestId, requestAtMs: delivered.requestAtMs, secGpc: delivered.secGpc, committedAtMs: commit.at,
@@ -158,6 +169,6 @@ export async function startGpcObservationSession(input: { page: Page; scanId: st
       frozenPacket = packet;
       return packet;
     },
-    async close() { stopped = true; requestHandles.clear(); requestLoaders.clear(); responses.clear(); page.off("response", onResponse); page.off("crash", unavailable); page.off("close", unavailable); requestDiagnostics.close(); await cdp.detach().catch(() => {}); },
+    async close() { stopped = true; requestHandles.clear(); requestLoaders.clear(); responses.clear(); page.off("response", onResponse); page.off("crash", onCrash); page.off("close", onClose); requestDiagnostics.close(); await cdp.detach().catch(() => {}); },
   };
 }
