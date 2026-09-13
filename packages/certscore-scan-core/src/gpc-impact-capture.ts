@@ -15,25 +15,43 @@ export function createGpcImpactCapture(input: { expectedEnabled: boolean; now: (
   const requests: RequestIdentity[] = [];
   let requestsDropped = 0;
   let document: GpcImpactCapture["document"] = null;
+  // Unlike signal identity, history equivalence must preserve fragments too.
+  let committedExactUrlSha256: string | undefined;
   let pending: { loader: string; urlHash: string; secGpc: string | null } | undefined;
   let invalid = false;
+  type Reason = NonNullable<GpcImpactCapture["invalidationReasons"]>[number];
+  const invalidationReasons = new Set<Reason>();
+  const invalidate = (reason: Reason = "unspecified") => {
+    if (!frozen) { invalid = true; invalidationReasons.add(reason); }
+  };
   let frozen: GpcImpactCapture | undefined;
   let readbackDocumentToken: string | null = null;
   return {
     bindReadback(token: string | undefined) { if (!frozen) readbackDocumentToken = token ?? null; },
     documentRequested(p: { type?: string; frameId?: string; loaderId?: string; request?: { url?: string; headers?: Record<string, unknown> } }, mainFrameId: string) {
       if (frozen || p.type !== "Document" || p.frameId !== mainFrameId || !p.loaderId || !p.request?.url || !/^https?:/.test(p.request.url)) return;
-      if (document) invalid = true;
+      if (document) invalidate("document_requested_after_commit");
       const header = Object.entries(p.request.headers ?? {}).find(([k]) => k.toLowerCase() === "sec-gpc")?.[1];
       pending = { loader: p.loaderId, urlHash: gpcDocumentHash(p.request.url), secGpc: typeof header === "string" && header.length <= 8 ? header : null };
     },
     documentCommitted(frame: { parentId?: string; loaderId?: string; url?: string }) {
       if (frozen || frame.parentId || !frame.loaderId || !frame.url || !/^https?:/.test(frame.url)) return;
-      if (document) invalid = true;
-      if (!pending || pending.loader !== frame.loaderId || pending.urlHash !== gpcDocumentHash(frame.url)) { invalid = true; return; }
+      if (document) invalidate("document_recommitted");
+      if (!pending || pending.loader !== frame.loaderId || pending.urlHash !== gpcDocumentHash(frame.url)) { invalidate("commit_binding_mismatch"); return; }
       document = { token: frame.loaderId, urlSha256: pending.urlHash, committedAtMs: input.now(), secGpc: pending.secGpc };
+      committedExactUrlSha256 = createHash("sha256").update(new URL(frame.url).href).digest("hex");
     },
-    invalidate() { if (!frozen) invalid = true; },
+    invalidate,
+    navigatedWithinDocument(event: { url?: string; navigationType?: string }, documentToken: string | undefined) {
+      if (frozen) return;
+      if (!document || documentToken !== document.token || !event.url || event.navigationType !== "historyApi") {
+        invalidate("same_document_identity_unverified");
+      } else {
+        try {
+          if (createHash("sha256").update(new URL(event.url).href).digest("hex") !== committedExactUrlSha256) invalidate("same_document_url_changed");
+        } catch { invalidate("same_document_identity_unverified"); }
+      }
+    },
     recordRequest(event: RequestIdentity) {
       if (frozen) return;
       if (requests.length >= 5000) { requestsDropped++; return; }
@@ -53,7 +71,7 @@ export function createGpcImpactCapture(input: { expectedEnabled: boolean; now: (
       }) : [];
       if (!windows.length && !limits.length) limits.push("observation_window_too_short");
       frozen = gpcImpactCaptureSchema.parse({ contractVersion: "certscore.gpc-impact-capture.v1", scope: "page_http_request_attempts_after_document_commit",
-        expectedEnabled: input.expectedEnabled, captureStartedAtMs: startedAt, capturedAtMs, readbackDocumentToken, document, requestsDropped, windows, limitationKeys: limits });
+        expectedEnabled: input.expectedEnabled, captureStartedAtMs: startedAt, capturedAtMs, readbackDocumentToken, document, requestsDropped, windows, limitationKeys: limits, invalidationReasons: [...invalidationReasons] });
       return frozen;
     },
   };

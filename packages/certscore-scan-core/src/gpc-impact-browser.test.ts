@@ -17,6 +17,7 @@ test("existing baseline and GPC browsers retain comparable windows on a continuo
     if (req.url !== '/') { res.end('observed'); return; }
     res.setHeader('content-type','text/html');
     res.end(`<!doctype html><html><head><title>Product documentation</title></head><body><h1>Product documentation</h1><p>${'Information about products, services, and public support. '.repeat(40)}</p><script>
+      history.replaceState(null, '', location.href);
       fetch('/hanging'); setTimeout(()=>{ if(navigator.globalPrivacyControl!==true) fetch('/baseline-only'); },300);
       window.__gpp=(command,callback)=>{const enabled=navigator.globalPrivacyControl===true;
         const ping={gppVersion:'1.1',cmpStatus:'loaded',signalStatus:'ready',applicableSections:[8],sectionList:[8],

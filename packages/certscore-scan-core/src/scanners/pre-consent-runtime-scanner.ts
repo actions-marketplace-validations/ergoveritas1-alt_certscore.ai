@@ -720,7 +720,7 @@ export async function preConsentRuntimeScanner(
   };
   let pageCrashObserved = false;
   const recordPageCrash = () => {
-    impactCapture?.invalidate();
+    impactCapture?.invalidate("renderer_crash");
     if (pageCrashObserved) return;
     pageCrashObserved = true;
     runtimeErrors.push("Chromium renderer crash event observed for the pre-consent page.");
@@ -10958,8 +10958,8 @@ async function installCdpNetworkMetadataCapture(
   } | null;
   retainMainFrameDocumentIdentity(initialFrameTree?.frameTree?.frame);
   const mainFrameId = initialFrameTree?.frameTree?.frame?.id;
-  session.on("Page.navigatedWithinDocument", (p: { frameId?: string }) => {
-    if (p.frameId === mainFrameId) stores.impactCapture?.invalidate();
+  session.on("Page.navigatedWithinDocument", (p: { frameId?: string; url?: string; navigationType?: string }) => {
+    if (p.frameId === mainFrameId) stores.impactCapture?.navigatedWithinDocument(p, stores.documentIdentityState.current?.token);
   });
   session.on("Network.requestWillBeSent", (raw: unknown) => {
     const params = raw as {

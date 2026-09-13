@@ -752,9 +752,11 @@ export async function policySurfaceScanner(
     const firstHomepageResponseMs = firstHomepageResponse?.firstResponseAt
       ? Date.parse(firstHomepageResponse.firstResponseAt)
       : Number.NaN;
-    const homepageChallengeDetected = homepage.ok &&
-      assessPolicyTextQuality(homepage.text).reason === "low_quality_access_challenge";
+    const terminalAccess = assessPolicyHomepageAccess(homepage);
+    const homepageChallengeDetected = terminalAccess === "bot_challenge";
     siteFacingNavigation = {
+      terminalHttpStatus: homepage.status ?? null,
+      terminalAccess,
       requestedUrl: sanitizedSiteFacingUrl(input.normalizedUrl),
       firstResponseAt: firstHomepageResponse?.firstResponseAt ?? null,
       firstResponseOffsetMs: Number.isFinite(firstHomepageResponseMs)
@@ -7388,6 +7390,15 @@ type FetchTextResult = {
   status?: number;
   text: string;
 };
+
+/** Homepage access only: later policy-subpage success cannot replace this outcome. */
+export function assessPolicyHomepageAccess(homepage: Pick<FetchTextResult, "ok" | "status" | "text">): NonNullable<ScanModuleRun["siteFacingNavigation"]>["terminalAccess"] {
+  if ([401, 403, 429, 451].includes(homepage.status ?? 0)) return "access_denied";
+  if (!homepage.ok || homepage.status === undefined || homepage.status < 200 || homepage.status >= 300) return "unknown";
+  const quality = assessPolicyTextQuality(homepage.text);
+  if (quality.reason === "low_quality_access_challenge") return "bot_challenge";
+  return quality.usable ? "representative_page" : "unknown";
+}
 
 function policyFetchRedirectChain(result: FetchTextResult): string[] {
   return uniqueStrings((result.attempts ?? [])

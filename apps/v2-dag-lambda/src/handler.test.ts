@@ -1335,6 +1335,24 @@ test("lane instrumentation retains representative navigation when the initial re
   assert.equal(lane?.accessOutcome, "representative_page");
 });
 
+test("policy access uses terminal evidence, never the initial redirect or successful subpages", () => {
+  for (const terminalAccess of ["access_denied", "representative_page", "unknown", "bot_challenge", undefined] as const) {
+    const bundle = canonicalBundleFixture("policy-terminal", {
+      modulesRun: [{ moduleName: "policySurfaceScanner", status: "completed",
+        startedAt: "2026-06-15T18:00:00.000Z", evidenceRefs: [], errors: [],
+        siteFacingNavigation: { requestedUrl: "https://example.com/", firstResponseAt: null, firstResponseOffsetMs: null,
+          firstHttpStatus: 301, firstEffectiveUrl: "https://example.com/", navigationCount: 1,
+          challengeDetected: false, challengeType: null,
+          ...(terminalAccess ? { terminalAccess, terminalHttpStatus: terminalAccess === "access_denied" ? 403 : terminalAccess === "representative_page" ? 200 : null } : {}),
+        },
+      }],
+    });
+    const lane = buildLocalV2DagLambdaLaneRun({ bundle, workerLane: "policy_evidence", region: "us-west-1" });
+    assert.equal(lane?.firstHttpStatus, 301);
+    assert.equal(lane?.accessOutcome, terminalAccess ?? "unknown");
+  }
+});
+
 test("technical browser success remains a bot-challenge access outcome", () => {
   const bundle = canonicalBundleFixture("scan-challenge", {
     modulesRun: [{

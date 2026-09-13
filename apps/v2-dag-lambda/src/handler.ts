@@ -1154,17 +1154,20 @@ export function buildLocalV2DagLambdaLaneRun(input: {
     : moduleRun.status === "failed" || moduleRun.status === "not_testable"
       ? "failed"
       : "degraded";
+  const accessStatus = laneId === "policy_evidence" ? siteFacingNavigation?.terminalHttpStatus : firstHttpStatus;
   const accessOutcome: ScanLaneRun["accessOutcome"] = challengeDetected
     ? "bot_challenge"
     : noGoReason === "access_denied_or_forbidden_page" ||
         noGoReason === "authentication_required" ||
         noGoReason === "rate_limited_429" ||
-        firstHttpStatus === 401 || firstHttpStatus === 403 || firstHttpStatus === 429 || firstHttpStatus === 451
+        accessStatus === 401 || accessStatus === 403 || accessStatus === 429 || accessStatus === 451
       ? "access_denied"
       : noGoReason === "blank_or_unusable_page" || noGoReason === "loading_or_stalled"
         ? "blank_or_unusable"
         : noGoReason === "navigation_transport_failure" || (executionOutcome === "failed" && firstHttpStatus === null)
           ? "navigation_failed"
+          : laneId === "policy_evidence"
+            ? input.bundle.scanNoGoAssessment?.decision === "no_go" ? "unknown" : siteFacingNavigation?.terminalAccess ?? "unknown"
           : input.bundle.scanNoGoAssessment?.decision !== "no_go" && firstHttpStatus !== null && firstHttpStatus >= 200 && firstHttpStatus < 400
             ? "representative_page"
             : "unknown";

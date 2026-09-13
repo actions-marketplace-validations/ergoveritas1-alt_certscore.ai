@@ -23,7 +23,9 @@ The packet retains:
 - exact request count and SHA-256 identity-set digest for each interval;
 - explicit dropped-request, document-change, and insufficient-window limitations.
 
-Intervals are half-open `[commit, commit + duration)`. Bootstrap/navigation activity precedes them. The collector caps its temporary request identity list at 5,000 entries. A lost or truncated request invalidates measurement rather than appearing as reduced activity. A same-document URL change currently limits capture; future equivalence handling must retain the actual navigation/URL relationship.
+Intervals are half-open `[commit, commit + duration)`. Bootstrap/navigation activity precedes them. The collector caps its temporary request identity list at 5,000 entries. A lost or truncated request invalidates measurement rather than appearing as reduced activity. Same-document URL changes still limit capture. A CDP `historyApi` update may preserve capture only when its full URL (including fragment) matches the committed URL and its current loader token matches the committed document. Missing event identity, changed routes (even if they later return), duplicate commits, and renderer crashes remain invalid. Frozen packets cannot change.
+
+Optional `invalidationReasons` retains up to seven distinct typed reason codes; legacy packets without it remain unchanged. The Lovable post-release example had adequate time and matching final readback but a sticky invalidation flag; its original triggering event was not retained, so historical windows must not be reconstructed or upgraded. A local Chromium fixture verifies the same-URL history-update path, independently of that historical diagnosis.
 
 Current main/frame and worker signal proof remains authoritative; the old GPC response assessment receives no new limits or eligibility shortcuts. The new impact document binding is separate from the old opt-in prototype binding.
 
@@ -91,6 +93,10 @@ Read-only inspection of the original 108 access/no-go-limited scans produced the
 | **Total** | **108** |
 
 The existing navigation-recovery sequence now awaits the blank-document commit before navigating again, propagates a failed reset, rechecks cancellation, and clamps recovery navigation to remaining time with a capture reserve. It adds no attempt, session, proxy, egress change, or wait budget. This targets reset races; it does not claim to resolve challenges, HTTP/2 failures, or all deadline failures. Access diagnostics also flag contradictory lane labels; a redirect response cannot make a terminal no-go page representative.
+
+Policy homepage navigation now retains optional terminal HTTP status and terminal access separately from first-response timing. A 301 followed by 403 is access-denied, not representative. Successful policy subpages cannot replace the homepage result; failed, unresolved, empty, or unverifiable terminal evidence stays unknown or limited. When constructing a new policy lane envelope from legacy metadata without terminal evidence, access is unknown rather than inferred from its first redirect. Stored historical lane envelopes are not rewritten. Existing canonical no-go and challenge evidence retains precedence.
+
+The September 13 follow-up adds no browser calls, requests, retries, waits, or model usage. Bounded invalidation reasons and terminal fields are estimated below $0.10/month incremental storage at 100,000 scans and 30-day retention (allowing for repeated metadata copies). This estimate was disclosed before implementation. Neither fix changes GPC response/scoring policy or demonstrates recovery from a website's access denial.
 
 The next access-recovery increment makes passive navigation commit and document readiness share one navigation allowance. Time consumed before commit is subtracted from readiness waiting; readiness also leaves 1,000 ms inside the module budget for capture. An exhausted allowance skips readiness waiting (never a zero-timeout unbounded browser call) and retains the current page for ordinary evidence/coverage assessment. This does not declare a blank or blocked page usable, change consent-lane readiness, or add a recovery attempt. Cross-lane analysis runs on supplied local artifacts and adds no production storage or requests; the wait-budget correction adds no recurring cost.
 

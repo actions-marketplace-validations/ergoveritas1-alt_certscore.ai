@@ -15,6 +15,7 @@ export const gpcImpactCaptureSchema = z.object({
   document: z.object({ token: z.string().min(1).max(160), urlSha256: hash,
     committedAtMs: time, secGpc: z.string().max(8).nullable() }).strict().nullable(),
   requestsDropped: time,
+  invalidationReasons: z.array(z.enum(["document_requested_after_commit", "document_recommitted", "commit_binding_mismatch", "same_document_url_changed", "same_document_identity_unverified", "renderer_crash", "unspecified"])).max(7).optional(),
   windows: z.array(z.object({ durationMs: z.union([z.literal(250), z.literal(500), z.literal(1000)]),
     requestCount: time, requestSetSha256: hash }).strict()).max(3),
   limitationKeys: z.array(z.string().min(1).max(160)).max(16),
@@ -24,7 +25,7 @@ export const gpcImpactCaptureSchema = z.object({
       new Set(c.windows.map(w => w.durationMs)).size !== c.windows.length ||
       c.windows.some((w, i) => !c.document || c.capturedAtMs < c.document.committedAtMs + w.durationMs ||
         (i > 0 && (w.durationMs <= c.windows[i - 1]!.durationMs || w.requestCount < c.windows[i - 1]!.requestCount))) ||
-      (c.windows.length > 0 && (c.requestsDropped > 0 || c.limitationKeys.length > 0))) {
+      (c.windows.length > 0 && (c.requestsDropped > 0 || c.limitationKeys.length > 0 || (c.invalidationReasons?.length ?? 0) > 0))) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Impact intervals require bounded, complete, document-bound request sets." });
   }
 });

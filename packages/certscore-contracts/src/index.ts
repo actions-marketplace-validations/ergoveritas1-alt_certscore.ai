@@ -219,6 +219,8 @@ export const scannerBuildProvenanceSchema = z.object({
 );
 
 export const siteFacingNavigationDiagnosticsSchema = z.object({
+  terminalHttpStatus: z.number().int().min(100).max(599).nullable().optional(),
+  terminalAccess: z.enum(["representative_page", "access_denied", "bot_challenge", "unknown"]).optional(),
   requestedUrl: z.string().max(500),
   firstResponseAt: z.string().datetime().nullable(),
   firstResponseOffsetMs: z.number().int().nonnegative().nullable(),
@@ -227,7 +229,12 @@ export const siteFacingNavigationDiagnosticsSchema = z.object({
   navigationCount: z.number().int().nonnegative(),
   challengeDetected: z.boolean(),
   challengeType: z.string().max(120).nullable(),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.terminalAccess === "representative_page" &&
+      (value.terminalHttpStatus == null || value.terminalHttpStatus < 200 || value.terminalHttpStatus >= 300)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Representative terminal access requires a successful terminal response." });
+  }
+});
 
 export const scanLaneRunSchema = z.object({
   laneId: z.enum(["consent_proof", "runtime_evidence", "policy_evidence", "gpc_observation"]),
