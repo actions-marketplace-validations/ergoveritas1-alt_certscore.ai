@@ -18,9 +18,33 @@ test("exports report content without internal diagnostic payloads and retains co
 });
 
 test("repeated display records resolve to the original complete record", () => {
-  const row = { key: "resource1", description: "retained display evidence ".repeat(40) };
+  const row = { key: "resource1", name: "retained display evidence ".repeat(40) };
   const result: any = buildReportDisplayExport({ resourceInventory: { resources: [row], services: [{ resources: [row] }] } });
   const ref = result.resourceInventory.services[0].resources[0].reportContentRef;
   assert.equal(ref, "/resourceInventory/resources/0");
   assert.deepEqual(result.resourceInventory.resources[0], row);
+});
+
+test("full-site export follows visible page and resource columns rather than internal crawl records", () => {
+  const result: any = buildReportDisplayExport({ fullSiteReport: {
+    pages: { total: 3, rows: [
+      { id: 'visible', url: 'https://example.org', status: 'completed', cookies: 2, limitations: ['partial'], internalPacket: 'hidden', observation: { raw: 'hidden' } },
+      { id: 'excluded', status: 'excluded' }, { id: 'cancelled', status: 'cancelled' },
+    ] },
+    resources: { total: 1, rows: [{ key: 'cookie', eventCount: 2, inventoryEvidence: 'Review', occurrence: { label: 'id', kind: 'cookie', firstSeenMs: 25, domain: 'example.org', details: { rawPayload: 'hidden', resourceRole: 'video_ad_sdk' }, identity: 'hidden' } }] },
+    score: { value: 92, limitedPages: 1, evidencePages: [{ rows: [{ summary: 'Visible assessment' }] }], internalScoreInputs: 'hidden' },
+  } });
+  assert.equal(result.fullSiteReport.pages.total, 1);
+  assert.deepEqual(result.fullSiteReport.pages.rows[0], { id: 'visible', url: 'https://example.org', status: 'completed', cookies: 2, limitations: ['partial'] });
+  assert.equal(result.fullSiteReport.resources.rows[0].occurrence.firstSeenMs, 25);
+  assert.equal(result.fullSiteReport.resources.rows[0].occurrence.resourceRole, 'video_ad_sdk');
+  assert.equal(result.fullSiteReport.score.evidencePages[0].rows[0].summary, 'Visible assessment');
+  assert.ok(!JSON.stringify(result).includes('hidden'));
+});
+
+test("nested repeated display records remain resolvable without duplicating their backing objects", () => {
+  const row = { key: 'r', name: 'Visible resource '.repeat(50), occurrence: { label: 'Visible label '.repeat(50), kind: 'request' } };
+  const result: any = buildReportDisplayExport({resourceInventory: {resources: [row], services: [{resources: [row]}]}});
+  assert.equal(result.resourceInventory.services[0].resources[0].reportContentRef, '/resourceInventory/resources/0');
+  assert.equal(result.resourceInventory.resources[0].occurrence.kind, 'request');
 });
