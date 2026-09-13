@@ -22,6 +22,7 @@ test("classifies composite and direct MCP scan reads", () => {
 test("cookie/tracker graph reads use the canonical evidence weight on scan and domain paths", () => {
   for (const [name, args] of [
     ["certscore_get_pre_consent_cookies_trackers", { scanId: "scan_1" }],
+    ["certscore_get_report_evidence_page", { scanId: "scan_1", cursor: "opaque-page" }],
     ["certscore_get_latest_domain_pre_consent_cookies_trackers", { domain: "example.com" }],
   ] as const) assert.equal(mcpReadCallsFromJsonRpc(toolCall(name, args))[0]?.units, sharedPolicy.apiReadRateUnits("evidence"));
 });

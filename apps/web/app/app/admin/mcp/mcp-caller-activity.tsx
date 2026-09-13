@@ -1,10 +1,11 @@
+import { McpContextOnDemand } from "./mcp-context-on-demand";
 import Link from "next/link";
 import { McpDetailsPopup } from "./mcp-details-popup";
 import React from "react";
 import { mcpCallerIdentity, type McpCallerActivity as Activity, type McpCallerEvent } from "../../../../lib/admin/mcp-caller-activity";
 
 export function McpCallerActivity({ event, traffic, period, children }: {
-  event: McpCallerEvent & { source: string; surface: string; caller_activity?: Activity | null };
+  event: McpCallerEvent & { source: string; surface: string; caller_activity?: Activity | null; event_id?: string };
   traffic: string; period: string; children?: React.ReactNode;
 }) {
   const identity = mcpCallerIdentity(event);
@@ -17,7 +18,7 @@ export function McpCallerActivity({ event, traffic, period, children }: {
       {identity.kind === "session" ? "Session" : "Caller"} {identity.id}
     </Link>
     <p className="text-slate-500">Correlation only: shared IPs can combine callers; sessions and provider IDs can rotate. These are not verified unique agents.</p>
-    <McpCallerActivityCounts counts={counts} />
+    {counts ? <McpCallerActivityCounts counts={counts} /> : event.event_id ? <McpContextOnDemand eventId={event.event_id} traffic={traffic} kind="caller" /> : <p>Activity unknown</p>}
     {counts?.quotaHits60m ? <p className="font-medium text-amber-800">Rate limited / 429: {counts.quotaHits60m} in 60m</p> : null}
   </McpDetailsPopup>;
 }

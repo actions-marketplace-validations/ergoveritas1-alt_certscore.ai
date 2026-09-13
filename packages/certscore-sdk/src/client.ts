@@ -1,3 +1,4 @@
+import type { ReportEvidencePage } from "./types.js";
 import { createHmac } from "node:crypto";
 import { recordCertScoreErrorContext, CertScoreError, CertScoreApiError, InvalidUrlError, CertScoreScanFailedError, ThrottledError } from "./errors.js";
 import { adaptivePollIntervalMs, parseRetryAfter, retryDelayMs, sleep, SUCCESS_STATUSES, throwForTerminalStatus, throwTimeout } from "./poll.js";
@@ -242,6 +243,11 @@ export class CertScoreClient {
   }
 
   /** Retrieve the API v2 scan resource for an eligible public scan. */
+  /** Read-only credential and workspace diagnostics; never creates a scan. */
+  async getConnectionStatus(): Promise<Record<string, unknown>> {
+    return this.fetchJson<Record<string, unknown>>("/api/v2/auth/check?diagnostics=1");
+  }
+
   async getScanResource(scanId: string, options: ApiV2RequestOptions = {}): Promise<ScanResource> {
     return this.fetchJson<ScanResource>(`/api/v2/scans/${encodeURIComponent(scanId)}`, options);
   }
@@ -269,6 +275,12 @@ export class CertScoreClient {
   /** Retrieve one API v2 public-safe finding for an eligible public scan. */
   async getFinding(scanId: string, findingId: string, options: ApiV2RequestOptions = {}): Promise<FindingDetail> {
     return this.fetchJson<FindingDetail>(`/api/v2/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(findingId)}`, options);
+  }
+
+  async getReportEvidencePage(scanId: string, options: ApiV2RequestOptions & { cursor?: string } = {}): Promise<ReportEvidencePage> {
+    const endpoint = this.url(`/api/v2/scans/${encodeURIComponent(scanId)}/report-evidence`);
+    if (options.cursor) endpoint.searchParams.set("cursor", options.cursor);
+    return this.fetchJson<ReportEvidencePage>(endpoint, options);
   }
 
   /** Retrieve the API v2 Pulse wrapper for an eligible public scan. */

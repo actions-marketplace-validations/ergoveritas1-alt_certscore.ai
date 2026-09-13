@@ -16,7 +16,7 @@ test("missing identity or missing counts are never presented as zero calls", () 
   const event = { actor_id: null, session_id: null, source: "unknown", surface: "mcp_light" };
   assert.match(renderToStaticMarkup(<McpCallerActivity traffic="all" period="6h" event={event} />), /activity unknown/);
   const html = renderToStaticMarkup(<McpCallerActivity traffic="all" period="6h" event={{ ...event, session_id: "a" }} />);
-  assert.match(html, /5m: —/);
-  assert.match(html, /24hr: —/);
+  assert.match(html, /Activity unknown/);
+  assert.doesNotMatch(html, /5m: 0/);
   assert.match(html, /MCP session/);
 });

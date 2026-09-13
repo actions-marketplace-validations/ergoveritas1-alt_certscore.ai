@@ -1,12 +1,12 @@
 "use server";
 
+import { loadScanTrafficClassification } from "./scan-traffic-classification";
 import { query, queryOne } from "@website-signal-risk-scanner/db";
 import { SCAN_FROM_VALUES, SCAN_NO_GO_SNAPSHOT_OUTCOMES, formatScanFromLabel } from "@website-signal-risk-scanner/shared";
 import type { AccessPostureClass, RecoverableFindingClass, ScanExecutionTier } from "@website-signal-risk-scanner/shared";
 import { ensureMonitorSiteRequestsTable } from "../monitor-site/monitor-site-request";
 import { LOCAL_V2_DAG_LAMBDA_RESULT_RECEIVED_EVENT_TYPE } from "../scans/local-v2-dag-lambda-dispatch";
 import { LOCAL_V2_DAG_SCAN_PROCESSOR } from "../scans/local-v2-dag-scan-config";
-import { ensureScanRequestLogTable } from "../scans/scan-request-log";
 import { adminNoGoSql } from "./admin-no-go";
 import { getAdminUsersOrderBy, type AdminUsersSortDirection, type AdminUsersSortKey } from "./admin-users-sort";
 import { normalizeAdminExactHostname, normalizeAdminExactScanId, parseAdminActivitySearch } from "../../lib/admin/activity-search";
@@ -674,7 +674,6 @@ export async function loadAdminScanActivityPageRefs(
   offset: number,
   filters: AdminScanActivityFilters = {}
 ): Promise<{ rows: AdminScanActivityPageRef[]; totalCount: number }> {
-  await ensureScanRequestLogTable();
   const parsedSearch = parseAdminActivitySearch(filters.query, { source: true });
   const queryText = parsedSearch.query;
   const exclusionArray = (values: string[]) => values.length > 0 ? values : null;
@@ -757,60 +756,12 @@ export async function loadAdminScanActivityPageRefs(
   );
 
   if (canUseDefaultActivityPath) {
+    const trafficClassification = filters.includeCanary === true && filters.excludeMacMiniScanBot === false
+      ? { qa: [], macmini: [] } : await loadScanTrafficClassification();
     const defaultResult = await query<AdminScanActivityPageResultRow>(
-      `with canary_scan_ids as materialized (
-         select sp.scan_id
-           from public.scan_pages sp
-          where sp.page_url ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/'
-         union
-         select coalesce(sr.fulfilled_by_scan_id, sr.scan_id) as scan_id
-           from public.scan_requests sr
-          where coalesce(sr.fulfilled_by_scan_id, sr.scan_id) is not null
-            and coalesce(sr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/'
-         union
-         select pr.scan_id
-           from public.pulse_requests pr
-          where pr.scan_id is not null
-            and coalesce(pr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/'
-         union
-         select iqa_pr.scan_id
-           from public.pulse_requests iqa_pr
-           left join public.integration_api_keys iqa_key on iqa_key.public_id = iqa_pr.requested_by ->> 'apiKeyId'
-           left join public.users iqa_user on iqa_user.id::text = coalesce(iqa_pr.requested_by ->> 'userId', iqa_key.owner_user_id::text)
-           left join public.better_auth_users iqa_auth_user on iqa_auth_user.id = iqa_pr.requested_by ->> 'userId'
-          where iqa_pr.scan_id is not null
-            and (
-              lower(coalesce(iqa_user.email, iqa_auth_user.email, iqa_key.created_by, '')) = any($6::text[])
-              or trim(split_part(coalesce(nullif(iqa_pr.request_context ->> 'sourceIp', ''), nullif(iqa_pr.request_context -> 'provenance' ->> 'sourceIp', ''), nullif(iqa_pr.requested_by ->> 'sourceIp', ''), ''), '/', 1)) = any($7::text[])
-              or lower(coalesce(nullif(iqa_pr.request_context ->> 'clientName', ''), nullif(iqa_pr.request_context ->> 'client', ''), '')) = any($8::text[])
-            )
-         union
-         select coalesce(iqa_sr.fulfilled_by_scan_id, iqa_sr.scan_id)
-           from public.scan_requests iqa_sr
-           left join public.integration_api_keys iqa_key on iqa_key.public_id = iqa_sr.requested_by ->> 'apiKeyId'
-           left join public.users iqa_user on iqa_user.id::text = coalesce(iqa_sr.requested_by ->> 'userId', iqa_key.owner_user_id::text)
-           left join public.better_auth_users iqa_auth_user on iqa_auth_user.id = iqa_sr.requested_by ->> 'userId'
-          where coalesce(iqa_sr.fulfilled_by_scan_id, iqa_sr.scan_id) is not null
-            and (
-              lower(coalesce(iqa_user.email, iqa_auth_user.email, iqa_key.created_by, '')) = any($6::text[])
-              or trim(split_part(coalesce(nullif(iqa_sr.request_context ->> 'sourceIp', ''), nullif(iqa_sr.request_context -> 'provenance' ->> 'sourceIp', ''), nullif(iqa_sr.requested_by ->> 'sourceIp', ''), ''), '/', 1)) = any($7::text[])
-              or lower(coalesce(nullif(iqa_sr.request_context ->> 'clientName', ''), nullif(iqa_sr.request_context ->> 'client', ''), '')) = any($8::text[])
-            )
-       ), mac_mini_scan_bot_keys as materialized (
-         select public_id
-           from public.integration_api_keys
-          where name = any($5::text[])
-       ), mac_mini_scan_bot_scan_ids as materialized (
-         select pr.scan_id
-           from public.pulse_requests pr
-           join mac_mini_scan_bot_keys bot_key on bot_key.public_id = pr.requested_by ->> 'apiKeyId'
-          where pr.scan_id is not null
-         union
-         select coalesce(sr.fulfilled_by_scan_id, sr.scan_id) as scan_id
-           from public.scan_requests sr
-           join mac_mini_scan_bot_keys bot_key on bot_key.public_id = sr.requested_by ->> 'apiKeyId'
-          where coalesce(sr.fulfilled_by_scan_id, sr.scan_id) is not null
-       ), activity as (
+      `with canary_scan_ids as (select unnest($11::uuid[]) as scan_id),
+       mac_mini_scan_bot_keys as (select public_id from public.integration_api_keys where name = any($5::text[])),
+       mac_mini_scan_bot_scan_ids as (select unnest($12::uuid[]) as scan_id), activity as (
          select 'scan'::text as row_kind,
                 ('scan:' || s.id::text) as activity_id,
                 s.id as scan_id,
@@ -883,7 +834,9 @@ export async function loadAdminScanActivityPageRefs(
         INTERNAL_QA_REQUESTER_IPS,
         INTERNAL_QA_MCP_CLIENT_NAMES,
         limit,
-        offset
+        offset,
+        trafficClassification.qa,
+        trafficClassification.macmini
       ],
       { readOnly: true }
     );
@@ -1662,7 +1615,6 @@ export async function loadAdminScanRequestRows(
   requesterEmail: string | null = null,
   selection?: { publicIds?: string[]; scanIds?: string[] }
 ): Promise<AdminScanRequestRow[]> {
-  await ensureScanRequestLogTable();
   const result = await query<AdminScanRequestRow>(
     `select sr.public_id,
             sr.request_type,
@@ -2057,7 +2009,6 @@ export async function loadAdminUsersPageData(
   totalCount: number;
   users: AdminUserOverviewRow[];
 }> {
-  await ensureScanRequestLogTable();
   const normalizedLimit = Math.min(Math.max(limit, 1), 100);
   const normalizedOffset = Math.max(offset, 0);
   const [totalCountRow, users] = await Promise.all([
@@ -2106,6 +2057,26 @@ export async function loadAdminUsersPageData(
            join mcp_oauth_clients clients on clients.client_id = tokens.client_id
            join selected_users on selected_users.id::text = tokens.owner_user_id
           group by tokens.owner_user_id
+       ), user_activity as (
+         select submitted_by_user_id as user_id, count(distinct domain_id)::int as domain_count,
+           count(*)::int as total_scans, count(*) filter(where completed_at is not null)::int as completed_scans,
+           max(created_at) as last_scan_at, max(completed_at) as last_completed_scan_at
+         from scans where submitted_by_user_id is not null group by submitted_by_user_id
+       ), associated_activity as (
+         select user_id, count(*)::int as total_scans, max(created_at) as last_scan_at
+         from (
+           select submitted_by_user_id as user_id, created_at from scans where submitted_by_user_id is not null
+           union all
+           select claimed_by_user_id, created_at from scans where claimed_by_user_id is not null
+             and claimed_by_user_id is distinct from submitted_by_user_id
+         ) associations group by user_id
+       ), request_activity as (
+         select user_id, max(requested_at) as last_scan_requested_at, count(*)::int as scan_request_count
+         from (
+           select requested_by ->> 'userId' as user_id, requested_at from scan_requests
+           union all
+           select requested_by ->> 'userId', requested_at from pulse_requests
+         ) requests where user_id is not null group by user_id
        )
        select selected_users.id,
               selected_users.email,
@@ -2138,35 +2109,9 @@ export async function loadAdminUsersPageData(
          left join connector_activity on connector_activity.owner_user_id = selected_users.id::text
          left join selected_memberships on selected_memberships.user_id = selected_users.id
          left join organizations on organizations.id = selected_memberships.organization_id
-         left join lateral (
-           select count(distinct scans.domain_id)::int as domain_count,
-                  count(*)::int as total_scans,
-                  count(*) filter (where scans.completed_at is not null)::int as completed_scans,
-                  max(scans.created_at) as last_scan_at,
-                  max(scans.completed_at) as last_completed_scan_at
-             from scans
-            where scans.submitted_by_user_id = selected_users.id
-         ) user_activity on true
-         left join lateral (
-           select count(*)::int as total_scans,
-                  max(scans.created_at) as last_scan_at
-             from scans
-            where scans.submitted_by_user_id = selected_users.id
-               or scans.claimed_by_user_id = selected_users.id
-         ) associated_activity on true
-         left join lateral (
-           select max(activity.requested_at) as last_scan_requested_at,
-                  count(*)::int as scan_request_count
-             from (
-               select scan_requests.requested_at
-                 from scan_requests
-                where scan_requests.requested_by ->> 'userId' = selected_users.id::text
-               union all
-               select pulse_requests.requested_at
-                 from pulse_requests
-                where pulse_requests.requested_by ->> 'userId' = selected_users.id::text
-             ) activity
-         ) request_activity on true
+         left join user_activity on user_activity.user_id = selected_users.id
+         left join associated_activity on associated_activity.user_id = selected_users.id
+         left join request_activity on request_activity.user_id = selected_users.id::text
         order by ${getAdminUsersOrderBy(sortKey, direction)}
         limit $1 offset $2`,
       [normalizedLimit, normalizedOffset],
@@ -2308,7 +2253,6 @@ export async function loadAdminUserOverviewData(limit = 8): Promise<{
   metrics: AdminUserOverviewMetricsRow | null;
   users: AdminUserOverviewRow[];
 }> {
-  await ensureScanRequestLogTable();
   const normalizedLimit = Math.min(Math.max(limit, 1), 25);
   const [metrics, users] = await Promise.all([
     queryOne<AdminUserOverviewMetricsRow>(
@@ -2331,7 +2275,9 @@ export async function loadAdminUserOverviewData(limit = 8): Promise<{
       { readOnly: true }
     ),
     query<AdminUserOverviewRow>(
-      `select users.id,
+      `with recent_users as materialized (
+         select * from users order by created_at desc, id desc limit $1
+       ) select users.id,
               users.email,
               users.full_name,
               users.auth_provider,
@@ -2354,7 +2300,7 @@ export async function loadAdminUserOverviewData(limit = 8): Promise<{
               associated_activity.last_scan_at as last_associated_scan_at,
               request_activity.last_scan_requested_at,
               coalesce(request_activity.scan_request_count, 0)::int as scan_request_count
-         from users
+         from recent_users users
          left join lateral (
            select max(better_auth_users.role) as account_role,
                   max(better_auth_sessions.created_at) as last_login_at
@@ -2399,8 +2345,7 @@ export async function loadAdminUserOverviewData(limit = 8): Promise<{
                 where pulse_requests.requested_by ->> 'userId' = users.id::text
              ) activity
          ) request_activity on true
-        order by users.created_at desc
-        limit $1`,
+        order by users.created_at desc, users.id desc`,
       [normalizedLimit],
       { readOnly: true }
     ).then((result) => result.rows)
@@ -2759,25 +2704,10 @@ export async function loadAdminScanOperationalSnapshot(
   includeCanary = false,
   excludeMacMiniScanBot = true,
 ): Promise<AdminScanOperationalSnapshot> {
-  await ensureScanRequestLogTable();
   const config = ADMIN_OPERATIONAL_SNAPSHOT_CONFIG[period] ?? ADMIN_OPERATIONAL_SNAPSHOT_CONFIG["24h"];
-  const snapshotScanInternalQaFilter = `
-    exists (select 1 from public.scan_pages sp where sp.scan_id = s.id and sp.page_url ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-    or exists (select 1 from public.scan_requests csr where coalesce(csr.fulfilled_by_scan_id, csr.scan_id) = s.id and coalesce(csr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-    or exists (select 1 from public.pulse_requests cpr where cpr.scan_id = s.id and coalesce(cpr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-    or ${internalQaLinkedRequestSql("s.id", "$5", "$6", "$7")}
-  `;
-  const snapshotScanMacMiniFilter = `
-    exists (
-      select 1 from public.pulse_requests bot_pr
-      join mac_mini_scan_bot_keys bot_key on bot_key.public_id = bot_pr.requested_by ->> 'apiKeyId'
-      where bot_pr.scan_id = s.id
-    ) or exists (
-      select 1 from public.scan_requests bot_sr
-      join mac_mini_scan_bot_keys bot_key on bot_key.public_id = bot_sr.requested_by ->> 'apiKeyId'
-      where coalesce(bot_sr.fulfilled_by_scan_id, bot_sr.scan_id) = s.id
-    )
-  `;
+  const classification = includeCanary && !excludeMacMiniScanBot ? { qa: [], macmini: [] } : await loadScanTrafficClassification();
+  const snapshotScanInternalQaFilter = "coalesce(s.id = any($8::uuid[]), false)";
+  const snapshotScanMacMiniFilter = "coalesce(s.id = any($9::uuid[]), false)";
   const snapshotRequestInternalQaFilter = `
     coalesce(sr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/'
     or exists (
@@ -2913,6 +2843,8 @@ export async function loadAdminScanOperationalSnapshot(
       INTERNAL_QA_EMAILS,
       INTERNAL_QA_REQUESTER_IPS,
       INTERNAL_QA_MCP_CLIENT_NAMES,
+      classification.qa,
+      classification.macmini,
     ],
     { readOnly: true },
   );
@@ -2973,31 +2905,16 @@ export async function loadAdminScanOperationalSnapshot(
 }
 
 export async function loadAdminScanOverviewCounts(includeCanary = false, excludeMacMiniScanBot = true): Promise<AdminScanOverviewCounts> {
-  await ensureScanRequestLogTable();
+  const classification = includeCanary && !excludeMacMiniScanBot ? { qa: [], macmini: [] } : await loadScanTrafficClassification();
   const [scanFromResult, scanRequestCounts, snapshotCounts] = await Promise.all([
     query<{ count: string; scan_from: string }>(
       `select coalesce(scan_config_json->>'scanFrom', 'default') as scan_from,
               count(*)::text as count
         from scans s
-        where ($1::boolean = true or not (
-          exists (select 1 from scan_pages sp where sp.scan_id = s.id and sp.page_url ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-          or exists (select 1 from scan_requests csr where coalesce(csr.fulfilled_by_scan_id, csr.scan_id) = s.id and coalesce(csr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-          or exists (select 1 from pulse_requests cpr where cpr.scan_id = s.id and coalesce(cpr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-          or ${internalQaLinkedRequestSql("s.id", "$4", "$5", "$6")}
-        ))
-          and ($2::boolean = false or not (
-            exists (
-              select 1 from pulse_requests bot_pr
-              join integration_api_keys bot_key on bot_key.public_id = bot_pr.requested_by ->> 'apiKeyId'
-              where bot_pr.scan_id = s.id and bot_key.name = any($3::text[])
-            ) or exists (
-              select 1 from scan_requests bot_sr
-              join integration_api_keys bot_key on bot_key.public_id = bot_sr.requested_by ->> 'apiKeyId'
-              where coalesce(bot_sr.fulfilled_by_scan_id, bot_sr.scan_id) = s.id and bot_key.name = any($3::text[])
-            )
-          ))
+        where ($1::boolean = true or not coalesce(s.id = any($3::uuid[]), false))
+          and ($2::boolean = false or not coalesce(s.id = any($4::uuid[]), false))
         group by coalesce(scan_config_json->>'scanFrom', 'default')`,
-      [includeCanary, excludeMacMiniScanBot, MAC_MINI_SCAN_BOT_API_KEY_NAMES, INTERNAL_QA_EMAILS, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES],
+      [includeCanary, excludeMacMiniScanBot, classification.qa, classification.macmini],
       { readOnly: true }
     ),
     queryOne<{ total_count: number; unlinked_count: number }>(
@@ -3053,24 +2970,9 @@ export async function loadAdminScanOverviewCounts(includeCanary = false, exclude
                    or scan_outcome = 'content_capture_degraded'
               )::int as blocked_or_captcha_count
         from scan_snapshots ss
-        where ($1::boolean = true or not (
-          exists (select 1 from scan_pages sp where sp.scan_id = ss.scan_id and sp.page_url ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-          or exists (select 1 from scan_requests csr where coalesce(csr.fulfilled_by_scan_id, csr.scan_id) = ss.scan_id and coalesce(csr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-          or exists (select 1 from pulse_requests cpr where cpr.scan_id = ss.scan_id and coalesce(cpr.requested_url, '') ~* '^https?://[^/?#]+/\\.well-known/certscore-canary/')
-          or ${internalQaLinkedRequestSql("ss.scan_id", "$4", "$5", "$6")}
-        ))
-          and ($2::boolean = false or not (
-            exists (
-              select 1 from pulse_requests bot_pr
-              join integration_api_keys bot_key on bot_key.public_id = bot_pr.requested_by ->> 'apiKeyId'
-              where bot_pr.scan_id = ss.scan_id and bot_key.name = any($3::text[])
-            ) or exists (
-              select 1 from scan_requests bot_sr
-              join integration_api_keys bot_key on bot_key.public_id = bot_sr.requested_by ->> 'apiKeyId'
-              where coalesce(bot_sr.fulfilled_by_scan_id, bot_sr.scan_id) = ss.scan_id and bot_key.name = any($3::text[])
-            )
-          ))`,
-      [includeCanary, excludeMacMiniScanBot, MAC_MINI_SCAN_BOT_API_KEY_NAMES, INTERNAL_QA_EMAILS, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES],
+        where ($1::boolean = true or not coalesce(ss.scan_id = any($3::uuid[]), false))
+          and ($2::boolean = false or not coalesce(ss.scan_id = any($4::uuid[]), false))`,
+      [includeCanary, excludeMacMiniScanBot, classification.qa, classification.macmini],
       { readOnly: true }
     )
   ]);

@@ -82,6 +82,21 @@ function parseToolJson(result: Awaited<ReturnType<Client["callTool"]>>) {
   return JSON.parse(first.text) as Record<string, unknown>;
 }
 
+test("request credential failures never fall back to the initialization credential", async () => {
+  const mock = installFetch([]);
+  try {
+    for (const resolveApiKey of [() => "", () => { throw new Error("Request context missing"); }]) {
+      await withMcpClient(async client => {
+        const result = await client.callTool({ name: "certscore_get_scan_status", arguments: {
+          scanId: "00000000-0000-4000-8000-000000000123",
+        } });
+        assert.equal(result.isError, true);
+        assert.equal(mock.calls.length, 0, "no request uses the stale static credential");
+      }, { apiKey: "stale-initialization-credential", resolveApiKey });
+    }
+  } finally { mock.restore(); }
+});
+
 function assertToolOutputSchema(name: (typeof certScoreMcpToolContracts)[number]["name"], payload: Record<string, unknown>) {
   const contract = certScoreMcpToolContracts.find((candidate) => candidate.name === name);
   assert.ok(contract);
@@ -200,11 +215,13 @@ test("CertScore MCP server exposes the scoped v1 tool surface", async () => {
       [
         "certscore_explain_finding",
         "certscore_export_findings",
+        "certscore_get_connection_status",
         "certscore_get_evidence",
         "certscore_get_latest_domain_pre_consent_cookies_trackers",
         "certscore_get_latest_domain_scan",
         "certscore_get_pre_consent_cookies_trackers",
         "certscore_get_report",
+        "certscore_get_report_evidence_page",
         "certscore_get_scan",
         "certscore_get_scan_bundle",
         "certscore_get_scan_status",
@@ -220,7 +237,7 @@ test("CertScore Light exposes only the focused no-account workflow", async () =>
     const tools = await client.listTools();
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
-      ["certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]
+      ["certscore_get_report_evidence_page", "certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]
     );
     const scanSiteTool = tools.tools.find((tool) => tool.name === "certscore_scan_site");
     assert.deepEqual(scanSiteTool?.annotations, {
@@ -565,7 +582,7 @@ test("Cursor and OpenAI plugin packages preserve independent release versions an
   assert.deepEqual(cursorMcp.mcpServers, {
     "CertScore.ai": { type: "streamable-http", url: "https://mcp.certscore.ai/mcp/light" }
   });
-  assert.deepEqual(cursorMarketplace.plugins?.map(({ name, source, version }) => ({ name, source, version })), [{
+  assert.deepEqual(cursorMarketplace.plugins?.filter(({ name }) => name === "certscore-website-privacy-preflight").map(({ name, source, version }) => ({ name, source, version })), [{
     name: "certscore-website-privacy-preflight",
     source: "integrations/cursor/certscore-website-privacy-preflight",
     version: "1.0.4"
@@ -1868,4 +1885,58 @@ test("optional null arguments identify every rejected field without calling the 
       assert.equal(mock.calls.length, 0);
     });
   } finally { mock.restore(); }
+});
+
+test("initialize explains OAuth scopes and Light routing without inventing quota", async () => {
+  for (const scopes of [["scan:read","mcp"],["scan:read","scan:create","mcp"]]) {
+    await withMcpClient(async client => {
+      const {setup} = JSON.parse(client.getInstructions()!);
+      assert.deepEqual(setup.scopesGranted, scopes);
+      assert.equal(setup.route,"hosted_oauth");
+      assert.equal(setup.createAllowedByScope,scopes.includes("scan:create"));
+      assert.equal(setup.quotaRemaining,null);
+      assert.equal(setup.recommendedNextTool,scopes.includes("scan:create")?"certscore_scan_site":"certscore_get_latest_domain_scan");
+    },{grantedOAuthScopes:scopes});
+  }
+  await withMcpClient(async client => {
+    const {setup} = JSON.parse(client.getInstructions()!);
+    assert.equal(setup.route,"light");
+    assert.match(setup.guidance,/Light supports eligible public scans, not workspace history/);
+  },{toolProfile:"light"});
+});
+
+test("Cursor Hosted OAuth package uses the seeded public client and exact fixed callbacks", () => {
+  const config=JSON.parse(readFileSync(new URL('../../../integrations/cursor/certscore-hosted-oauth/mcp.json',import.meta.url),'utf8'));
+  const server=config.mcpServers['CertScore Hosted OAuth'];
+  assert.equal(server.url,'https://mcp.certscore.ai/mcp');
+  assert.equal(server.auth.CLIENT_ID,'certscore_cursor_hosted_oauth_v1');
+  assert.equal(server.auth.CLIENT_SECRET,undefined);
+  assert.deepEqual(server.auth.scopes,['scan:read','scan:create','mcp']);
+  const migration=readFileSync(new URL('../../../packages/db/migrations/0198_cursor_hosted_oauth_client.sql',import.meta.url),'utf8');
+  assert.ok(migration.includes(server.auth.CLIENT_ID));
+  assert.match(migration,/https:\/\/www.cursor.com\/agents\/mcp\/oauth\/callback/);
+  assert.match(migration,/http:\/\/localhost:8787\/callback/);
+});
+
+test("OAuth and Light retrieve typed report pages, forward cursors, and guide continuation", async () => {
+  const scanId = '9ba99a8c-b1ad-44c1-985f-92cef760ab40';
+  const cursor = `v1.${'a'.repeat(64)}.1`;
+  const page = { type: 'certscore_report_evidence_page', version: 1, scanId, snapshot: 'a'.repeat(64), reportUrl: `https://certscore.ai/scan/${scanId}`, entries: [{ path: '/findings', value: [{ id: 'retained' }] }], pagination: { offset: 0, returned: 1, total: 2, complete: false, nextCursor: cursor }, coverage: { scope: 'public_report_projection', exportTruncated: false, observationCompleteness: 'see_report_coverage', exclusions: [] }, reconstruction: 'JSON Pointer entries' };
+  for (const toolProfile of ['full', 'light'] as const) {
+    const fetch = installFetch([{ status: 200, body: page }, { status: 200, body: { ...page, pagination: { offset: 1, returned: 1, total: 2, complete: true, nextCursor: null } } }]);
+    try {
+      await withMcpClient(async (client) => {
+        const first = await client.callTool({ name: 'certscore_get_report_evidence_page', arguments: { scanId } });
+        assert.equal(first.isError, undefined);
+        assert.deepEqual(first.structuredContent, page);
+        const guidance = (first._meta as any)['ai.certscore/responseGuidance'];
+        assert.deepEqual(guidance.nextAction.arguments, { scanId, cursor });
+        assert.equal(guidance.pagination.complete, false);
+        const last = await client.callTool({ name: 'certscore_get_report_evidence_page', arguments: { scanId, cursor } });
+        assert.equal((last.structuredContent as any).pagination.complete, true);
+        assert.equal(new URL(fetch.calls[1]).searchParams.get('cursor'), cursor);
+        assert.ok(fetch.calls.every(url => new URL(url).pathname.endsWith('/report-evidence')));
+      }, { toolProfile });
+    } finally { fetch.restore(); }
+  }
 });

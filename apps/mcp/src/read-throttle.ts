@@ -52,7 +52,7 @@ function readCallFromRequest(value: unknown): McpReadCall | null {
     const detail = stringValue(args?.detail);
     const costClass: ApiReadRateCostClass = tool === "certscore_get_scan_bundle"
       ? "bundle"
-      : tool === "certscore_get_evidence" || tool === "certscore_get_pre_consent_cookies_trackers"
+      : tool === "certscore_get_report_evidence_page" || tool === "certscore_get_evidence" || tool === "certscore_get_pre_consent_cookies_trackers"
         ? "evidence"
         : tool === "certscore_export_findings"
           ? "export"
@@ -62,6 +62,7 @@ function readCallFromRequest(value: unknown): McpReadCall | null {
     const readTools = new Set([
       "certscore_get_scan",
       "certscore_get_report",
+      "certscore_get_report_evidence_page",
       "certscore_get_evidence",
       "certscore_get_scan_bundle",
       "certscore_export_findings",

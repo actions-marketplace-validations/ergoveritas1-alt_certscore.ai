@@ -321,7 +321,7 @@ test("unknown and unavailable tools return discovery guidance without breaking t
           assert.deepEqual([...error.data.availableTools].sort(), [...availableNames].sort());
           assert.match(error.data.recommendedNextAction, /then call a supported tool/);
           for (const availableName of availableNames) assert.ok(error.message.includes(availableName));
-          if (toolProfile === "light") assert.ok(!error.message.includes("certscore_get_report"));
+          if (toolProfile === "light") assert.ok(!/(?:^|[\s,])certscore_get_report(?:$|[\s,])/.test(error.message));
           assert.match(error.message, /MCP client's tool discovery \(tools\/list\)/);
           return true;
         });

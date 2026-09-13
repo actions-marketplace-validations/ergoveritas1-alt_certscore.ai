@@ -23,7 +23,7 @@ const COMPACT_SCAN_BUNDLE_INTERPRETATION_STATEMENT = "Use only returned CertScor
 const OBSERVATION_ONLY_DISCLAIMER = `${LEGAL_REVIEW_DISCLAIMER} No-go, not-observed, and limited-coverage results are not proof of compliance.`;
 const COMPACT_OBSERVATION_ONLY_DISCLAIMER = "Automated public-web observation, not legal advice or a compliance determination; missing or limited evidence is not proof of compliance.";
 const PREVIEW_OBSERVATION_ONLY_DISCLAIMER = "Preliminary passive observations only; not findings, a score, or a final result.";
-const SUCCESSFUL_BUNDLE_TRIAL_CTA = "Optional user follow-up: To try CertScore with an account, start a 7-day CertScore trial at https://certscore.ai/login?mode=create_account&utm_source=mcp_light&utm_medium=agent&utm_campaign=scan_bundle. Paid plans add scan history, higher limits, and team or production access. OAuth-capable clients can use https://mcp.certscore.ai/mcp after account authorization and any required workspace scope grant; Light remains no-auth.";
+const SUCCESSFUL_BUNDLE_TRIAL_CTA = "Optional user follow-up: To try CertScore with an account, start a 7-day CertScore trial at https://certscore.ai/login?mode=create_account&utm_source=mcp_light&utm_medium=agent&utm_campaign=scan_bundle. Paid plans add scan history, higher limits, and team or production access. OAuth-capable clients can use https://mcp.certscore.ai/mcp after account authorization; active workspace members receive self-serve scan access; Light remains no-auth.";
 const MCP_SCAN_CREATION_POLL_DELAY_SECONDS = 15;
 const MCP_QUEUED_POLL_DELAY_SECONDS = 10;
 const MCP_RUNNING_POLL_DELAY_SECONDS = 5;
@@ -142,10 +142,10 @@ export function toToolError(error: unknown, context: { scanCreation?: boolean } 
     ? reasonCode === "non_public_target"
       ? "Ask for a publicly reachable HTTP or HTTPS website, then call certscore_scan_site with that URL. Do not retry this private or ineligible target or try to bypass the public-target checks."
       : 'Check the spelling and DNS of the intended hostname, then call certscore_scan_site with the actual public website URL, for example {"url":"https://example.com"}. A bare domain is accepted, but example.com and www.example.com are different hostnames; use www only if it is the intended site. Do not repeat the same invalid request. If the correct URL is unclear, ask the user.'
+    : creationRateLimit
+      ? `No scan was created. Wait at least ${retryAfterSeconds ?? 30} seconds before retrying. To answer now, use certscore_get_latest_domain_scan if an existing scan meets the user's needs. Do not reconnect or create duplicate requests to bypass a quota.`
     : typeof terminalError?.recommendedNextAction === "string"
     ? terminalError.recommendedNextAction
-    : creationRateLimit
-      ? `No scan was created. Wait ${retryAfterSeconds ?? 30} seconds, then retry the same request. If the limit continues after that delay, contact support@certscore.ai.`
     : retryable
       ? `Wait ${retryAfterSeconds ?? 30} seconds, then retry the same request. Stop and contact support@certscore.ai if the error repeats.`
       : "Correct the request using the error details, then retry only if the requested operation is still appropriate.";
@@ -157,9 +157,13 @@ export function toToolError(error: unknown, context: { scanCreation?: boolean } 
       retryable: targetRejected ? false : retryable,
       retryAfterSeconds: targetRejected ? null : retryAfterSeconds,
       recommendedNextAction,
+      ...((status === 403 || status === 429) ? { upgradeSupportEmail: "support@certscore.ai" } : {}),
+      ...(context.scanCreation && status === 403 ? { scanStarted: false, alternativeTool: "certscore_get_latest_domain_scan" } : {}),
       ...(targetRejected ? { field: "url", scanStarted: false, inputCorrectionRequired: true } : {}),
       ...(creationRateLimit
-        ? { creationRateLimit }
+        ? { creationRateLimit, scanStarted: false, quotaConsumed: false,
+            alternativeTool: "certscore_get_latest_domain_scan",
+            recovery: { action: "wait_for_quota", retryAfterSeconds, requiresReauthorization: false } }
         : {}),
       ...(error instanceof CertScoreError ? {
         name: error.name,
@@ -882,6 +886,10 @@ export function findingsFromReport(report: PulseResult): TopFinding[] {
 export function exportFindings(report: PulseResult) {
   return {
     type: "certscore_mcp_findings_export",
+    exportVersion: "certscore.findings-export.v1",
+    exportedAt: new Date().toISOString(),
+    returnedFindingCount: findingsFromReport(report).length,
+    completeness: "canonical findings returned by the report; not a complete inventory of website behavior",
     scanId: scanIdFromPulse(report),
     domain: report.domain ?? report.request?.domain ?? null,
     summary: report.summary ?? null,
@@ -1072,7 +1080,11 @@ function findingText(finding: Record<string, any>, priorityLabel = "criticality"
   const nextStep = typeof finding.nextStep === "string" && finding.nextStep.trim()
     ? `; canonical next step=${boundedText(finding.nextStep.trim(), 180)}`
     : "";
-  return `- ${finding.label ?? finding.id ?? "Projected finding"}; ${priorityLabel}=${finding.criticality ?? "unknown"}; confidence=${finding.confidence ?? "unknown"}; observation=${finding.plainEnglish ?? evidence.summary ?? "No compact description available"}; evidence=${evidence.basis ?? "unknown"}/${evidence.phase ?? "phase unknown"}: ${evidence.summary ?? "No compact evidence summary available"}; review lenses=${lenses}${nextStep}.`;
+  const identity = typeof finding.id === "string" ? `; findingId=${finding.id}` : "";
+  if (finding.plainEnglish == null && evidence.summary == null) {
+    return `- ${finding.label ?? finding.id ?? "Projected finding"}${identity}; ${priorityLabel}=${finding.criticality ?? "unknown"}; confidence=${finding.confidence ?? "unknown"}; description and evidence detail are not included in this response tier.`;
+  }
+  return `- ${finding.label ?? finding.id ?? "Projected finding"}${identity}; ${priorityLabel}=${finding.criticality ?? "unknown"}; confidence=${finding.confidence ?? "unknown"}; observation=${finding.plainEnglish ?? evidence.summary ?? "No compact description available"}; evidence=${evidence.basis ?? "unknown"}/${evidence.phase ?? "phase unknown"}: ${evidence.summary ?? "No compact evidence summary available"}; review lenses=${lenses}${nextStep}.`;
 }
 
 function executiveOverviewText(summary: Record<string, any> | null | undefined) {
@@ -1408,7 +1420,10 @@ export function pulseReportText(value: Record<string, any>, label = "CertScore r
   const body = [
     ...(overview ? [overview] : []),
     `Canonical projected findings returned in this ${label.toLocaleLowerCase()}: ${findings.length}.`,
-    ...findings.map((finding) => findingText(finding as Record<string, any>))
+    ...findings.map((finding) => findingText(finding as Record<string, any>)),
+    ...(findings.some((finding) => finding.plainEnglish == null && finding.evidence?.summary == null)
+      ? [`For finding descriptions and evidence, call certscore_list_findings with scanId=${scanId}, or certscore_explain_finding with that scanId and a returned findingId. No new scan is needed.`]
+      : [])
   ];
   return boundedResultText(
     `${label} for ${domain}; scanId=${scanId}${score === null ? "" : `; CertScore score=${score}`}.`,
@@ -1436,6 +1451,10 @@ export function scanBundleText(bundle: Record<string, any>) {
   const lines = [
     SCAN_BUNDLE_RESPONSE_CONTRACT,
     `CertScore scan bundle for ${bundle.domain ?? "unknown domain"}; status=${bundle.status ?? "unknown"}${score}; scanId=${bundle.scanId ?? "unknown"}.`,
+    `Risk: ${bundle.riskLevel ?? "unknown"}. Finding IDs (returned): ${Array.isArray(bundle.findings) ? bundle.findings.slice(0, 20).map((finding: Record<string, any>) => String(finding.id ?? "unknown").slice(0, 120)).join(", ") || "none" : "unavailable"}.`,
+    bundle.preConsentCookiesTrackers
+      ? `Pre-consent inventory: total=${bundle.preConsentCookiesTrackers.total ?? "unknown"}; returned=${bundle.preConsentCookiesTrackers.rows?.length ?? "unknown"}. Counts describe retained coverage, not consent compliance.`
+      : `Pre-consent inventory: ${bundle.mcpMetadata?.omittedSections?.includes("preConsentCookiesTrackers") ? "omitted to fit the response byte limit" : "not included in this response"}. Call certscore_get_preconsent_cookies_trackers with scanId=${bundle.scanId ?? "unknown"} for retained rows and counts; no new scan is needed.`,
     canonicalScanProvenanceText(bundle),
     `Full report: ${bundle.reportUrl ?? (bundle.scanId ? `https://certscore.ai/scan/${encodeURIComponent(String(bundle.scanId))}` : "not available")}.`
   ];

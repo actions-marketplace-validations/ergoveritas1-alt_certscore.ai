@@ -42,7 +42,7 @@ test("eligible Claude clients carry registered scan:create into a read-only auth
   assert.deepEqual(resolution.downgradedScopes, []);
 });
 
-test("automatic scan:create remains grant-gated and registration-bounded", () => {
+test("automatic scan:create requires workspace eligibility and supports older registrations", () => {
   const notGranted = resolveMcpOAuthScopeRequest({
     autoIncludeGrantedCreateScope: true,
     clientScopes: [CERTSCORE_OAUTH_READ_SCOPE, CERTSCORE_OAUTH_CREATE_SCOPE, CERTSCORE_OAUTH_MCP_SCOPE],
@@ -58,7 +58,7 @@ test("automatic scan:create remains grant-gated and registration-bounded", () =>
     requestedScopes: [CERTSCORE_OAUTH_READ_SCOPE, CERTSCORE_OAUTH_MCP_SCOPE],
     scanCreateGranted: true
   });
-  assert.deepEqual(notRegistered.approvedScopes, [CERTSCORE_OAUTH_READ_SCOPE, CERTSCORE_OAUTH_MCP_SCOPE]);
+  assert.deepEqual(notRegistered.approvedScopes, [CERTSCORE_OAUTH_READ_SCOPE, CERTSCORE_OAUTH_MCP_SCOPE, CERTSCORE_OAUTH_CREATE_SCOPE]);
   assert.deepEqual(notRegistered.downgradedScopes, []);
 });
 
@@ -127,25 +127,59 @@ test("read-only OAuth consent directs empty workspaces to their first scan", () 
   assert.match(server, /from scans where organization_id = \$1/);
 });
 
-test("active Trial Claude connections receive grant-gated scan creation", () => {
+test("active workspace connections receive client-independent self-serve scan creation", () => {
   const registrationRoute = readFileSync(new URL("../../app/api/v2/oauth/register/route.ts", import.meta.url), "utf8");
   const server = readFileSync(new URL("./mcp-oauth.ts", import.meta.url), "utf8");
 
-  assert.match(registrationRoute, /isClaudeMcpOAuthClientMetadata/);
+  assert.doesNotMatch(registrationRoute, /isClaudeMcpOAuthClientMetadata/);
   assert.match(registrationRoute, /requestedScopes, CERTSCORE_OAUTH_CREATE_SCOPE/);
-  assert.match(server, /organizations\.plan = 'free'/);
+  assert.doesNotMatch(server, /organizations\.plan =/);
   assert.match(server, /organizations\.plan_status = 'active'/);
   assert.match(server, /jsonb_array_length\(mcp_oauth_clients\.redirect_uris\) > 0/);
-  assert.match(server, /redirect_uri !~ '\^https:\/\/claude\\\\\.ai/);
+  assert.doesNotMatch(server, /lower\(btrim\(mcp_oauth_clients\.client_name\)\)/);
   assert.match(server, /organization_members\.user_id::text = \$3/);
-  assert.match(server, /autoIncludeGrantedCreateScope: isClaudeMcpOAuthClientMetadata\(input\.client\)/);
+  assert.match(server, /autoIncludeGrantedCreateScope: true/);
   assert.match(registrationRoute, /CERTSCORE_OAUTH_CREATE_SCOPE/);
   const consentPage = readFileSync(new URL("../../app/oauth/authorize/page.tsx", import.meta.url), "utf8");
-  assert.match(consentPage, /Claude can start your first scan\./);
+  assert.match(consentPage, /Ready to scan\. No staff approval needed\./);
   assert.match(consentPage, /OAUTH_SCAN_CREATE_HOURLY_LIMIT/);
   assert.match(consentPage, /OAUTH_SCAN_CREATE_DAILY_LIMIT/);
   assert.match(consentPage, /Scan https:\/\/your-site\.com with CertScore and summarize the findings\./);
   const authorizationRoute = readFileSync(new URL("../../app/api/v2/oauth/authorize/route.ts", import.meta.url), "utf8");
   assert.match(authorizationRoute, /eventName: "oauth_authorized"/);
   assert.match(authorizationRoute, /persistProductAnalyticsEvent/);
+});
+
+
+test("self-serve eligibility requires active membership on every plan and ignores manual grants", { skip: !process.env.OAUTH_TRIAL_TEST_DATABASE_URL }, async () => {
+  const databaseUrl = process.env.OAUTH_TRIAL_TEST_DATABASE_URL;
+  if (!databaseUrl) throw new Error("Set OAUTH_TRIAL_TEST_DATABASE_URL to a local PostgreSQL test database");
+  assert.ok(["localhost", "127.0.0.1"].includes(new URL(databaseUrl).hostname));
+  const { default: pg } = await import("pg");
+  const db = new pg.Client({ connectionString: databaseUrl });
+  await db.connect();
+  try {
+    await db.query(`create temp table organizations(id text, plan text, plan_status text);
+      create temp table organization_members(organization_id text,user_id text);
+      create temp table mcp_oauth_clients(client_id text, client_name text, redirect_uris jsonb);
+      create temp table mcp_oauth_scan_create_grants(grant_kind text, grantee_id text, revoked_at timestamptz);
+      insert into organizations values ('trial','free','active'),('expired','free','inactive'),('paid','pro','active'),('custom','custom','active');
+      insert into organization_members values ('trial','member'),('expired','member'),('paid','member'),('custom','member');
+      insert into mcp_oauth_clients values ('cursor','Cursor','["https://www.cursor.com/agents/mcp/oauth/callback"]'),('generic','Other','["http://localhost:8787/callback"]');`);
+    const source = readFileSync(new URL("./mcp-oauth.ts", import.meta.url), "utf8");
+    const start = source.indexOf("`select true as allowed");
+    const sql = source.slice(start + 1, source.indexOf("`,", start));
+    for (const client of ["cursor", "generic"]) {
+      assert.equal((await db.query(sql,[client,"trial","member"])).rowCount,1);
+      for (const org of ["paid","custom"]) assert.equal((await db.query(sql,[client,org,"member"])).rowCount,1);
+      for (const [org,user] of [["trial","outsider"],["expired","member"]]) {
+        assert.equal((await db.query(sql,[client,org,user])).rowCount,0);
+      }
+    }
+    assert.equal((await db.query(sql,["unknown","trial","member"])).rowCount,0);
+    await db.query("insert into mcp_oauth_scan_create_grants values ('organization','expired',null)");
+    assert.equal((await db.query(sql,["cursor","expired","member"])).rowCount,0);
+    await db.query("update mcp_oauth_scan_create_grants set revoked_at=now()");
+    assert.equal((await db.query(sql,["cursor","expired","member"])).rowCount,0);
+  } finally { await db.end(); }
 });

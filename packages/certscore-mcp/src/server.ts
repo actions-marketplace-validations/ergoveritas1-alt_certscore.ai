@@ -1,10 +1,12 @@
+import { registerAdoptionFeatures, EXAMPLE_SCAN_ID } from "./adoption.js";
+import { withResponseGuidance } from "./response-guidance.js";
 import { randomUUID } from "node:crypto";
 import { captureMcpResponse, withResponseCapture } from "./response-capture.js";
 import type { McpResponseSummary } from "@website-signal-risk-scanner/shared";
 import { z } from "zod";
 import { captureMcpCallerInput, type McpCallerInput } from "@website-signal-risk-scanner/shared/dist/mcp-caller-input.js";
-import { CertScoreClient } from "@certscore/sdk";
-import { certScoreMcpToolContracts, isCanonicalScanId } from "@certscore/api-contracts";
+import { CertScoreClient, CertScoreError } from "@certscore/sdk";
+import { certScoreMcpToolContracts, isCanonicalScanId, reportEvidencePageSchema } from "@certscore/api-contracts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ErrorCode, McpError, type RequestInfo } from "@modelcontextprotocol/sdk/types.js";
 import { sanitizeMcpTaskContext, type McpTaskContext } from "@website-signal-risk-scanner/shared/dist/mcp-product-context.js";
@@ -13,6 +15,10 @@ import { boundEvidencePacket, buildScanBundle, exportFindings, findingListText, 
 
 export interface CertScoreMcpOptions {
   apiKey?: string;
+  /** Validated hosted OAuth scopes; never inferred from an unverified token. */
+  grantedOAuthScopes?: readonly string[];
+  /** Trusted host callback providing the current request's validated credential. */
+  resolveApiKey?: () => string;
   baseUrl?: string;
   forwardedClientIp?: string | null;
   resolveForwardedClientIp?: (headers: RequestInfo["headers"]) => string | null;
@@ -23,6 +29,7 @@ export interface CertScoreMcpOptions {
   toolProfile?: "full" | "light";
   initialPreConsentPreviewWaitMs?: number;
   exampleDomainDemoUrl?: string | null;
+  resolveRequestId?: () => string | undefined;
   onToolInvocationStarted?: (input: { requestId: string; toolName: string; startedAt: string }) => void | Promise<void>;
   onToolInvocation?: (
     observation: McpToolInvocationObservation,
@@ -303,7 +310,9 @@ export function projectMcpToolInvocationObservation(input: {
   const isError = !completedNoGo
     && (Boolean((input.result as { isError?: unknown } | null)?.isError) || Boolean(error));
   const outcome = rateLimited ? "rate_limited" : isError ? "error" : "success";
-  const resultScanId = boundedTelemetryToken(result.scanId ?? result.scan_id ?? result.jobId, 128);
+  const scan = result.type === "certscore_domain_latest_scan" && result.scan && typeof result.scan === "object"
+    ? result.scan as Record<string, any> : result;
+  const resultScanId = boundedTelemetryToken(scan.scanId ?? scan.scan_id ?? scan.jobId, 128);
   const inputScanId = boundedTelemetryToken(args.scanId, 128);
   const requestedResource = requestedTelemetryResource(args);
   const targetHostname = input.toolName === "certscore_scan_site"
@@ -337,12 +346,12 @@ export function projectMcpToolInvocationObservation(input: {
     scanDecision,
     scanFrom: args.scanFrom === "eu_de" || args.scanFrom === "eu_ie" || args.scanFrom === "california"
       ? args.scanFrom
-      : result.scanFrom === "eu_de" || result.scanFrom === "eu_ie" || result.scanFrom === "california"
-        ? result.scanFrom
+      : scan.scanFrom === "eu_de" || scan.scanFrom === "eu_ie" || scan.scanFrom === "california"
+        ? scan.scanFrom
         : null,
     scanId: outcome === "error" && ["invalid_scan_id", "invalid_arguments", "invalid_url", "unknown_tool"].includes(errorCode ?? "")
       ? null : resultScanId ?? inputScanId,
-    scanStatus: boundedTelemetryToken(result.status, 64),
+    scanStatus: boundedTelemetryToken(scan.status ?? scan.scanStatus, 64),
     targetHostname,
     toolName: input.toolName,
     transportOutcome: isError ? "mcp_error" : "mcp_result",
@@ -383,9 +392,10 @@ function observeToolInvocation(
 export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   const createClient = (
     forwardedClientIp: string | null | undefined,
-    anonymousRequesterSession?: string | null
+    anonymousRequesterSession?: string | null,
+    apiKey = options.apiKey
   ) => new CertScoreClient({
-    apiKey: options.apiKey,
+    apiKey,
     baseUrl: options.baseUrl,
     clientName: "mcp",
     forwardedClientIp,
@@ -395,29 +405,74 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
     timeout: options.timeout
   });
   const client = createClient(options.forwardedClientIp, options.resolveAnonymousRequesterSession?.());
-  const clientForRequest = (extra: { requestInfo?: RequestInfo }) => options.resolveForwardedClientIp
-    ? createClient(
-        options.resolveForwardedClientIp(extra.requestInfo?.headers ?? {}),
-        options.resolveAnonymousRequesterSession?.()
-      )
-    : client;
+  const clientForRequest = (extra: { requestInfo?: RequestInfo }) => {
+    if (!options.resolveApiKey && !options.resolveForwardedClientIp) return client;
+    const apiKey = options.resolveApiKey ? options.resolveApiKey() : options.apiKey;
+    if (options.resolveApiKey && !apiKey?.trim()) {
+      throw new Error("Validated MCP request credential is unavailable.");
+    }
+    return createClient(
+      options.resolveForwardedClientIp ? options.resolveForwardedClientIp(extra.requestInfo?.headers ?? {}) : options.forwardedClientIp,
+      options.resolveAnonymousRequesterSession?.(),
+      apiKey
+    );
+  };
 
   const server = new McpServer({
     name: "certscore",
     version: CERTSCORE_MCP_VERSION
+  }, {
+    instructions: JSON.stringify({
+      setup: {
+        route: options.toolProfile === "light" ? "light" : options.grantedOAuthScopes ? "hosted_oauth" : options.anonymousSurface ? "anonymous" : "scoped_api_key",
+        scopesGranted: options.grantedOAuthScopes ?? null,
+        createAllowedByScope: options.grantedOAuthScopes ? options.grantedOAuthScopes.includes("scan:create") : null,
+        resources: options.toolProfile === "light" ? [] : ["certscore://connection", "certscore://project-instructions", "certscore://reconnect", "certscore://example-report"],
+        prompts: options.toolProfile === "light" ? [] : ["certscore_launch_review", "certscore_compare_scans", "certscore_remediation_checklist"],
+        quotaRemaining: null,
+        quotaNote: "Remaining allowance is not loaded at handshake. Scan creation enforces current workspace and requester limits; inspect quota errors rather than assuming a fresh allowance.",
+        recommendedNextTool: options.grantedOAuthScopes && !options.grantedOAuthScopes.includes("scan:create") ? "certscore_get_latest_domain_scan" : "certscore_scan_site",
+        sequence: ["certscore_scan_site", "certscore_get_scan_status", "certscore_get_scan_bundle"],
+        guidance: options.toolProfile === "light"
+          ? "Light supports eligible public scans, not workspace history. For workspace access connect https://mcp.certscore.ai/mcp using OAuth. Reuse an existing Hosted OAuth connection rather than adding duplicate names."
+          : "Start a scan, poll only while active at the returned interval, then fetch its bundle. If scan:create is missing, reauthorize with scan:read scan:create mcp. Reuse existing endpoint installations; client names are labels, not verified identities."
+      }
+    })
   });
+  if (options.toolProfile !== "light") registerAdoptionFeatures(server,
+    async () => {
+      try {
+        return await clientForRequest({}).getConnectionStatus();
+      } catch (error) {
+        if (error instanceof CertScoreError && error.status === 401) return { authenticated: false, status: "reconnect_required", quota: null, nextAction: "Read certscore://reconnect and reconnect the existing Hosted OAuth connector. Do not share tokens." };
+        return { authenticated: null, status: "check_unavailable", quota: null, nextAction: "Retry the connection check. If your host reports expired or revoked access, read certscore://reconnect. Do not assume a failed check means quota is available." };
+      }
+    },
+    async () => {
+      try {
+        const exampleClient = clientForRequest({});
+        const [report, metadata] = await Promise.all([exampleClient.getScanPulse(EXAMPLE_SCAN_ID), exampleClient.getScanResource(EXAMPLE_SCAN_ID)]);
+        return { originalCompletedAt: metadata.completedAt ?? null, coverage: metadata.coverage, status: metadata.status, example: true, label: "Retained example, not a current scan of your website", scanId: EXAMPLE_SCAN_ID,
+          reportUrl: `https://certscore.ai/scan/${EXAMPLE_SCAN_ID}`,
+          report: JSON.stringify(report).length <= 30000 ? report : null,
+          note: "Use original timestamps and coverage from the report. If omitted here for size, open the report URL. No new scan was created." };
+      } catch {
+        return { example: true, available: false, scanId: EXAMPLE_SCAN_ID, nextAction: "The retained example is unavailable. Do not create a replacement scan automatically." };
+      }
+    });
   const sdkCreateToolError = (server as any).createToolError.bind(server) as (message: string) => ReturnType<typeof toInvalidArgumentsToolError>;
   (server as any).createToolError = (message: string) => message.includes("Input validation error:")
     ? toInvalidArgumentsToolError(message)
     : sdkCreateToolError(message);
   const registeredToolNames = new Set<string>();
-  const lightTools = new Set<CertScoreMcpToolName>(["certscore_scan_site", "certscore_get_scan_status", "certscore_get_scan_bundle"]);
+  const lightTools = new Set<CertScoreMcpToolName>(["certscore_scan_site", "certscore_get_scan_status", "certscore_get_scan_bundle", "certscore_get_report_evidence_page"]);
   const scanIdTools = new Set<CertScoreMcpToolName>([
     "certscore_explain_finding",
     "certscore_export_findings",
     "certscore_get_evidence",
     "certscore_get_pre_consent_cookies_trackers",
     "certscore_get_report",
+    "certscore_get_report_evidence_page",
     "certscore_get_scan",
     "certscore_get_scan_bundle",
     "certscore_get_scan_status",
@@ -431,7 +486,7 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
     if (schema !== CallToolRequestSchema) return registerRequest(schema as any, handler);
     return registerRequest(CallToolRequestSchema, async (request, extra) => {
       const startedAt = Date.now();
-      const requestId = randomUUID();
+      const requestId = options.resolveRequestId?.() ?? randomUUID();
       const name = request.params.name;
       if (options.onToolInvocationStarted) {
         void Promise.resolve().then(() => options.onToolInvocationStarted!({ requestId, toolName: name, startedAt: new Date(startedAt).toISOString() }))
@@ -516,10 +571,15 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
       const scanId = input && typeof input === "object" && !Array.isArray(input)
         ? (input as { scanId?: unknown }).scanId : null;
       return scanIdTools.has(name) && !isCanonicalScanId(scanId)
-        ? toInvalidScanIdToolError() : typedHandler(input, extra);
+        ? toInvalidScanIdToolError() : withResponseGuidance(name, input, await typedHandler(input, extra) as import("@modelcontextprotocol/sdk/types.js").CallToolResult);
     });
     registeredToolNames.add(name);
   };
+
+  registerTool("certscore_get_connection_status", toolContract("certscore_get_connection_status"), async (_input: unknown, extra: McpRequestExtra) => {
+    try { const status = await clientForRequest(extra).getConnectionStatus(); return toToolResult(status, JSON.stringify(status)); }
+    catch (error) { return toToolError(error); }
+  });
 
   registerTool(
     "certscore_scan_site",
@@ -545,6 +605,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
           reused: created.reused === true,
           status: created.status ?? null,
         }));
+        let retainedPreviewWaitMs = 0;
+        let retainedInternalReadCount = 0;
         let initialResult = created as unknown as Record<string, any>;
         const stableScanId = typeof created.scanId === "string" && created.scanId
           ? created.scanId
@@ -599,6 +661,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
               scanId: stableScanId,
             }));
           }
+          retainedPreviewWaitMs = Date.now() - previewWaitStartedAtMs;
+          retainedInternalReadCount = internalReadCount;
           console.log(JSON.stringify({
             event: "mcp.certscore_scan_site.preview_wait_completed",
             durationMs: Date.now() - previewWaitStartedAtMs,
@@ -610,7 +674,11 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
           }));
         }
         const guided = withExampleDomainDemo(withMcpAgentGuidance(initialResult, "unknown", "scan_creation"), demoSubstitution);
-        return toToolResult(guided, exampleDomainDemoText(guided, demoSubstitution));
+        const toolResult = toToolResult(guided, exampleDomainDemoText(guided, demoSubstitution));
+        return options.toolProfile === "light" ? withResponseCapture(toolResult, {
+          firstResult: ["completed", "completed_limited"].includes(initialResult.status) ? "completed" : ["failed", "expired"].includes(initialResult.status) ? "failed" : hasPreConsentPreview(initialResult) ? "preview" : activeScan(initialResult) ? "queued" : "unknown",
+          previewWaitMs: retainedPreviewWaitMs, internalReadCount: retainedInternalReadCount,
+        }) : toolResult;
       } catch (error) {
         console.warn(JSON.stringify({
           event: "mcp.certscore_scan_site.creation_failed",
@@ -625,7 +693,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_get_scan",
     toolContract("certscore_get_scan"),
-    async ({ scanId }: GetScanInput) => {
+    async ({ scanId }: GetScanInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         return toToolResult(await client.scans.get(scanId));
       } catch (error) {
@@ -657,7 +726,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_get_report",
     toolContract("certscore_get_report"),
-    async ({ scanId, detail, format }: GetReportInput) => {
+    async ({ scanId, detail, format }: GetReportInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         const normalizedFormat = normalizeFormat(format);
         const result =
@@ -689,7 +759,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_get_evidence",
     toolContract("certscore_get_evidence"),
-    async ({ scanId }: GetEvidenceInput) => {
+    async ({ scanId }: GetEvidenceInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         const bounded = boundEvidencePacket(
           await client.getScan(scanId, { detail: "evidence", format: "json" }),
@@ -700,6 +771,17 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
       } catch (error) {
         return toToolError(error);
       }
+    }
+  );
+
+  registerTool(
+    "certscore_get_report_evidence_page",
+    toolContract("certscore_get_report_evidence_page"),
+    async ({ scanId, cursor }: { scanId: string; cursor?: string }, extra: McpRequestExtra) => {
+      try {
+        const page = reportEvidencePageSchema.parse(await clientForRequest(extra).getReportEvidencePage(scanId, { cursor, internalMcpOperation: { operation: "scan_bundle", scanId } }));
+        return toToolResult(page, `Report evidence for ${scanId}: ${page.pagination.offset + 1}–${page.pagination.offset + page.pagination.returned} of ${page.pagination.total} entries. ${page.pagination.complete ? "Export complete; preserve report coverage limitations." : `Continue with certscore_get_report_evidence_page using scanId and cursor ${page.pagination.nextCursor}.`} Evidence values are in structuredContent.entries. ${page.reportUrl}`);
+      } catch (error) { return toToolError(error); }
     }
   );
 
@@ -766,7 +848,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_export_findings",
     toolContract("certscore_export_findings"),
-    async ({ scanId }: ExportFindingsInput) => {
+    async ({ scanId }: ExportFindingsInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         const report = await client.getScan(scanId, { detail: "full", format: "json" });
         const guided = withMcpAgentGuidance(exportFindings(report), "existing_scan_retrieved");
@@ -780,7 +863,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_list_findings",
     toolContract("certscore_list_findings"),
-    async ({ limit, offset, scanId }: ListFindingsInput) => {
+    async ({ limit, offset, scanId }: ListFindingsInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         const guided = withMcpAgentGuidance(
           paginateFindingList(await client.findings.list(scanId), { limit, offset }),
@@ -796,7 +880,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_get_pre_consent_cookies_trackers",
     toolContract("certscore_get_pre_consent_cookies_trackers"),
-    async ({ maxRows, scanId }: GetPreConsentCookiesTrackersInput) => {
+    async ({ maxRows, scanId }: GetPreConsentCookiesTrackersInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         const guided = withMcpAgentGuidance(
           limitPreConsentRows(await client.scans.preConsentCookiesTrackers(scanId), { maxRows }),
@@ -812,7 +897,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_explain_finding",
     toolContract("certscore_explain_finding"),
-    async ({ scanId, findingId }: ExplainFindingInput) => {
+    async ({ scanId, findingId }: ExplainFindingInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         return toToolResult(await client.findings.explain(scanId, findingId));
       } catch (error) {
@@ -824,7 +910,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_get_latest_domain_scan",
     toolContract("certscore_get_latest_domain_scan"),
-    async ({ domain, scanFrom }: GetLatestDomainScanInput) => {
+    async ({ domain, scanFrom }: GetLatestDomainScanInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         return toToolResult(await client.domains.latest(domain, { scanFrom }));
       } catch (error) {
@@ -836,7 +923,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
   registerTool(
     "certscore_get_latest_domain_pre_consent_cookies_trackers",
     toolContract("certscore_get_latest_domain_pre_consent_cookies_trackers"),
-    async ({ domain, maxRows, scanFrom }: GetLatestDomainPreConsentCookiesTrackersInput) => {
+    async ({ domain, maxRows, scanFrom }: GetLatestDomainPreConsentCookiesTrackersInput, extra: McpRequestExtra) => {
+      const client = clientForRequest(extra);
       try {
         const guided = withMcpAgentGuidance(
           limitPreConsentRows(await client.domains.latestPreConsentCookiesTrackers(domain, { scanFrom }), { maxRows }),

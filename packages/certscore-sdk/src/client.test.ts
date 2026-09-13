@@ -780,3 +780,16 @@ test("transport failure retains operation without changing the thrown error", as
     });
   } finally { globalThis.fetch = previous; }
 });
+
+
+test("connection diagnostics use one authenticated read and never submit a scan", async () => {
+ const fixture={authenticated:true,diagnostics:{mode:"hosted_oauth",quota:{hourlyRemaining:4}}};
+ const mock=installFetch([{status:200,body:fixture}]);
+ try {
+   const client=new CertScoreClient({apiKey:"test-credential",baseUrl:"https://certscore.ai"});
+   assert.deepEqual(await client.getConnectionStatus(),fixture);
+   assert.deepEqual(mock.calls,["https://certscore.ai/api/v2/auth/check?diagnostics=1"]);
+   assert.equal(new Headers(mock.callDetails[0]?.headers).get("authorization"),"Bearer test-credential");
+   assert.notEqual(mock.callDetails[0]?.method,"POST");
+ } finally {mock.restore();}
+});

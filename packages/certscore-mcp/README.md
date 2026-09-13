@@ -2,7 +2,7 @@
 
 **Recommended discovery entry: no-auth Streamable HTTP website privacy scans for MCP clients.** Give an agent a public URL and retrieve evidence-backed observations about cookies and storage, trackers and vendors, consent controls, privacy-policy surfaces, and HTTPS/TLS signals.
 
-CertScore.ai MCP Light is live in the [GitHub MCP Registry](https://github.com/mcp/ai.certscore/mcp-light) as `ai.certscore/mcp-light`. It exposes exactly three tools and requires no signup, API key, bearer token, browser login, or OAuth.
+CertScore.ai MCP Light is live in the [GitHub MCP Registry](https://github.com/mcp/ai.certscore/mcp-light) as `ai.certscore/mcp-light`. It exposes four tools and requires no signup, API key, bearer token, browser login, or OAuth.
 
 | | |
 | --- | --- |
@@ -77,7 +77,7 @@ Scans describe observable behavior at a point in time. Public sites may behave d
 
 | Route | Access | Best for |
 | --- | --- | --- |
-| Light MCP — no authentication | No account, API key, bearer token, browser login, or OAuth; three tools; up to 50 new scans per UTC day across Light and 5 per rolling 10 minutes; eligible reuse is free | First-time users, testing, and discovery |
+| Light MCP — no authentication | No account, API key, bearer token, browser login, or OAuth; four tools; up to 50 new scans per UTC day across Light and 5 per rolling 10 minutes; eligible reuse is free | First-time users, testing, and discovery |
 | Hosted MCP — OAuth | Hosted Streamable HTTP with OAuth scopes, higher volume, history, and approved advanced tools | Production, team, and managed remote clients |
 | Local MCP — scoped API key | Local stdio with a scoped key and tools allowed by its scopes | Backend, local, and controlled automation workflows |
 
@@ -426,3 +426,13 @@ The entire request-details record remains capped at 4 KB with the existing 90-da
 Question context from a prior request is shown separately, with a source link, only when the retained caller, session, scan, provider and entrypoint match and the source precedes the current call by at most 24 hours. Missing identities, filtered traffic and invalid context fail closed. No inherited context is written back to current events, and no scanning, findings or scoring behavior changes.
 
 Estimated additional cost at the September 2026 observed request volume: less than $0.10/month, using existing storage and record limits. No model calls, infrastructure capacity changes, or longer retention are introduced.
+
+### Complete report evidence JSON (OAuth and Light)
+
+Use `certscore_get_scan_bundle` for a concise summary. For all fields of the displayed single-page or full-site report, use `certscore_get_report_evidence_page({scanId})`. Continue with `{scanId, cursor: pagination.nextCursor}` until `pagination.complete` is true. This adds a fourth Light tool; the three-tool scan → status → bundle workflow remains the default.
+
+Each page contains `entries` with RFC 6901 JSON Pointer `path` and JSON `value`. Apply them in order, creating parent containers before children. An empty path replaces the root. For an oversized string, concatenate `value` by zero-based `stringPart` through `stringParts` before assigning it. Treat paths as data; use own properties when reconstructing objects to prevent prototype pollution. All pages must have the same `snapshot`; HTTP 409 means restart without a cursor and discard the old partial export.
+
+The export preserves canonical findings, evidence tables, policy excerpts, inventory, consent/action/GPC evidence and coverage as present in the report projection. A complete export does **not** mean complete scan observation: retained samples, unavailable evidence and report limitations remain authoritative. Raw scanner artifacts outside the report and inline image binary bytes are excluded. Full-site data appears under `fullSiteReport`, including all page/resource rows, services, forms and retained fields. Available form snapshots have download URLs under `fullSiteReport.collectionSurfaces.rows[].snapshot.url`; use the OAuth bearer credential for workspace images, or no credential for eligible anonymous public scans. These downloads retain the existing provenance and image-safety checks. Withheld/unavailable snapshots are not promoted. OAuth can read its workspace’s reports and eligible public scans; Light can read only eligible anonymous public scans. No scan is created by this tool. Existing read throttles apply; honor Retry-After.
+
+Direct JSON endpoint: `GET /api/v2/scans/{scanId}/report-evidence?cursor={nextCursor}`. TypeScript SDK: `client.getReportEvidencePage(scanId, {cursor})`.

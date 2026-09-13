@@ -12,6 +12,7 @@ test("OAuth authorization-server metadata advertises PKCE and truthful endpoints
   assert.equal(body.token_endpoint, "https://certscore.ai/api/v2/oauth/token");
   assert.equal(body.registration_endpoint, "https://certscore.ai/api/v2/oauth/register");
   assert.deepEqual(body.code_challenge_methods_supported, ["S256"]);
-  assert.deepEqual(body.scopes_supported, ["scan:read", "mcp"]);
-  assert.deepEqual(body.grant_gated_scopes, ["scan:create"]);
+  assert.deepEqual(body.scopes_supported, ["scan:read", "scan:create", "mcp"]);
+  assert.deepEqual(body.self_serve_scopes, body.scopes_supported);
+  assert.equal(body.grant_gated_scopes, undefined);
 });

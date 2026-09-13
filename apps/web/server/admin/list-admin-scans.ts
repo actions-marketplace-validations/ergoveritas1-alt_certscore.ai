@@ -225,7 +225,9 @@ export async function listAdminOverviewScans(limit = 10): Promise<AdminOverviewR
     top_finding_count: number | null;
     privacy_policy_present: boolean | null;
   }>(
-    `select s.id as scan_id,
+    `with recent_scans as materialized (
+       select * from public.scans order by coalesce(completed_at, started_at, created_at) desc, created_at desc, id desc limit $1
+     ) select s.id as scan_id,
             s.status,
             s.scan_type,
             s.started_at,
@@ -239,12 +241,11 @@ export async function listAdminOverviewScans(limit = 10): Promise<AdminOverviewR
             ss.cmp_vendor_name,
             ss.scan_outcome,
             ss.score_source
-       from public.scans s
+       from recent_scans s
        left join public.domains d on d.id = s.domain_id
        left join public.organizations org on org.id = s.organization_id
        left join public.scan_snapshots ss on ss.scan_id = s.id
-      order by coalesce(s.completed_at, s.started_at, s.created_at) desc, s.created_at desc
-      limit $1`,
+      order by coalesce(s.completed_at, s.started_at, s.created_at) desc, s.created_at desc, s.id desc`,
     [Math.min(Math.max(limit, 1), 25)],
     { readOnly: true }
   );

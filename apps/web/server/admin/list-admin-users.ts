@@ -290,7 +290,8 @@ export async function getAdminUserOverview(input: { limit?: number } = {}): Prom
 }> {
   await requirePlatformAdminContext();
   const { metrics, users } = await loadAdminUserOverviewData(input.limit ?? 8);
-  const recentUsers = await mapAdminUserOverviewRows(users);
+  // Overview does not display MCP activation or invocation history.
+  const recentUsers = users.map(row => mapAdminUserOverviewRow(row));
 
   return {
     metrics: mapOverviewMetrics(metrics),

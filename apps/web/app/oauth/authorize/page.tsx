@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import { CERTSCORE_OAUTH_CREATE_SCOPE, oauthScopeString } from "@certscore/mcp-auth";
-import { SiteHeader } from "../../../components/layout/site-header";
 import { getCurrentUser } from "../../../server/auth";
 import { bootstrapAppUserSession } from "../../../server/bootstrap-user";
 import { OAUTH_SCAN_CREATE_DAILY_LIMIT, OAUTH_SCAN_CREATE_HOURLY_LIMIT } from "../../../server/integrations/api-keys";
 import {
+  createAuthorizationCode,
+  hasReusableMcpOAuthConsent,
   getMcpOAuthClient,
   getMcpOAuthWorkspaceActivity,
   redirectUriAllowed,
@@ -37,7 +38,7 @@ function currentAuthorizePath(params: Record<string, string | string[] | undefin
 function invalidRequest(message: string) {
   return (
     <main className="min-h-screen bg-slate-50">
-      <SiteHeader />
+      <header className="px-6 py-5"><Link href="/" className="font-semibold text-slate-900">CertScore.ai</Link></header>
       <section className="mx-auto max-w-xl px-6 py-20">
         <Card className="border-slate-200 bg-white shadow-none">
           <CardHeader>
@@ -103,13 +104,29 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
     );
   }
   const requestedScope = oauthScopeString(scopeResolution.approvedScopes);
-  const workspaceActivity = await getMcpOAuthWorkspaceActivity(organization.id);
+  // A changed client/workspace/scope set must go through the visible consent form.
+  // Hosts can explicitly ask to show consent again using prompt=consent.
+  if (!first(params.prompt)?.split(/\s+/).includes("consent") && await hasReusableMcpOAuthConsent({
+    clientId, organizationId: organization.id, ownerUserId: user.id,
+    scopes: scopeResolution.approvedScopes
+  })) {
+    const code = await createAuthorizationCode({
+      clientId, organizationId: organization.id, ownerUserId: user.id,
+      redirectUri, codeChallenge, scopes: scopeResolution.approvedScopes
+    });
+    const target = new URL(redirectUri);
+    target.searchParams.set("code", code);
+    target.searchParams.set("scope", requestedScope);
+    if (state) target.searchParams.set("state", state);
+    redirect(target.toString());
+  }
   const canCreateScans = scopeResolution.approvedScopes.includes(CERTSCORE_OAUTH_CREATE_SCOPE);
-  const hasWorkspaceScans = workspaceActivity.scanCount > 0 || workspaceActivity.domainCount > 0;
+  const workspaceActivity = canCreateScans ? null : await getMcpOAuthWorkspaceActivity(organization.id);
+  const hasWorkspaceScans = Boolean(workspaceActivity && (workspaceActivity.scanCount > 0 || workspaceActivity.domainCount > 0));
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <SiteHeader />
+      <header className="px-6 py-5"><Link href="/" className="font-semibold text-slate-900">CertScore.ai</Link></header>
       <section className="mx-auto max-w-xl px-6 py-20">
         <Card className="border-slate-200 bg-white shadow-none">
           <CardHeader>
@@ -118,20 +135,16 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-sm leading-7 text-slate-600">
-              This app is requesting access to CertScore.ai MCP tools for {organization.name}. CertScore.ai MCP returns public-web
-              risk signals for human and agentic review and does not provide legal advice or compliance certification.
+              Connect {client.clientName} to your CertScore workspace to {canCreateScans ? "start website scans and read reports and scan history" : "read existing reports and scan history"}.
             </p>
-            <div className="rounded border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">Requested scopes</p>
-              <p className="mt-2 font-mono text-xs">{requestedScope}</p>
-            </div>
             {!canCreateScans ? (
               <div className={`rounded border p-4 text-sm leading-6 ${hasWorkspaceScans ? "border-sky-200 bg-sky-50 text-sky-900" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
                 <p className="font-semibold">This connection is read-only.</p>
+                <p className="mt-1">Scan creation requires active workspace access. Check your workspace status before reconnecting; reconnecting alone will not activate an inactive workspace.</p>
                 <p className="mt-1">
                   {hasWorkspaceScans
                     ? `${client.clientName} can review existing CertScore scans, but it cannot start a new scan.`
-                    : `${organization.name} has no scans yet. ${client.clientName} cannot create the first scan with the requested access.`}
+                    : `Your CertScore workspace has no scans yet. ${client.clientName} cannot create the first scan with the requested access.`}
                 </p>
                 {!hasWorkspaceScans ? (
                   <p className="mt-2">
@@ -144,14 +157,15 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
                 ) : null}
               </div>
             ) : null}
-            {canCreateScans && !hasWorkspaceScans ? (
+            {canCreateScans ? (
               <div className="rounded border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-                <p className="font-semibold">Claude can start your first scan.</p>
+                <p className="font-semibold">Ready to scan. No staff approval needed.</p>
+                <p className="mt-1">Connect once. Your agent can reconnect automatically while this access remains valid. New permissions require your consent.</p>
                 <p className="mt-1">
-                  After approval, Claude can create up to {OAUTH_SCAN_CREATE_HOURLY_LIMIT} genuinely new scans per hour and{" "}
+                  Create up to {OAUTH_SCAN_CREATE_HOURLY_LIMIT} new scans per hour and{" "}
                   {OAUTH_SCAN_CREATE_DAILY_LIMIT} per day for this workspace. Eligible recent-result reuse does not consume the allowance.
                 </p>
-                <p className="mt-3 font-semibold">After approval, return to Claude and try:</p>
+                <p className="mt-3 font-semibold">Once connected, ask your agent:</p>
                 <code className="mt-1 block rounded border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-950">
                   Scan https://your-site.com with CertScore and summarize the findings.
                 </code>
@@ -167,12 +181,21 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
               <input name="organization_id" type="hidden" value={organization.id} />
               <input name="owner_user_id" type="hidden" value={user.id} />
               <button className="rounded bg-slate-950 px-4 py-2 text-sm font-semibold text-white" name="decision" type="submit" value="approve">
-                Approve
+                Connect
               </button>
               <button className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700" name="decision" type="submit" value="deny">
-                Deny
+                Cancel
               </button>
             </form>
+            <details className="rounded border border-slate-200 p-3 text-sm text-slate-600">
+              <summary className="cursor-pointer font-semibold">Connection details</summary>
+              <p className="mt-3">Requested scopes</p>
+              <p className="mt-1 break-words font-mono text-xs">{rawRequestedScopes.join(" ") || "Client defaults"}</p>
+              <p className="mt-3">Scopes granted when you connect</p>
+              <p className="mt-1 break-words font-mono text-xs">{requestedScope}</p>
+              <p className="mt-3">The client name is supplied by the app. Connecting lets it use these permissions on your behalf within your workspace’s usage limits.</p>
+              <p className="mt-3">CertScore provides automated public-web observations, not legal advice or compliance certification.</p>
+            </details>
           </CardContent>
         </Card>
       </section>

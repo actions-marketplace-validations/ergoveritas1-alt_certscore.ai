@@ -25,9 +25,9 @@ test("discovery is admin-gated, cached, and does not load the usage dashboard", 
   const repository = readFileSync("apps/web/server/admin/mcp-telemetry.ts", "utf8");
   const page = readFileSync("apps/web/app/app/admin/mcp/page.tsx", "utf8");
   const loader = repository.slice(repository.indexOf("export async function loadAdminMcpDiscovery"));
-  assert.ok(loader.indexOf("await requirePlatformAdminContext()") < loader.indexOf("return loadCachedAdminMcpDiscovery("));
-  assert.match(repository, /admin-mcp-discovery-v3.*revalidate: 30/);
-  assert.ok(page.indexOf('return <McpDiscoveryView') < page.indexOf('const [dashboard, eventPage]'));
+  assert.ok(loader.indexOf("await requirePlatformAdminContext()") < loader.indexOf("const grouped = await loadCachedAdminMcpDiscovery("));
+  assert.match(repository, /admin-mcp-discovery-v4.*revalidate: 30/);
+  assert.ok(page.indexOf('return <McpDiscoveryView') < page.indexOf('const dashboardPromise'));
   assert.match(repository, /client_name = \$\{addValue\(filters.clientName/);
 });
 

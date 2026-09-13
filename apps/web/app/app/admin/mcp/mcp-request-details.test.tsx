@@ -83,3 +83,10 @@ test("response capture displays generated semantics and omission markers", () =>
   assert.match(html, /Some response text was omitted/);
   assert.match(html, /size not recorded/);
 });
+
+test("successful reads do not imply quota consumption or a quota check", () => {
+  const html = renderToStaticMarkup(<McpRequestDetails traffic="external" period="6h" event={{...event,quota_outcome:"allowed"}} />);
+  assert.match(html,/No rate limit reported/);
+  assert.match(html,/Quota consumed: Not recorded/);
+  assert.match(html,/does not establish that quota was checked or consumed/);
+});

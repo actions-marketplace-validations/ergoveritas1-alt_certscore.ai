@@ -1,10 +1,16 @@
+import { McpCaptureDiagnostics } from "./mcp-capture-diagnostics";
+import { McpContextOnDemand } from "./mcp-context-on-demand";
+import { certScoreMcpToolContracts } from "@certscore/api-contracts";
+import { Suspense } from "react";
+import { McpPanelBoundary, McpPanelLoading } from "./mcp-panel-boundary";
+import { McpSessionFunnel } from "./mcp-session-funnel";
 import { MCP_RESPONSE_CATEGORIES, MCP_AGENT_NEXT_STEPS, MCP_FAILURE_SOURCES, MCP_RESPONSE_CAPTURE_OPTIONS } from "../../../../lib/admin/mcp-response-review";
 import { mcpRequestValidationLabel, mcpScanLimitationLabel } from "../../../../lib/admin/mcp-request-outcome";
 import { MCP_FUNNEL_FOLLOW_UP_MINUTES } from "../../../../lib/admin/mcp-funnel";
 import Link from "next/link";
 import { McpWorkflowView } from "./mcp-workflow-view";
 import { McpThrottleReminder } from "./mcp-throttle-reminder";
-import { McpCallerActivity, McpCallerActivityCounts } from "./mcp-caller-activity";
+import { McpCallerActivity } from "./mcp-caller-activity";
 import { McpRequestDetails } from "./mcp-request-details";
 import { McpDetailsPopup } from "./mcp-details-popup";
 import { McpNavigation } from "./mcp-navigation";
@@ -53,6 +59,7 @@ const snapshotPeriods = ["1h", "24h", "7d", "30d", "1y"] as const;
 type AdminMcpPageProps = {
   searchParams?: Promise<{
     tab?: string;
+    analysis?: string;
     purpose?: string;
     followUp?: string;
     client?: string;
@@ -263,6 +270,40 @@ function decisionClass(decision: AdminMcpTelemetryEvent["scan_decision"]) {
 
 export default async function AdminMcpTelemetryPage({ searchParams }: AdminMcpPageProps) {
   const resolved = searchParams ? await searchParams : {};
+  const active = resolved.tab === "discovery" || resolved.tab === "workflows" ? resolved.tab : "usage";
+  const traffic = resolveAdminTrafficScope(resolved);
+  const key = JSON.stringify(resolved);
+  return <div className="min-w-0 space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-2xl font-semibold">MCP operations</h2>
+      <AdminTrafficFilters basePath="/app/admin/mcp" scope={traffic} searchParams={resolved} />
+    </div>
+    <McpNavigation active={active} traffic={traffic} client={resolved.client} surface={resolved.surface} source={resolved.source} period={normalizeOption(resolved.timeSpan, active === "usage" ? timeSpans : Object.keys(MCP_DISCOVERY_PERIODS)) ?? (active === "usage" ? "30d" : "24h")} />
+    <McpPanelBoundary key={key} label="MCP activity">
+      <Suspense key={key} fallback={<McpPanelLoading label="MCP activity" />}>
+        <AdminMcpContent searchParams={Promise.resolve(resolved)} />
+      </Suspense>
+    </McpPanelBoundary>
+  </div>;
+}
+
+async function WorkflowFunnel({ input, followUpMinutes, params }: {
+  input: Parameters<typeof loadAdminMcpWorkflowEvents>[0]; followUpMinutes: number; params: Record<string, string | null>;
+}) {
+  const funnel = await withServerTiming("app.admin.mcp_workflows.funnel", () => loadAdminMcpFunnel({ ...input, followUpMinutes }));
+  return <McpSessionFunnel data={funnel} followUpMinutes={followUpMinutes} params={params} />;
+}
+
+async function WorkflowRows({ input, view }: {
+  input: Parameters<typeof loadAdminMcpWorkflowEvents>[0];
+  view: Omit<Parameters<typeof McpWorkflowView>[0], "events" | "totalEvents">;
+}) {
+  const data = await withServerTiming("app.admin.mcp_workflows.rows", () => loadAdminMcpWorkflowEvents(input));
+  return <McpWorkflowView {...data} {...view} />;
+}
+
+async function AdminMcpContent({ searchParams }: AdminMcpPageProps) {
+  const resolved = searchParams ? await searchParams : {};
   const page = normalizePage(resolved.page);
   const pageSize = normalizePageSize(resolved.perPage, 20);
   const activeQuery = resolved.q?.trim().slice(0, 160) ?? "";
@@ -279,9 +320,21 @@ export default async function AdminMcpTelemetryPage({ searchParams }: AdminMcpPa
     const followUpMinutes = (MCP_FUNNEL_FOLLOW_UP_MINUTES as readonly number[]).includes(Number(resolved.followUp)) ? Number(resolved.followUp) : 30;
     const input = { period, client: activeClient, surface: activeSurface, source: activeSource,
       includeInternalQa: includeCanary, excludeMacMini: excludeMacMiniScanBot };
-    const [data, funnel] = await Promise.all([loadAdminMcpWorkflowEvents(input), loadAdminMcpFunnel({ ...input, followUpMinutes })]);
-    return <McpWorkflowView {...data} funnel={funnel} followUpMinutes={followUpMinutes} period={period} traffic={trafficScope} client={activeClient} surface={activeSurface} source={activeSource}
-      search={activeQuery} purpose={resolved.purpose?.slice(0, 40) ?? ""} page={page} pageSize={pageSize} />;
+    const params = { tab: "workflows", traffic: trafficScope, timeSpan: period, client: activeClient, surface: activeSurface, source: activeSource, followUp: String(followUpMinutes) };
+    return <div className="min-w-0 space-y-4">
+      <McpPanelBoundary label="Workflows"><Suspense fallback={<McpPanelLoading label="Workflows" />}>
+        <WorkflowRows input={input} view={{ followUpMinutes, period, traffic: trafficScope, client: activeClient, surface: activeSurface, source: activeSource, search: activeQuery, purpose: resolved.purpose?.slice(0, 40) ?? "", page, pageSize }} />
+      </Suspense></McpPanelBoundary>
+      <section className="rounded-xl border bg-white p-4">
+        <Link className="font-semibold text-sky-700 hover:underline" prefetch={false} scroll={false}
+          href={`/app/admin/mcp?${new URLSearchParams({ ...Object.fromEntries(Object.entries(resolved).filter((entry): entry is [string, string] => typeof entry[1] === "string")), analysis: resolved.analysis === "funnel" ? "none" : "funnel" })}`}>
+          {resolved.analysis === "funnel" ? "Hide" : "Show"} session funnel and conversion analysis
+        </Link>
+        {resolved.analysis === "funnel" ? <McpPanelBoundary label="Session funnel"><Suspense fallback={<McpPanelLoading label="Session funnel" />}>
+          <WorkflowFunnel input={input} followUpMinutes={followUpMinutes} params={{ ...params, analysis: "funnel" }} />
+        </Suspense></McpPanelBoundary> : null}
+      </section>
+    </div>;
   }
   if (resolved.tab === "discovery") {
     const period = normalizeOption(resolved.timeSpan, Object.keys(MCP_DISCOVERY_PERIODS) as McpDiscoveryPeriod[]) ?? "24h";
@@ -304,15 +357,14 @@ export default async function AdminMcpTelemetryPage({ searchParams }: AdminMcpPa
   const activeSourcePeriod = normalizeOption(resolved.sourcePeriod, snapshotPeriods) ?? "24h";
   const activeTool = resolved.tool?.trim().slice(0, 100) ?? "";
   const hasFilters = Boolean(activeResponseCategory || activeAgentNextStep || activeFailureSource || activeResponseCapture || activeClient || activeQuery || activeSurface || activeSource || activeProduct || activeConfidence || activeOutcome || activeDecision || activeTool || activeTimeSpan !== "30d");
-  const [dashboard, eventPage] = await Promise.all([
-    withServerTiming("app.admin.mcp_telemetry", () => loadAdminMcpTelemetryDashboard(
+  const dashboardPromise = withServerTiming("app.admin.mcp_telemetry", () => loadAdminMcpTelemetryDashboard(
       activeSnapshotPeriod as AdminMcpSnapshotPeriod,
       activeToolPeriod as AdminMcpSnapshotPeriod,
       activeSourcePeriod as AdminMcpSnapshotPeriod,
       includeCanary,
       excludeMacMiniScanBot,
-    )),
-    withServerTiming("app.admin.mcp_telemetry.rows", () => listAdminMcpTelemetryEventsPage(pageSize, (page - 1) * pageSize, {
+    ));
+  const eventPagePromise = withServerTiming("app.admin.mcp_telemetry.rows", () => listAdminMcpTelemetryEventsPage(pageSize, (page - 1) * pageSize, {
       clientName: activeClient,
       confidence: activeConfidence,
       outcome: activeOutcome,
@@ -326,192 +378,35 @@ export default async function AdminMcpTelemetryPage({ searchParams }: AdminMcpPa
       toolName: activeTool || null,
       includeCanary,
       excludeMacMiniScanBot,
-    })),
-  ]);
-  const hasActivity = dashboard.retention.totalEvents > 0 || dashboard.metrics.invocations > 0;
-  const pageCount = Math.max(1, Math.ceil(eventPage.totalCount / pageSize));
-  const toolOptions = Array.from(new Set([activeTool, ...dashboard.tools.map((tool) => tool.toolName)].filter(Boolean))).sort();
-  const requestDelta = adminOperationalSnapshotDelta(dashboard.metrics.invocations, dashboard.comparison.invocations);
-  const errorDelta = adminOperationalSnapshotDelta(dashboard.metrics.errors, dashboard.comparison.errors, "higher_is_bad");
-  const latencyDelta = adminOperationalSnapshotDelta(dashboard.metrics.p95DurationMs ?? 0, dashboard.comparison.p95DurationMs ?? 0, "higher_is_bad");
-  const snapshotHref = (values: Record<string, string | null | undefined>) => adminOperationalSnapshotHref("/app/admin/mcp", { snapshot: activeSnapshotPeriod, traffic: trafficScope, ...values });
-  const summaryMetrics = [
-    { label: "Requests", value: number(dashboard.metrics.invocations), detail: dashboard.snapshot.label, definition: "requests" as const, comparison: requestDelta.label, anomaly: requestDelta.anomaly, href: snapshotHref({}) },
-    { label: "Sessions", value: number(dashboard.metrics.sessions), detail: "opaque", definition: "sessions" as const },
-    { label: "Actors", value: number(dashboard.metrics.actors), detail: "opaque", definition: "actors" as const },
-    { label: "Scans", value: number(dashboard.metrics.scans), detail: "tool calls", definition: "scans" as const, href: snapshotHref({ tool: "certscore_scan_site" }) },
-    { label: "Successful", value: number(dashboard.metrics.successes), detail: "requests", definition: "successful" as const, href: snapshotHref({ outcome: "success" }) },
-    { label: "Latency", value: `${duration(dashboard.metrics.p50DurationMs)} / ${duration(dashboard.metrics.p95DurationMs)}`, detail: "p50 / p95", definition: "latency" as const, comparison: latencyDelta.label, anomaly: latencyDelta.anomaly },
-  ];
-  const rateMetrics = [
-    { label: "Scan limited", value: number(dashboard.metrics.scanLimited), href: snapshotHref({ outcome: "scan_limited" }) },
-    { label: "Invalid requests", value: number(dashboard.metrics.invalidRequests), href: snapshotHref({ outcome: "invalid_request" }) },
-    { label: "Reuse", value: percentage(dashboard.rates.scanReuseRate), href: snapshotHref({ decision: "reused" }) },
-    { label: "Execution errors", value: percentage(dashboard.rates.errorRate), href: snapshotHref({ outcome: "error" }), anomaly: errorDelta.anomaly },
-    { label: "Quota", value: percentage(dashboard.rates.quotaHitRate), href: snapshotHref({ outcome: "rate_limited" }) },
-    { label: "Bundles / scan", value: dashboard.rates.bundlePerScanRatio?.toFixed(2) ?? "—", href: snapshotHref({ tool: "certscore_get_scan_bundle" }) },
-    { label: "Polls / scan", value: dashboard.rates.statusPollsPerScanRatio?.toFixed(2) ?? "—", href: snapshotHref({ tool: "certscore_get_scan_status" }) },
-    { label: "New scans", value: number(dashboard.metrics.newScans), href: snapshotHref({ decision: "new" }) },
-  ];
+    }));
 
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Hosted MCP operations</p>
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-950">MCP operations</h2>
-        </div>
-        <div className="flex items-center gap-3">
-          <AdminTrafficFilters basePath="/app/admin/mcp" scope={trafficScope} searchParams={resolved} />
-          {dashboard.retention.totalEvents > 0 ? (
-          <p className="text-xs text-slate-500">
-            {dashboard.retention.days}d retention · {number(dashboard.retention.totalEvents)} events
-            {dashboard.retention.expiredEvents > 0 ? ` · ${number(dashboard.retention.expiredEvents)} pending prune` : ""}
-          </p>
-          ) : null}
-        </div>
-      </div>
+  async function UsageSummary({ details = false }: { details?: boolean }) {
+    const dashboard = await dashboardPromise;
+    const hasActivity = dashboard.retention.totalEvents > 0 || dashboard.metrics.invocations > 0;
+    const requestDelta = adminOperationalSnapshotDelta(dashboard.metrics.invocations, dashboard.comparison.invocations);
+    const errorDelta = adminOperationalSnapshotDelta(dashboard.metrics.errors, dashboard.comparison.errors, "higher_is_bad");
+    const latencyDelta = adminOperationalSnapshotDelta(dashboard.metrics.p95DurationMs ?? 0, dashboard.comparison.p95DurationMs ?? 0, "higher_is_bad");
+    const snapshotHref = (values: Record<string, string | null | undefined>) => adminOperationalSnapshotHref("/app/admin/mcp", { snapshot: activeSnapshotPeriod, traffic: trafficScope, ...values });
+    const summaryMetrics = [
+      { label: "Requests", value: number(dashboard.metrics.invocations), detail: dashboard.snapshot.label, definition: "requests" as const, comparison: requestDelta.label, anomaly: requestDelta.anomaly, href: snapshotHref({}) },
+      { label: "Sessions", value: number(dashboard.metrics.sessions), detail: "opaque", definition: "sessions" as const },
+      { label: "Actors", value: number(dashboard.metrics.actors), detail: "opaque", definition: "actors" as const },
+      { label: "Scans", value: number(dashboard.metrics.scans), detail: "tool calls", definition: "scans" as const, href: snapshotHref({ tool: "certscore_scan_site" }) },
+      { label: "Successful", value: number(dashboard.metrics.successes), detail: "requests", definition: "successful" as const, href: snapshotHref({ outcome: "success" }) },
+      { label: "Latency", value: `${duration(dashboard.metrics.p50DurationMs)} / ${duration(dashboard.metrics.p95DurationMs)}`, detail: "p50 / p95", definition: "latency" as const, comparison: latencyDelta.label, anomaly: latencyDelta.anomaly },
+    ];
+    const rateMetrics = [
+      { label: "Scan limited", value: number(dashboard.metrics.scanLimited), href: snapshotHref({ outcome: "scan_limited" }) },
+      { label: "Invalid requests", value: number(dashboard.metrics.invalidRequests), href: snapshotHref({ outcome: "invalid_request" }) },
+      { label: "Reuse", value: percentage(dashboard.rates.scanReuseRate), href: snapshotHref({ decision: "reused" }) },
+      { label: "Execution errors", value: percentage(dashboard.rates.errorRate), href: snapshotHref({ outcome: "error" }), anomaly: errorDelta.anomaly },
+      { label: "Quota", value: percentage(dashboard.rates.quotaHitRate), href: snapshotHref({ outcome: "rate_limited" }) },
+      { label: "Bundles / scan", value: dashboard.rates.bundlePerScanRatio?.toFixed(2) ?? "—", href: snapshotHref({ tool: "certscore_get_scan_bundle" }) },
+      { label: "Polls / scan", value: dashboard.rates.statusPollsPerScanRatio?.toFixed(2) ?? "—", href: snapshotHref({ tool: "certscore_get_scan_status" }) },
+      { label: "New scans", value: number(dashboard.metrics.newScans), href: snapshotHref({ decision: "new" }) },
+    ];
 
-      <McpNavigation active="usage" traffic={trafficScope} client={activeClient} surface={activeSurface} source={activeSource} period={activeTimeSpan} />
-
-      <AdminOperationalSnapshot
-        ariaLabel={`MCP request trend: ${number(dashboard.metrics.invocations)} requests during ${dashboard.snapshot.label.toLowerCase()}`}
-        basePath="/app/admin/mcp"
-        breakdown={surfaces.map((surface) => { const row = dashboard.surfaces.find((item) => item.surface === surface); return { label: surfaceLabels[surface], value: number(row?.calls ?? 0), detail: `${number(row?.sessions ?? 0)} sessions · ${number(row?.actors ?? 0)} actors · ${number(row?.errors ?? 0)} execution errors · ${number(row?.invalidRequests ?? 0)} invalid requests · ${number(row?.scanLimited ?? 0)} scan limited`, href: snapshotHref({ surface }) }; })}
-        breakdownColumns="md:grid-cols-3"
-        health={adminOperationalSnapshotHealth(dashboard.newestAt, activeSnapshotPeriod as AdminMcpSnapshotPeriod)}
-        metrics={summaryMetrics}
-        period={activeSnapshotPeriod as AdminMcpSnapshotPeriod}
-        rates={rateMetrics}
-        searchParams={resolved}
-        subtitle={`All hosted MCP entrypoints · ${dashboard.snapshot.label}${activeSnapshotPeriod === "1y" ? ` · limited to ${dashboard.retention.days}d retained data` : ""}`}
-        trend={dashboard.trend.map((bucket, index) => ({ key: `${bucket.label}:${index}`, label: bucket.label, value: bucket.invocations, title: `${bucket.label}: ${bucket.invocations} requests, ${bucket.errors} execution errors, ${bucket.invalidRequests} invalid requests, ${bucket.scanLimited} scan limited, ${bucket.quotaLimited} quota limited`, className: bucket.errors > 0 ? "bg-rose-400 hover:bg-rose-500" : bucket.quotaLimited > 0 ? "bg-amber-400 hover:bg-amber-500" : undefined }))}
-        trendTotal={dashboard.snapshot.label}
-      />
-
-      <Card className="min-w-0 overflow-hidden border-slate-200 bg-white">
-        <CardHeader className="pb-2">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <CardTitle>MCP request activity</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Every retained tool request across hosted MCP entrypoints.</p>
-            </div>
-            <p className="text-sm text-slate-500">{number(eventPage.totalCount)} matching requests</p>
-          </div>
-        </CardHeader>
-        <AdminTableRefreshBoundary basePath="/app/admin/mcp" label="Refreshing MCP requests">
-        <CardContent className="min-w-0 space-y-3 pt-0">
-          <AdminScansFilterForm basePath="/app/admin/mcp" clearHref="/app/admin/mcp" hasFilters={hasFilters} submitFirst>
-            {activeClient ? <input name="client" type="hidden" value={activeClient} /> : null}
-            <input name="snapshot" type="hidden" value={activeSnapshotPeriod} />
-            <input name="toolPeriod" type="hidden" value={activeToolPeriod} />
-            <input name="sourcePeriod" type="hidden" value={activeSourcePeriod} />
-            <input name="traffic" type="hidden" value={trafficScope} />
-            <input aria-label="Filter MCP requests by hostname, scan ID, request ID, opaque ID, tool, client, or error" className="h-10 min-w-[24rem] flex-[1_1_28rem] rounded-lg border border-slate-300 bg-white px-3 text-sm" defaultValue={activeQuery} name="q" placeholder="Hostname, scan ID, request ID, session, actor, client, error" />
-            <select aria-label="Filter MCP requests by entrypoint" className="h-10 w-[10.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeSurface ?? ""} name="surface"><option value="">Any entrypoint</option>{surfaces.map((surface) => <option key={surface} value={surface}>{surfaceLabels[surface]}</option>)}</select>
-            <select aria-label="Filter MCP requests by caller provider" className="h-10 w-[9.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeSource ?? ""} name="source"><option value="">Any provider</option>{sources.map((source) => <option key={source} value={source}>{source === "unknown" ? "Unattributed" : formatLabel(source)}</option>)}</select>
-            <select aria-label="Filter MCP requests by caller product" className="h-10 w-[9.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeProduct ?? ""} name="product"><option value="">Any product</option>{products.map((product) => <option key={product} value={product}>{formatLabel(product)}</option>)}</select>
-            <select aria-label="Filter MCP requests by attribution confidence" className="h-10 w-[9.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeConfidence ?? ""} name="confidence"><option value="">Any confidence</option>{confidenceLevels.map((confidence) => <option key={confidence} value={confidence}>{formatLabel(confidence)}</option>)}</select>
-            <select aria-label="Filter MCP requests by tool" className="h-10 w-[13rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeTool} name="tool"><option value="">Any tool</option>{toolOptions.map((tool) => <option key={tool} value={tool}>{tool}</option>)}</select>
-            <select aria-label="Filter MCP requests by outcome" className="h-10 w-[8.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeOutcome ?? ""} name="outcome"><option value="">Any outcome</option>{outcomes.map((outcome) => <option key={outcome} value={outcome}>{formatLabel(outcome)}</option>)}</select>
-            {[
-              { name: "responseCategory", label: "Response category", value: activeResponseCategory, options: MCP_RESPONSE_CATEGORIES },
-              { name: "agentNextStep", label: "Agent next step", value: activeAgentNextStep, options: MCP_AGENT_NEXT_STEPS },
-              { name: "failureSource", label: "Failure source", value: activeFailureSource, options: MCP_FAILURE_SOURCES },
-              { name: "responseCapture", label: "Response capture", value: activeResponseCapture, options: MCP_RESPONSE_CAPTURE_OPTIONS },
-            ].map(filter => <select key={filter.name} name={filter.name} aria-label={`Filter MCP requests by ${filter.label.toLowerCase()}`} className="h-10 w-[10rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={filter.value ?? ""}><option value="">Any {filter.label.toLowerCase()}</option>{Object.entries(filter.options).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>)}
-            <select aria-label="Filter MCP requests by scan decision" className="h-10 w-[9rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeDecision ?? ""} name="decision"><option value="">Any decision</option>{scanDecisions.map((decision) => <option key={decision} value={decision}>{formatLabel(decision)}</option>)}</select>
-            <select aria-label="Filter MCP requests by time span" className="h-10 w-[8.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeTimeSpan} name="timeSpan">{timeSpans.map((timeSpan) => <option key={timeSpan} value={timeSpan}>{timeSpan === "all" ? "All retained" : timeSpan === "4h" ? "Past 4 hours" : timeSpan === "6h" ? "Past 6 hours" : timeSpan === "12h" ? "Past 12 hours" : timeSpan === "24h" ? "Past 24 hours" : timeSpan === "7d" ? "Past 7 days" : "Past 30 days"}</option>)}</select>
-          </AdminScansFilterForm>
-
-          {activeClient ? <p className="text-sm text-sky-800">Exact client: {activeClient}. <Link className="underline" href={mcpClientHref("discovery", { clientName: activeClient, surface: activeSurface, source: activeSource, traffic: trafficScope, period: activeTimeSpan })} prefetch={false}>View discovery</Link></p> : null}
-
-          <p className="text-xs text-slate-500">Caller IDs are correlation hints, not verified unique agents. Counts cover the preceding 5/10/60 minutes and 24 hours as of each request, including that call, across all tools and outcomes in the selected traffic scope. Open Request details for tool arguments and any explicitly shared question. Original chat conversations are not received. Response columns summarize captured guidance from that request, not confirmed client receipt. Missing capture is shown as Not recorded; full safe text remains in Request details.</p>
-
-          <PaginationControls basePath="/app/admin/mcp" itemLabel="MCP requests" page={page} pageCount={pageCount} pageSize={pageSize} searchParams={{ ...responseFilters, client: activeClient, q: activeQuery, surface: activeSurface, source: activeSource, product: activeProduct, confidence: activeConfidence, tool: activeTool, outcome: activeOutcome, decision: activeDecision, timeSpan: activeTimeSpan, snapshot: activeSnapshotPeriod, toolPeriod: activeToolPeriod, sourcePeriod: activeSourcePeriod, traffic: trafficScope }} showPageJump totalCount={eventPage.totalCount} visibleCount={eventPage.items.length} />
-
-          <div className="w-full max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200">
-            <table className="table-fixed text-left text-xs" style={{ width: "4450px", minWidth: "4450px" }}>
-              <colgroup>
-                <col style={{ width: "140px" }} /><col style={{ width: "140px" }} /><col style={{ width: "145px" }} /><col style={{ width: "150px" }} /><col style={{ width: "185px" }} /><col style={{ width: "155px" }} /><col style={{ width: "180px" }} /><col style={{ width: "300px" }} />
-                <col style={{ width: "150px" }} /><col style={{ width: "105px" }} /><col style={{ width: "230px" }} />
-                <col style={{ width: "70px" }} /><col style={{ width: "65px" }} /><col style={{ width: "55px" }} />
-                <col style={{ width: "170px" }} /><col style={{ width: "80px" }} /><col style={{ width: "115px" }} />
-                <col style={{ width: "205px" }} /><col style={{ width: "140px" }} /><col style={{ width: "150px" }} />
-                <col style={{ width: "80px" }} /><col style={{ width: "140px" }} /><col style={{ width: "120px" }} /><col style={{ width: "65px" }} />
-                <col style={{ width: "110px" }} /><col style={{ width: "75px" }} /><col style={{ width: "170px" }} />
-                <col style={{ width: "120px" }} /><col style={{ width: "200px" }} /><col style={{ width: "180px" }} />
-                <col style={{ width: "190px" }} /><col style={{ width: "70px" }} />
-              </colgroup>
-              <thead className="sticky top-0 z-20 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
-                <tr>{[
-                  { label: "Status", className: "sticky left-0 z-30 bg-slate-50" }, { label: "Response" }, { label: "Agent next step" }, { label: "Retry" }, { label: "Failure source" }, { label: "Entrypoint" }, { label: "Client / channel" }, { label: "Caller activity" },
-                  { label: "Requester / caller IP" }, { label: "Requested" }, { label: "Page" }, { label: "Tranco" }, { label: "Score" }, { label: "Top" },
-                  { label: "Privacy / CMP" }, { label: "A/R/O" }, { label: "Access" }, { label: "Transparency" }, { label: "Transport" }, { label: "Runtime" },
-                  { label: "Time" }, { label: "Caller attribution" }, { label: "Outcome" }, { label: "From" }, { label: "Freshness" }, { label: "Language" }, { label: "Industry" },
-                  { label: "Mode" }, { label: "Usage" }, { label: "Scan ID" }, { label: "Scanner egress" },
-                  { label: "Open", className: "sticky right-0 z-30 bg-slate-50" },
-                ].map(({ label, className }) => <th className={`border-b border-slate-200 px-2.5 py-1.5 font-semibold ${className ?? ""}`} key={label}>{label}</th>)}</tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
-                {eventPage.items.map((event) => {
-                  const limitationLabel = mcpScanLimitationLabel(event);
-                  const validationLabel = mcpRequestValidationLabel(event);
-                  const invalidRequest = validationLabel !== null;
-                  const outcome = invalidRequest
-                    ? { dot: "bg-amber-400", label: "Invalid request", text: "text-amber-700" }
-                    : limitationLabel ? { label: "Scan limited", text: "text-amber-700", dot: "bg-amber-400" } : outcomePresentation(event.outcome);
-                  const linkedScanId = invalidRequest ? null : event.scan_id;
-                  const requested = formatRequestedDateTime(event.occurred_at);
-                  const scanHref = getAdminAuthenticatedScanHref(linkedScanId);
-                  const matrix = event.evidence_matrix;
-                  const marker = event.scan_from ? getScanFromMarkerInput(event.scan_from) : null;
-                  return (
-                    <tr className="group h-[52px] leading-4 hover:bg-slate-50/70" key={event.event_id}>
-                      <td className="sticky left-0 z-10 bg-white px-2.5 py-1.5 group-hover:bg-slate-50"><span className={`inline-flex max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap font-semibold ${outcome.text}`}><span aria-hidden="true" className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${outcome.dot}`} />{outcome.label}</span>{event.error_code ? <p className="mt-0.5 truncate text-[10px] text-slate-500" title={event.error_code}>{validationLabel ?? limitationLabel ?? event.error_code}</p> : null}</td>
-                      <td className="px-2.5 py-1.5">{MCP_RESPONSE_CATEGORIES[event.response_category ?? "not_recorded"]}</td>
-                      <td className="px-2.5 py-1.5">{MCP_AGENT_NEXT_STEPS[event.agent_next_step ?? "not_recorded"]}</td>
-                      <td className="px-2.5 py-1.5">{event.response_retry ?? "Not recorded"}</td>
-                      <td className="px-2.5 py-1.5">{MCP_FAILURE_SOURCES[event.failure_source ?? "not_recorded"]}</td>
-                      <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${surfaceClass(event.surface)}`}>{surfaceLabels[event.surface]}</span><p className="mt-1 text-[10px] text-slate-500">{event.auth_class}</p></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold text-slate-700" title={clientDetail(event)}>{event.client_name ? <Link className="hover:underline" href={mcpClientHref("discovery", { clientName: event.client_name, surface: event.surface, source: event.source, traffic: trafficScope, period: activeTimeSpan })} prefetch={false}>{clientDetail(event)}</Link> : clientDetail(event)}</p><McpCallerActivity event={event} traffic={trafficScope} period={activeTimeSpan}><p><strong>Client:</strong> {clientDetail(event)}</p><p><strong>Channel:</strong> {formatLabel(event.execution_channel)} · {formatLabel(event.client_family)}</p></McpCallerActivity></td>
-                      <td className="px-2.5 py-1.5 text-[11px]"><McpCallerActivityCounts counts={event.caller_activity} /></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px] font-medium text-slate-700" title={sourceIpLabel(event)}>{sourceIpLabel(event)}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{event.source_ip_source.replaceAll("_", " ")}</p></td>
-                      <td className="px-2.5 py-1.5 text-[10px] leading-4" title={formatAdminDateTime(event.occurred_at)}><p>{requested.date}</p><p className="text-slate-500">{requested.time}</p></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold leading-4 text-slate-900" title={requestedResourceLabel(event)}>{requestedResourceLabel(event)}</p><McpRequestDetails event={event} traffic={trafficScope} period={activeTimeSpan} /></td>
-                      <td className="px-2.5 py-1.5 font-medium text-slate-700">{event.tranco_rank ? `#${event.tranco_rank.toLocaleString()}` : "—"}</td>
-                      <td className="px-2.5 py-1.5 font-semibold text-slate-900">{event.score !== null ? <><span>{event.score}</span><span className="text-[11px] font-normal text-slate-400">/100</span></> : "—"}</td>
-                      <td className="px-2.5 py-1.5 font-semibold text-slate-900">{event.top_finding_count ?? "—"}</td>
-                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><p className="flex gap-2 text-[10px]"><EvidenceCode code="Privacy" label="Privacy notice" result={matrix?.privacyConsent.privacyNotice ?? null} /><EvidenceCode code="CMP" label="CMP framework" result={matrix?.privacyConsent.cmp ?? null} /></p><p className="truncate text-[10px] text-slate-500" title={evidenceTitle("Consent mechanism", matrix?.privacyConsent.mechanism ?? null)}>Mechanism {matrix?.privacyConsent.cmpVendorName ?? (matrix?.privacyConsent.mechanism ? EVIDENCE_MARKS[matrix.privacyConsent.mechanism.status].mark : "·")}</p></>}</td>
-                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><p className="flex gap-2 text-[10px]"><EvidenceCode code="A" label="Accept" result={matrix?.privacyConsent.accept ?? null} /><EvidenceCode code="R" label="Reject" result={matrix?.privacyConsent.reject ?? null} /><EvidenceCode code="O" label="Options" result={matrix?.privacyConsent.options ?? null} /></p><p className="truncate text-[10px] text-slate-400">Canonical controls</p></>}</td>
-                      <td className="px-2.5 py-1.5 font-medium leading-4 text-slate-700"><span className="line-clamp-2 break-words">{accessLabel(event)}</span></td>
-                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><EvidenceGroupCell aggregate={matrix?.transparency.aggregate ?? null} labels={TRANSPARENCY_LABELS} policyEvidence={matrix?.policyEvidence} results={matrix?.transparency.results ?? null} /></>}</td>
-                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><EvidenceGroupCell aggregate={matrix?.transport.aggregate ?? null} labels={TRANSPORT_LABELS} results={matrix?.transport.results ?? null} /></>}</td>
-                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><EvidenceGroupCell aggregate={matrix?.runtime.aggregate ?? null} labels={RUNTIME_LABELS} results={matrix?.runtime.results ?? null} /></>}</td>
-                      <td className="px-2.5 py-1.5 font-medium text-slate-800">{invalidRequest ? null : <p>{scanElapsed(event.scan_elapsed_seconds)}</p>}<p className="text-[10px] text-slate-400">call {duration(event.duration_ms)}</p></td>
-                      <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${sourceClass(event.source, event.source_attribution)}`}>{sourceLabel(event.source, event.source_attribution)}</span><McpDetailsPopup title="Caller attribution" trigger={formatLabel(event.caller_product)}><p>{sourceConfidenceLabel(event.source, event.attribution_confidence)}</p><p>Signals: {event.attribution_signals.join(", ") || "none"}</p><p>Ruleset: {event.attribution_ruleset_version}</p><p>Directory: {formatLabel(event.installation_origin)}</p></McpDetailsPopup></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-medium text-slate-700" title={invalidRequest ? "No scan started" : event.scan_outcome ?? event.scan_status ?? event.outcome}>{invalidRequest ? "No scan started" : limitationLabel ? "Completed limited" : formatLabel(event.scan_outcome ?? event.scan_status ?? event.outcome)}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{invalidRequest ? "Invalid request" : formatLabel(event.outcome)}</p></td>
-                      <td className="px-2.5 py-1.5" title={event.scan_from ? formatLabel(event.scan_from) : "Scan location not recorded"}>{marker ? <span aria-label={formatLabel(event.scan_from)} className="inline-flex"><ScanFromMarker flag={"flag" in marker ? marker.flag : undefined} icon={"icon" in marker ? marker.icon : undefined} selected /></span> : "—"}</td>
-                      <td className="px-2.5 py-1.5"><span className="inline-flex max-w-full truncate whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">{freshnessLabel(event.freshness)}</span></td>
-                      <td className="px-2.5 py-1.5 font-medium uppercase text-slate-700">{event.primary_language ?? "—"}</td>
-                      <td className="truncate px-2.5 py-1.5 text-slate-700" title={event.industry ?? undefined}>{event.industry ?? "—"}</td>
-                      <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${decisionClass(event.scan_decision)}`}>{formatLabel(event.mode_detail ?? event.scan_decision)}</span><p className="mt-0.5 truncate text-[10px] text-slate-500">{event.mode_format ? formatLabel(event.mode_format) : provenanceLabel(event.target_provenance) ?? "MCP"}</p></td>
-                      <td className="px-2.5 py-1.5" title={`request ${event.request_id} · event ${event.event_id}`}><p className="truncate font-mono text-[10px] font-semibold text-slate-900">{event.tool_name}</p><p className="mt-0.5 truncate text-[10px] text-slate-500">{invalidRequest ? "Invalid request" : formatLabel(event.transport_outcome)} · {event.quota_outcome === "allowed" ? "Access allowed" : formatLabel(event.quota_outcome)}</p></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px]" title={linkedScanId ?? undefined}>{linkedScanId ?? "—"}</p><p className="mt-0.5 flex gap-1.5 text-[9px]">{linkedScanId ? <><Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/scans", { q: event.scan_id, traffic: trafficScope })} prefetch={false}>Scans</Link><Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/analytics", { q: event.scan_id, traffic: trafficScope })} prefetch={false}>Events</Link><Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/pulse", { q: event.scan_id, traffic: trafficScope })} prefetch={false}>API</Link></> : <Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/analytics", { q: event.request_id, traffic: trafficScope })} prefetch={false}>Events</Link>}</p></td>
-                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><p className="truncate font-mono text-[10px] text-slate-700" title={event.scanner_egress_id ?? "Scanner egress not recorded"}>{event.scanner_egress_id ?? "Not recorded"}</p><p className="mt-0.5 truncate text-[10px] text-slate-400" title={event.scanner_egress_provider ?? undefined}>{event.scanner_egress_provider ?? "Outbound runtime"}</p></>}</td>
-                      <td className="sticky right-0 z-10 border-l border-slate-100 bg-white px-2 py-1.5 text-center group-hover:bg-slate-50">{scanHref ? <Link aria-label={`Open scan ${event.scan_id}`} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white font-semibold text-sky-700" href={scanHref} prefetch={false}>→</Link> : <span className="text-slate-300">—</span>}</td>
-                    </tr>
-                  );
-                })}
-                {eventPage.items.length === 0 ? <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={32}>No MCP requests match these filters.</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-        </AdminTableRefreshBoundary>
-      </Card>
-
-      <Card className="border-slate-200 bg-white">
+    return details ? <><Card className="border-slate-200 bg-white">
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div><CardTitle>Tool distribution and latency</CardTitle><p className="mt-0.5 text-xs text-slate-500">{dashboard.toolAnalytics.label} · p50 / p95{activeToolPeriod === "1y" ? ` · limited to ${dashboard.retention.days}d retained data` : ""}</p></div>
@@ -626,7 +521,153 @@ export default async function AdminMcpTelemetryPage({ searchParams }: AdminMcpPa
           <p className="text-xs leading-5 text-slate-500">Repeat use counts measurable opaque actors active on at least two distinct UTC days. It excludes known internal QA, canary, and Mac mini scan-bot traffic; it is not an installation count. Marketplace impressions and installs remain unavailable unless a provider supplies aggregate reporting.</p>
         </CardContent>
       </Card>
-      <McpThrottleReminder />
-    </div>
-  );
+      <McpThrottleReminder /></> : <><AdminOperationalSnapshot
+        ariaLabel={`MCP request trend: ${number(dashboard.metrics.invocations)} requests during ${dashboard.snapshot.label.toLowerCase()}`}
+        basePath="/app/admin/mcp"
+        breakdown={surfaces.map((surface) => { const row = dashboard.surfaces.find((item) => item.surface === surface); return { label: surfaceLabels[surface], value: number(row?.calls ?? 0), detail: `${number(row?.sessions ?? 0)} sessions · ${number(row?.actors ?? 0)} actors · ${number(row?.errors ?? 0)} execution errors · ${number(row?.invalidRequests ?? 0)} invalid requests · ${number(row?.scanLimited ?? 0)} scan limited`, href: snapshotHref({ surface }) }; })}
+        breakdownColumns="md:grid-cols-3"
+        health={adminOperationalSnapshotHealth(dashboard.newestAt, activeSnapshotPeriod as AdminMcpSnapshotPeriod)}
+        metrics={summaryMetrics}
+        period={activeSnapshotPeriod as AdminMcpSnapshotPeriod}
+        rates={rateMetrics}
+        searchParams={resolved}
+        subtitle={`All hosted MCP entrypoints · ${dashboard.snapshot.label}${activeSnapshotPeriod === "1y" ? ` · limited to ${dashboard.retention.days}d retained data` : ""}`}
+        trend={dashboard.trend.map((bucket, index) => ({ key: `${bucket.label}:${index}`, label: bucket.label, value: bucket.invocations, title: `${bucket.label}: ${bucket.invocations} requests, ${bucket.errors} execution errors, ${bucket.invalidRequests} invalid requests, ${bucket.scanLimited} scan limited, ${bucket.quotaLimited} quota limited`, className: bucket.errors > 0 ? "bg-rose-400 hover:bg-rose-500" : bucket.quotaLimited > 0 ? "bg-amber-400 hover:bg-amber-500" : undefined }))}
+        trendTotal={dashboard.snapshot.label}
+      /></>;
+  }
+  async function UsageLedger() {
+    const eventPage = await eventPagePromise;
+    const pageCount = Math.max(1, Math.ceil(eventPage.totalCount / pageSize));
+    const toolOptions = Array.from(new Set([activeTool, ...certScoreMcpToolContracts.map(tool => tool.name), ...eventPage.items.map(event => event.tool_name)].filter(Boolean))).sort();
+    return <><Card className="min-w-0 overflow-hidden border-slate-200 bg-white">
+        <CardHeader className="pb-2">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <CardTitle>MCP request activity</CardTitle>
+              <p className="mt-1 text-sm text-slate-500">Every retained tool request across hosted MCP entrypoints.</p>
+            </div>
+            <p className="text-sm text-slate-500">{number(eventPage.totalCount)} matching requests</p>
+          </div>
+        </CardHeader>
+        <AdminTableRefreshBoundary basePath="/app/admin/mcp" label="Refreshing MCP requests">
+        <CardContent className="min-w-0 space-y-3 pt-0">
+          <AdminScansFilterForm basePath="/app/admin/mcp" clearHref="/app/admin/mcp" hasFilters={hasFilters} submitFirst>
+            {activeClient ? <input name="client" type="hidden" value={activeClient} /> : null}
+            <input name="snapshot" type="hidden" value={activeSnapshotPeriod} />
+            <input name="toolPeriod" type="hidden" value={activeToolPeriod} />
+            <input name="sourcePeriod" type="hidden" value={activeSourcePeriod} />
+            <input name="traffic" type="hidden" value={trafficScope} />
+            <input aria-label="Filter MCP requests by hostname, scan ID, request ID, opaque ID, tool, client, or error" className="h-10 min-w-[24rem] flex-[1_1_28rem] rounded-lg border border-slate-300 bg-white px-3 text-sm" defaultValue={activeQuery} name="q" placeholder="Hostname, scan ID, request ID, session, actor, client, error" />
+            <select aria-label="Filter MCP requests by entrypoint" className="h-10 w-[10.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeSurface ?? ""} name="surface"><option value="">Any entrypoint</option>{surfaces.map((surface) => <option key={surface} value={surface}>{surfaceLabels[surface]}</option>)}</select>
+            <select aria-label="Filter MCP requests by caller provider" className="h-10 w-[9.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeSource ?? ""} name="source"><option value="">Any provider</option>{sources.map((source) => <option key={source} value={source}>{source === "unknown" ? "Unattributed" : formatLabel(source)}</option>)}</select>
+            <select aria-label="Filter MCP requests by caller product" className="h-10 w-[9.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeProduct ?? ""} name="product"><option value="">Any product</option>{products.map((product) => <option key={product} value={product}>{formatLabel(product)}</option>)}</select>
+            <select aria-label="Filter MCP requests by attribution confidence" className="h-10 w-[9.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeConfidence ?? ""} name="confidence"><option value="">Any confidence</option>{confidenceLevels.map((confidence) => <option key={confidence} value={confidence}>{formatLabel(confidence)}</option>)}</select>
+            <select aria-label="Filter MCP requests by tool" className="h-10 w-[13rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeTool} name="tool"><option value="">Any tool</option>{toolOptions.map((tool) => <option key={tool} value={tool}>{tool}</option>)}</select>
+            <select aria-label="Filter MCP requests by outcome" className="h-10 w-[8.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeOutcome ?? ""} name="outcome"><option value="">Any outcome</option>{outcomes.map((outcome) => <option key={outcome} value={outcome}>{formatLabel(outcome)}</option>)}</select>
+            {[
+              { name: "responseCategory", label: "Response category", value: activeResponseCategory, options: MCP_RESPONSE_CATEGORIES },
+              { name: "agentNextStep", label: "Agent next step", value: activeAgentNextStep, options: MCP_AGENT_NEXT_STEPS },
+              { name: "failureSource", label: "Failure source", value: activeFailureSource, options: MCP_FAILURE_SOURCES },
+              { name: "responseCapture", label: "Response capture", value: activeResponseCapture, options: MCP_RESPONSE_CAPTURE_OPTIONS },
+            ].map(filter => <select key={filter.name} name={filter.name} aria-label={`Filter MCP requests by ${filter.label.toLowerCase()}`} className="h-10 w-[10rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={filter.value ?? ""}><option value="">Any {filter.label.toLowerCase()}</option>{Object.entries(filter.options).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>)}
+            <select aria-label="Filter MCP requests by scan decision" className="h-10 w-[9rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeDecision ?? ""} name="decision"><option value="">Any decision</option>{scanDecisions.map((decision) => <option key={decision} value={decision}>{formatLabel(decision)}</option>)}</select>
+            <select aria-label="Filter MCP requests by time span" className="h-10 w-[8.5rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeTimeSpan} name="timeSpan">{timeSpans.map((timeSpan) => <option key={timeSpan} value={timeSpan}>{timeSpan === "all" ? "All retained" : timeSpan === "4h" ? "Past 4 hours" : timeSpan === "6h" ? "Past 6 hours" : timeSpan === "12h" ? "Past 12 hours" : timeSpan === "24h" ? "Past 24 hours" : timeSpan === "7d" ? "Past 7 days" : "Past 30 days"}</option>)}</select>
+          </AdminScansFilterForm>
+
+          {activeClient ? <p className="text-sm text-sky-800">Exact client: {activeClient}. <Link className="underline" href={mcpClientHref("discovery", { clientName: activeClient, surface: activeSurface, source: activeSource, traffic: trafficScope, period: activeTimeSpan })} prefetch={false}>View discovery</Link></p> : null}
+
+          <p className="text-xs text-slate-500">Caller IDs are correlation hints, not verified unique agents. Counts cover the preceding 5/10/60 minutes and 24 hours as of each request, including that call, across all tools and outcomes in the selected traffic scope. Open Request details for tool arguments and any explicitly shared question. Original chat conversations are not received. Response columns summarize captured guidance from that request, not confirmed client receipt. Missing capture is shown as Not recorded; full safe text remains in Request details.</p>
+
+          <McpCaptureDiagnostics />
+          <PaginationControls basePath="/app/admin/mcp" itemLabel="MCP requests" page={page} pageCount={pageCount} pageSize={pageSize} searchParams={{ ...responseFilters, client: activeClient, q: activeQuery, surface: activeSurface, source: activeSource, product: activeProduct, confidence: activeConfidence, tool: activeTool, outcome: activeOutcome, decision: activeDecision, timeSpan: activeTimeSpan, snapshot: activeSnapshotPeriod, toolPeriod: activeToolPeriod, sourcePeriod: activeSourcePeriod, traffic: trafficScope }} showPageJump totalCount={eventPage.totalCount} visibleCount={eventPage.items.length} />
+
+          <div className="w-full max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200">
+            <table className="table-fixed text-left text-xs" style={{ width: "4450px", minWidth: "4450px" }}>
+              <colgroup>
+                <col style={{ width: "140px" }} /><col style={{ width: "140px" }} /><col style={{ width: "145px" }} /><col style={{ width: "150px" }} /><col style={{ width: "185px" }} /><col style={{ width: "155px" }} /><col style={{ width: "180px" }} /><col style={{ width: "300px" }} />
+                <col style={{ width: "150px" }} /><col style={{ width: "105px" }} /><col style={{ width: "230px" }} />
+                <col style={{ width: "70px" }} /><col style={{ width: "65px" }} /><col style={{ width: "55px" }} />
+                <col style={{ width: "170px" }} /><col style={{ width: "80px" }} /><col style={{ width: "115px" }} />
+                <col style={{ width: "205px" }} /><col style={{ width: "140px" }} /><col style={{ width: "150px" }} />
+                <col style={{ width: "80px" }} /><col style={{ width: "140px" }} /><col style={{ width: "120px" }} /><col style={{ width: "65px" }} />
+                <col style={{ width: "110px" }} /><col style={{ width: "75px" }} /><col style={{ width: "170px" }} />
+                <col style={{ width: "120px" }} /><col style={{ width: "200px" }} /><col style={{ width: "180px" }} />
+                <col style={{ width: "190px" }} /><col style={{ width: "70px" }} />
+              </colgroup>
+              <thead className="sticky top-0 z-20 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                <tr>{[
+                  { label: "Call result", className: "sticky left-0 z-30 bg-slate-50" }, { label: "Response at call time" }, { label: "Agent next step" }, { label: "Retry" }, { label: "Failure source" }, { label: "Entrypoint" }, { label: "Client / channel" }, { label: "Caller activity" },
+                  { label: "Requester / caller IP" }, { label: "Requested" }, { label: "Page" }, { label: "Tranco" }, { label: "Score" }, { label: "Top" },
+                  { label: "Privacy / CMP" }, { label: "A/R/O" }, { label: "Access" }, { label: "Transparency" }, { label: "Transport" }, { label: "Runtime" },
+                  { label: "Time" }, { label: "Caller attribution" }, { label: "Current scan outcome" }, { label: "From" }, { label: "Freshness" }, { label: "Language" }, { label: "Industry" },
+                  { label: "Mode" }, { label: "Usage" }, { label: "Scan ID" }, { label: "Scanner egress" },
+                  { label: "Open", className: "sticky right-0 z-30 bg-slate-50" },
+                ].map(({ label, className }) => <th className={`border-b border-slate-200 px-2.5 py-1.5 font-semibold ${className ?? ""}`} key={label}>{label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
+                {eventPage.items.map((event) => {
+                  const limitationLabel = mcpScanLimitationLabel(event);
+                  const validationLabel = mcpRequestValidationLabel(event);
+                  const invalidRequest = validationLabel !== null;
+                  const outcome = invalidRequest
+                    ? { dot: "bg-amber-400", label: "Invalid request", text: "text-amber-700" }
+                    : outcomePresentation(event.outcome);
+                  const linkedScanId = invalidRequest ? null : event.scan_id;
+                  const requested = formatRequestedDateTime(event.occurred_at);
+                  const scanHref = getAdminAuthenticatedScanHref(linkedScanId);
+                  const matrix = event.evidence_matrix;
+                  const marker = event.scan_from ? getScanFromMarkerInput(event.scan_from) : null;
+                  return (
+                    <tr className="group h-[52px] leading-4 hover:bg-slate-50/70" key={event.event_id}>
+                      <td className="sticky left-0 z-10 bg-white px-2.5 py-1.5 group-hover:bg-slate-50"><span className={`inline-flex max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap font-semibold ${outcome.text}`}><span aria-hidden="true" className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${outcome.dot}`} />{outcome.label}</span>{event.error_code ? <p className="mt-0.5 truncate text-[10px] text-slate-500" title={event.error_code}>{validationLabel ?? limitationLabel ?? event.error_code}</p> : null}</td>
+                      <td className="px-2.5 py-1.5">{MCP_RESPONSE_CATEGORIES[event.response_category ?? "not_recorded"]}</td>
+                      <td className="px-2.5 py-1.5">{MCP_AGENT_NEXT_STEPS[event.agent_next_step ?? "not_recorded"]}</td>
+                      <td className="px-2.5 py-1.5">{event.response_retry ?? "Not recorded"}</td>
+                      <td className="px-2.5 py-1.5">{MCP_FAILURE_SOURCES[event.failure_source ?? "not_recorded"]}</td>
+                      <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${surfaceClass(event.surface)}`}>{surfaceLabels[event.surface]}</span><p className="mt-1 text-[10px] text-slate-500">{event.auth_class}</p></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold text-slate-700" title={clientDetail(event)}>{event.client_name ? <Link className="hover:underline" href={mcpClientHref("discovery", { clientName: event.client_name, surface: event.surface, source: event.source, traffic: trafficScope, period: activeTimeSpan })} prefetch={false}>{clientDetail(event)}</Link> : clientDetail(event)}</p><McpCallerActivity event={event} traffic={trafficScope} period={activeTimeSpan}><p><strong>Client:</strong> {clientDetail(event)}</p><p><strong>Channel:</strong> {formatLabel(event.execution_channel)} · {formatLabel(event.client_family)}</p></McpCallerActivity></td>
+                      <td className="px-2.5 py-1.5 text-[11px]"><McpContextOnDemand eventId={event.event_id} traffic={trafficScope} kind="caller" /></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px] font-medium text-slate-700" title={sourceIpLabel(event)}>{sourceIpLabel(event)}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{event.source_ip_source.replaceAll("_", " ")}</p></td>
+                      <td className="px-2.5 py-1.5 text-[10px] leading-4" title={formatAdminDateTime(event.occurred_at)}><p>{requested.date}</p><p className="text-slate-500">{requested.time}</p></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold leading-4 text-slate-900" title={requestedResourceLabel(event)}>{requestedResourceLabel(event)}</p><McpRequestDetails event={event} traffic={trafficScope} period={activeTimeSpan} /></td>
+                      <td className="px-2.5 py-1.5 font-medium text-slate-700">{event.tranco_rank ? `#${event.tranco_rank.toLocaleString()}` : "—"}</td>
+                      <td className="px-2.5 py-1.5 font-semibold text-slate-900">{event.score !== null ? <><span>{event.score}</span><span className="text-[11px] font-normal text-slate-400">/100</span></> : "—"}</td>
+                      <td className="px-2.5 py-1.5 font-semibold text-slate-900">{event.top_finding_count ?? "—"}</td>
+                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><p className="flex gap-2 text-[10px]"><EvidenceCode code="Privacy" label="Privacy notice" result={matrix?.privacyConsent.privacyNotice ?? null} /><EvidenceCode code="CMP" label="CMP framework" result={matrix?.privacyConsent.cmp ?? null} /></p><p className="truncate text-[10px] text-slate-500" title={evidenceTitle("Consent mechanism", matrix?.privacyConsent.mechanism ?? null)}>Mechanism {matrix?.privacyConsent.cmpVendorName ?? (matrix?.privacyConsent.mechanism ? EVIDENCE_MARKS[matrix.privacyConsent.mechanism.status].mark : "·")}</p></>}</td>
+                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><p className="flex gap-2 text-[10px]"><EvidenceCode code="A" label="Accept" result={matrix?.privacyConsent.accept ?? null} /><EvidenceCode code="R" label="Reject" result={matrix?.privacyConsent.reject ?? null} /><EvidenceCode code="O" label="Options" result={matrix?.privacyConsent.options ?? null} /></p><p className="truncate text-[10px] text-slate-400">Canonical controls</p></>}</td>
+                      <td className="px-2.5 py-1.5 font-medium leading-4 text-slate-700"><span className="line-clamp-2 break-words">{accessLabel(event)}</span></td>
+                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><EvidenceGroupCell aggregate={matrix?.transparency.aggregate ?? null} labels={TRANSPARENCY_LABELS} policyEvidence={matrix?.policyEvidence} results={matrix?.transparency.results ?? null} /></>}</td>
+                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><EvidenceGroupCell aggregate={matrix?.transport.aggregate ?? null} labels={TRANSPORT_LABELS} results={matrix?.transport.results ?? null} /></>}</td>
+                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><EvidenceGroupCell aggregate={matrix?.runtime.aggregate ?? null} labels={RUNTIME_LABELS} results={matrix?.runtime.results ?? null} /></>}</td>
+                      <td className="px-2.5 py-1.5 font-medium text-slate-800">{invalidRequest ? null : <p>{scanElapsed(event.scan_elapsed_seconds)}</p>}<p className="text-[10px] text-slate-400">call {duration(event.duration_ms)}</p></td>
+                      <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${sourceClass(event.source, event.source_attribution)}`}>{sourceLabel(event.source, event.source_attribution)}</span><McpDetailsPopup title="Caller attribution" trigger={formatLabel(event.caller_product)}><p>{sourceConfidenceLabel(event.source, event.attribution_confidence)}</p><p>Signals: {event.attribution_signals.join(", ") || "none"}</p><p>Ruleset: {event.attribution_ruleset_version}</p><p>Directory: {formatLabel(event.installation_origin)}</p></McpDetailsPopup></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-medium text-slate-700" title={invalidRequest ? "No scan started" : event.scan_outcome ?? "Not linked"}>{invalidRequest ? "No scan started" : formatLabel(event.scan_outcome ?? "Not linked")}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{invalidRequest ? "Invalid request" : `At call: ${formatLabel(event.scan_status ?? "not_recorded")}`}</p></td>
+                      <td className="px-2.5 py-1.5" title={event.scan_from ? formatLabel(event.scan_from) : "Scan location not recorded"}>{marker ? <span aria-label={formatLabel(event.scan_from)} className="inline-flex"><ScanFromMarker flag={"flag" in marker ? marker.flag : undefined} icon={"icon" in marker ? marker.icon : undefined} selected /></span> : "—"}</td>
+                      <td className="px-2.5 py-1.5"><span className="inline-flex max-w-full truncate whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">{freshnessLabel(event.freshness)}</span></td>
+                      <td className="px-2.5 py-1.5 font-medium uppercase text-slate-700">{event.primary_language ?? "—"}</td>
+                      <td className="truncate px-2.5 py-1.5 text-slate-700" title={event.industry ?? undefined}>{event.industry ?? "—"}</td>
+                      <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${decisionClass(event.scan_decision)}`}>{formatLabel(event.mode_detail ?? event.scan_decision)}</span><p className="mt-0.5 truncate text-[10px] text-slate-500">{event.mode_format ? formatLabel(event.mode_format) : provenanceLabel(event.target_provenance) ?? "MCP"}</p></td>
+                      <td className="px-2.5 py-1.5" title={`request ${event.request_id} · event ${event.event_id}`}><p className="truncate font-mono text-[10px] font-semibold text-slate-900">{event.tool_name}</p><p className="mt-0.5 truncate text-[10px] text-slate-500">{invalidRequest ? "Invalid request" : formatLabel(event.transport_outcome)} · {event.quota_outcome === "allowed" ? "No rate limit reported" : formatLabel(event.quota_outcome)}</p></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px]" title={linkedScanId ?? undefined}>{linkedScanId ?? "—"}</p><p className="mt-0.5 flex gap-1.5 text-[9px]">{linkedScanId ? <><Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/scans", { q: event.scan_id, traffic: trafficScope })} prefetch={false}>Scans</Link><Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/analytics", { q: event.scan_id, traffic: trafficScope })} prefetch={false}>Events</Link><Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/pulse", { q: event.scan_id, traffic: trafficScope })} prefetch={false}>API</Link></> : <Link className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/analytics", { q: event.request_id, traffic: trafficScope })} prefetch={false}>Events</Link>}</p></td>
+                      <td className="px-2.5 py-1.5">{invalidRequest ? "—" : <><p className="truncate font-mono text-[10px] text-slate-700" title={event.scanner_egress_id ?? "Scanner egress not recorded"}>{event.scanner_egress_id ?? "Not recorded"}</p><p className="mt-0.5 truncate text-[10px] text-slate-400" title={event.scanner_egress_provider ?? undefined}>{event.scanner_egress_provider ?? "Outbound runtime"}</p></>}</td>
+                      <td className="sticky right-0 z-10 border-l border-slate-100 bg-white px-2 py-1.5 text-center group-hover:bg-slate-50">{scanHref ? <Link aria-label={`Open scan ${event.scan_id}`} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white font-semibold text-sky-700" href={scanHref} prefetch={false}>→</Link> : <span className="text-slate-300">—</span>}</td>
+                    </tr>
+                  );
+                })}
+                {eventPage.items.length === 0 ? <tr><td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={32}>No MCP requests match these filters.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+        </AdminTableRefreshBoundary>
+      </Card></>;
+  }
+  return <div className="min-w-0 space-y-4">
+    <McpPanelBoundary label="Operational snapshot"><Suspense fallback={<McpPanelLoading label="Operational snapshot" />}><UsageSummary /></Suspense></McpPanelBoundary>
+    <McpPanelBoundary label="MCP request activity"><Suspense fallback={<McpPanelLoading label="MCP request activity" />}><UsageLedger /></Suspense></McpPanelBoundary>
+    <details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">Tool, source and growth analysis</summary>
+      <McpPanelBoundary label="MCP analytics"><Suspense fallback={<McpPanelLoading label="MCP analytics" />}><UsageSummary details /></Suspense></McpPanelBoundary>
+    </details>
+  </div>;
 }

@@ -474,3 +474,17 @@ test("HTTP rate-limit telemetry preserves sanitized caller input, shared context
   assert.ok(!JSON.stringify(bodies).includes("private-value"));
   assert.ok(Buffer.byteLength(JSON.stringify(event.requestDetails,null,1)) <= 4096);
 });
+
+test('Light marks requester changes without replacing the initialized caller', async () => {
+  const requests: string[]=[];
+  const telemetry=createHostedMcpTelemetry({baseUrl:'https://certscore.ai',headers:{},secret,surface:'mcp_light',sessionId:()=> 'light-session',requesterBinding:'initial-binding',requesterIp:'192.0.2.1',fetch:(async (_input,init)=>{requests.push(String(init?.body));return new Response(null,{status:202});}) as typeof fetch});
+  telemetry.observeToolInvocation(observation(),{requesterIp:'192.0.2.1'});
+  telemetry.observeToolInvocation(observation(),{requesterIp:'192.0.2.2'});
+  await new Promise(resolve=>setImmediate(resolve));
+  const calls=requests.map(x=>JSON.parse(x)).filter(x=>x.toolName);
+  assert.equal(calls.length,2);
+  assert.equal(calls[0].requestDetails.requesterChanged,false);
+  assert.equal(calls[1].requestDetails.requesterChanged,true);
+  assert.equal(calls[0].actorId,calls[1].actorId);
+  assert.notEqual(calls[0].requesterIp,calls[1].requesterIp);
+});

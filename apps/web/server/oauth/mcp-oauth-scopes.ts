@@ -73,7 +73,7 @@ export function resolveMcpOAuthScopeRequest(input: {
   const normalizedClientScopes = normalizeOAuthScopes([...input.clientScopes]);
   const requestedTokens = uniqueValues([
     ...tokenizeScopes(input.requestedScopes),
-    ...(input.autoIncludeGrantedCreateScope && normalizedClientScopes.includes(CERTSCORE_OAUTH_CREATE_SCOPE)
+    ...(input.autoIncludeGrantedCreateScope
       ? [CERTSCORE_OAUTH_CREATE_SCOPE]
       : [])
   ]);

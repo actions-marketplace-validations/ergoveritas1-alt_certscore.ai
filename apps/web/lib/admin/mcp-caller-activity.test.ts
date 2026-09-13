@@ -55,6 +55,9 @@ test("database counts all tools/outcomes in exact windows, with provider, entryp
     assert.equal((await run(mcpCallerAnchors([event]), true)).rows[0].calls24h, 12);
     assert.deepEqual((await run(mcpCallerAnchors([{ ...event, actor_id: null }]))).rows, result.rows);
     assert.equal((await run(mcpCallerAnchors([{ ...event, event_id: "older", occurred_at: "2026-09-08T11:00:00Z" }]))).rows[0].calls5m, 2);
+    await client.query("insert into mcp_tool_invocation_events(occurred_at,actor_id) values ('2026-09-08T12:00:01.123456Z','microsecond-caller')");
+    const precise = await client.query("select occurred_at::text as occurred_at from mcp_tool_invocation_events where actor_id='microsecond-caller'");
+    assert.equal((await run(mcpCallerAnchors([{ ...event, actor_id: 'microsecond-caller', occurred_at: precise.rows[0].occurred_at }]))).rows[0].calls5m, 1, 'the current call is included without rounding its timestamp down');
   } finally {
     await client.end();
   }

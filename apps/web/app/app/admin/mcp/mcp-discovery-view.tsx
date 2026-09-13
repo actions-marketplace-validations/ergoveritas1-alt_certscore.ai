@@ -1,13 +1,11 @@
 import Link from "next/link";
 import { McpThrottleReminder } from "./mcp-throttle-reminder";
-import { AdminTrafficFilters } from "../../../../components/admin/admin-traffic-filters";
 import { AdminTableRefreshBoundary } from "../../../../components/admin/admin-table-refresh-boundary";
 import { PaginationControls } from "../../../../components/ui/pagination-controls";
 import { formatAdminDateTime } from "../../../../lib/admin/date-time";
 import { type AdminTrafficScope } from "../../../../lib/admin/admin-traffic-scope";
 import { discoveryBehavior, MCP_DISCOVERY_PERIODS, mcpClientHref, type McpDiscoveryClient, type McpDiscoveryPeriod } from "../../../../lib/admin/mcp-discovery";
 import { AdminScansFilterForm } from "../scans/admin-scans-filter-form";
-import { McpNavigation } from "./mcp-navigation";
 
 const surfaces: Record<string, string> = { mcp_light: "Light", mcp_anonymous: "Anonymous full", mcp_authenticated: "Authenticated" };
 const confidenceLabels: Record<string, string> = { verified: "Verified attribution", corroborated: "Corroborated signals", declared: "Client-declared", inferred: "Inferred", unknown: "Unverified" };
@@ -21,11 +19,6 @@ export function McpDiscoveryView({ data, period, search, client, surface, source
   const params = { tab: "discovery", timeSpan: period, q: search, client, surface, source, traffic };
   const hasFilters = Boolean(search || client || surface || source || period !== "24h");
   return <div className="space-y-3">
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Hosted MCP operations</p><h2 className="text-2xl font-semibold tracking-tight text-slate-950">MCP operations</h2></div>
-      <AdminTrafficFilters basePath="/app/admin/mcp" scope={traffic} searchParams={params} />
-    </div>
-    <McpNavigation active="discovery" traffic={traffic} client={client} surface={surface} source={source} period={period} />
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div><h3 className="text-lg font-semibold text-slate-950">Discovery &amp; probes</h3><p className="mt-1 text-sm text-slate-600">Who connects, reads the catalogue, and goes on to use tools.</p></div>
@@ -45,7 +38,7 @@ export function McpDiscoveryView({ data, period, search, client, surface, source
           {client || source ? <p className="text-sm text-sky-800">Filtered to {client ? `client “${client}”` : "all clients"}{source ? ` · provider: ${source}` : ""}. <Link className="underline" href={mcpClientHref("discovery", { traffic, period })} prefetch={false}>Clear client filter</Link></p> : null}
           <PaginationControls basePath="/app/admin/mcp" itemLabel="client groups" page={page} pageCount={Math.max(1, Math.ceil(data.total_count / pageSize))} pageSize={pageSize} searchParams={params} showPageJump totalCount={data.total_count} visibleCount={data.items.length} />
           <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full min-w-[1450px] text-left text-xs">
+            <table className="w-full min-w-[900px] text-left text-xs">
               <caption className="sr-only">MCP discovery and tool activity by declared client during the selected period</caption>
               <thead className="bg-slate-50 text-slate-600"><tr>{["Declared client / attribution", "Entrypoint", "Behavior in period", "First / last seen (Pacific)", "Initializations", "Sessions listing tools", "Sessions / caller coverage", "Methods", "Tool calls / errors / limits", "Scan requests", "Successful bundles", "Usage"].map(label => <th className="px-3 py-3 font-semibold" key={label} scope="col">{label}</th>)}</tr></thead>
               <tbody className="divide-y divide-slate-100">{data.items.map(row => <tr className="align-top hover:bg-slate-50" key={JSON.stringify([row.client_name, row.surface, row.source])}>
@@ -66,6 +59,6 @@ export function McpDiscoveryView({ data, period, search, client, surface, source
         </div>
       </AdminTableRefreshBoundary>
     </section>
-    <McpThrottleReminder />
+    <details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">Request limits</summary><McpThrottleReminder /></details>
   </div>;
 }

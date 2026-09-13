@@ -1,16 +1,10 @@
+import { safeAuthReturnPath as getSafeRedirectPath, authRetryPath } from "../../../../lib/auth-return-path";
 import { NextResponse } from "next/server";
 import { provisionSelfServeUserSession } from "../../../../server/auth-flows/provision-self-serve-user";
 import { getBetterAuthSessionUser } from "../../../../server/better-auth/session";
 import { getRequestOrigin } from "../../../../server/http/request-origin";
 import { claimAnonymousScansForUser } from "../../../../server/scans/anonymous-scan-claims";
 
-function getSafeRedirectPath(nextPath: string | null) {
-  if (nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")) {
-    return nextPath;
-  }
-
-  return "/app";
-}
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
@@ -18,7 +12,7 @@ export async function GET(request: Request) {
   const user = await getBetterAuthSessionUser();
 
   if (!user) {
-    return NextResponse.redirect(new URL("/login?error=google_sign_in_failed", requestOrigin));
+    return NextResponse.redirect(new URL(authRetryPath("google_sign_in_failed", requestUrl.searchParams.get("next")), requestOrigin));
   }
 
   const provisioned = await provisionSelfServeUserSession(user);

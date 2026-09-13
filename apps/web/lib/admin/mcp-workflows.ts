@@ -1,3 +1,4 @@
+import {lightWorkflowMetrics} from "./mcp-light-metrics";
 import { mcpRequestDetailsSchema } from "@website-signal-risk-scanner/shared";
 
 export type McpWorkflowEvent = {
@@ -37,6 +38,7 @@ export function buildMcpWorkflows(events: McpWorkflowEvent[]) {
     const currentOutcome = last.canonical_outcome ?? last.canonical_status;
     const active = ["queued", "running", "finalizing"].includes(outcome ?? "");
     return {
+      lightMetrics: first.surface === "mcp_light" ? lightWorkflowMetrics(rows) : null,
       key, rows, details, first, last, scanRequest, bundle, outcome, currentOutcome,
       purposes: distinct(details.map(detail => detail?.taskContext?.purpose)),
       questions: distinct(details.map(detail => detail?.taskContext?.questionSummary ? `${detail.taskContext.questionSource === "user_wording" ? "User wording" : "Agent paraphrase"}: ${detail.taskContext.questionSummary}` : null)),

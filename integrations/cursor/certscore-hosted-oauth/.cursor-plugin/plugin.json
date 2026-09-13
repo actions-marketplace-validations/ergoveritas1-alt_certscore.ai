@@ -1,0 +1,11 @@
+{
+  "name": "certscore-hosted-oauth",
+  "version": "1.0.0",
+  "description": "CertScore Hosted OAuth: start trial website scans and review workspace scan history. Requires a CertScore account and OAuth approval.",
+  "author": {
+    "name": "CertScore.ai, LLC",
+    "email": "support@certscore.ai"
+  },
+  "homepage": "https://certscore.ai/developers/mcp",
+  "license": "Apache-2.0"
+}

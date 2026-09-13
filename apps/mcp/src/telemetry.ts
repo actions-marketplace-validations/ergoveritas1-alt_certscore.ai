@@ -340,6 +340,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
     const parsed = mcpTelemetryEventSchema.safeParse({
       requestDetails: boundMcpRequestDetails({
         version: 1,
+        ...(eventRequesterIp && input.requesterIp ? {requesterChanged: eventRequesterIp !== input.requesterIp} : {}),
         ...(observation.callerInput ? { callerInput: mergeMcpCallerInputs(observation.callerInput, initialInput) } : {}),
         captureBasis: observation.captureBasis ?? "validated_arguments",
         ...(observation.taskContext ? { taskContext: observation.taskContext } : {}),
@@ -430,7 +431,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
     observeToolInvocation(observation: McpToolInvocationObservation, requestContext?: ToolRequestContext) {
       report(observation, requestContext);
     },
-    observeTransportRateLimit(input: { responseSummary?: McpResponseSummary; body: unknown; durationMs: number; requesterIp?: string | null; requesterNetwork?: AnonymousRequesterNetwork; scanId?: string | null; toolName: string; rateLimit?: McpRequestDetails["rateLimit"] }) {
+    observeTransportRateLimit(input: { requestId?: string; responseSummary?: McpResponseSummary; body: unknown; durationMs: number; requesterIp?: string | null; requesterNetwork?: AnonymousRequesterNetwork; scanId?: string | null; toolName: string; rateLimit?: McpRequestDetails["rateLimit"] }) {
       const args = parsedToolArguments(input.body);
       const projected = projectMcpToolInvocationObservation({
         args,
@@ -440,6 +441,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
       });
       report({
         ...projected,
+        requestId: input.requestId,
         ...(input.responseSummary ? { response: { bytes: null, truncated: null, summary: input.responseSummary } } : {}),
         captureBasis: "protocol_request",
         callerInput: captureMcpCallerInput(args, (input.body as { params?: { _meta?: unknown } } | null)?.params?._meta),

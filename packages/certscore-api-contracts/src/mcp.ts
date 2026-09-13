@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reportEvidencePageSchema } from "./report-page.js";
 import { mcpTaskContextSchema } from "@website-signal-risk-scanner/shared/dist/mcp-product-context.js";
 import {
   apiV2DomainLatestScanSchema,
@@ -519,6 +520,14 @@ export const mcpPreConsentCookiesTrackersOutputSchema = apiV2PreConsentCookiesTr
 
 export const certScoreMcpToolContracts = [
   {
+    name: "certscore_get_connection_status",
+    title: "Check CertScore connection",
+    description: "Read current authenticated connection mode, granted scopes, workspace access, rolling scan quota and recovery action. No scan ID is needed and no scan is created. Use this to diagnose read-only access or quota limits; reconnect only for expired, revoked or expanded access.",
+    inputSchema: {},
+    outputSchema: z.object({ type: z.literal("certscore_auth_check"), authenticated: z.literal(true), scopes: z.array(z.string()), expiresAt: z.string().nullable(), diagnostics: z.object({mode:z.string(), workspaceAccess:z.enum(["active","unavailable"]), createAllowedByScope:z.boolean(), canRequestScanNow:z.boolean(), quota:z.unknown().nullable(),nextAction:z.string()}).passthrough() }).passthrough(),
+    annotations: { title: "Check CertScore connection", ...readOnlyOpenWorldAnnotations }
+  },
+  {
     name: "certscore_scan_site",
     title: "Scan site",
     description: "Creates a public-website privacy scan or reuses an eligible recent completed scan. Coverage includes pre-consent storage, trackers, consent and CMP signals, privacy-policy disclosures, transport security, and GDPR/ePrivacy or CCPA/CPRA review signals. The response contains a stable scanId, lifecycle status, retry timing, and sometimes a bounded preliminary preConsentPreview; preliminary data contains no final findings or score. Results are automated public-web observations, not legal advice, certification, or a compliance determination. Tool and workflow documentation: https://certscore.ai/developers/mcp.",
@@ -557,6 +566,14 @@ export const certScoreMcpToolContracts = [
     inputSchema: mcpGetEvidenceInputSchema,
     outputSchema: mcpEvidenceOutputSchema,
     annotations: { title: "Get CertScore Pulse evidence", ...readOnlyOpenWorldAnnotations }
+  },
+  {
+    name: "certscore_get_report_evidence_page",
+    title: "Get report evidence page",
+    description: "Retrieve every field of the canonical public-safe scan report as paginated JSON, including evidence tables, full-site page and resource inventories, all retained additional-page form fields, form snapshot download references, and retained limitations. Snapshot images are downloaded separately from the returned URLs, with OAuth bearer authentication for workspace scans. Available on OAuth and Light. Start with scanId; follow pagination.nextCursor until complete. Pages share a snapshot; restart if it changes. Each entry has a JSON Pointer path and value; oversized strings use numbered parts. Export completion is not complete observation coverage. Use the concise scan bundle for summaries; use this tool for exhaustive report evidence. No new scan is created.",
+    inputSchema: { scanId: z.string().uuid(), cursor: z.string().max(100).optional() },
+    outputSchema: reportEvidencePageSchema,
+    annotations: { title: "Get report evidence page", ...accountedInternalReadAnnotations }
   },
   {
     name: "certscore_get_scan_bundle",

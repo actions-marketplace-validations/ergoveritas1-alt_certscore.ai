@@ -1,3 +1,7 @@
+import { mcpWorkflowCohortSql } from "../../lib/admin/mcp-workflow-cohort";
+import { MCP_TRAFFIC_EXCLUSIONS_SQL } from "../../lib/admin/mcp-traffic-exclusions";
+import { cache } from "react";
+import { withServerTiming } from "../performance/log-server-timing";
 import { MCP_RESPONSE_CATEGORY_SQL, MCP_AGENT_NEXT_STEP_SQL, MCP_RETRY_SQL, MCP_FAILURE_SOURCE_SQL, MCP_RESPONSE_CAPTURED_SQL, MCP_RESPONSE_CATEGORIES, MCP_AGENT_NEXT_STEPS, MCP_FAILURE_SOURCES, type McpResponseCategory, type McpAgentNextStep, type McpFailureSource } from "../../lib/admin/mcp-response-review";
 import { MCP_INVALID_REQUEST_SQL, MCP_EXECUTION_ERROR_SQL, MCP_SCAN_LIMITED_SQL } from "../../lib/admin/mcp-request-outcome";
 import { mcpContextAnchors, mcpRelatedContextSql, parseMcpRelatedContext, type McpRelatedContext } from "../../lib/admin/mcp-related-context";
@@ -239,47 +243,27 @@ function nullableNumber(value: CountValue) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function macMiniMcpTrafficFilter(alias: string, excludeParameter: string, apiKeyNamesParameter: string) {
+// Resolve historical ownership once per cache window, not once per dashboard query.
+const loadCachedMcpTrafficExclusions = unstable_cache(async () => {
+  const result = await withServerTiming("app.admin.mcp.exclusions", () => queryOne<{ qa: string[]; macmini: string[] }>(MCP_TRAFFIC_EXCLUSIONS_SQL,
+    [INTERNAL_QA_EMAILS, MAC_MINI_SCAN_BOT_API_KEY_NAMES], { readOnly: true }));
+  if (!result) throw new Error("MCP traffic classification unavailable");
+  return result;
+}, ["admin-mcp-traffic-exclusions-v1"], { revalidate: 30 });
+const loadMcpTrafficExclusions = cache(() => loadCachedMcpTrafficExclusions());
+
+function macMiniMcpTrafficFilter(alias: string, excludeParameter: string, scanIdsParameter: string) {
   const prefix = alias ? `${alias}.` : "";
-  return `and (${excludeParameter}::boolean = false or not coalesce(
-    ${prefix}scan_id = any(array(
-      select request.scan_id::text
-        from public.pulse_requests request
-        join public.integration_api_keys linked_key on linked_key.public_id = request.requested_by ->> 'apiKeyId'
-       where request.scan_id is not null
-         and linked_key.name = any(${apiKeyNamesParameter}::text[])
-      union
-      select coalesce(request.fulfilled_by_scan_id, request.scan_id)::text
-        from public.scan_requests request
-        join public.integration_api_keys linked_key on linked_key.public_id = request.requested_by ->> 'apiKeyId'
-       where coalesce(request.fulfilled_by_scan_id, request.scan_id) is not null
-         and linked_key.name = any(${apiKeyNamesParameter}::text[])
-    )), false))`;
+  return `and (${excludeParameter}::boolean = false or not coalesce(${prefix}scan_id = any(${scanIdsParameter}::text[]), false))`;
 }
 
-function internalQaMcpTrafficFilter(alias: string, emailParameter: string, requesterIpParameter: string, clientNameParameter: string) {
+function internalQaMcpTrafficFilter(alias: string, scanIdsParameter: string, requesterIpParameter: string, clientNameParameter: string) {
   const prefix = alias ? `${alias}.` : "";
   return `and not (
     ${prefix}is_canary
     or lower(coalesce(${prefix}client_name, '')) = any(${clientNameParameter}::text[])
     or coalesce(host(${prefix}requester_ip), '') = any(${requesterIpParameter}::text[])
-    or coalesce(${prefix}scan_id = any(array(
-      select request.scan_id::text
-        from public.pulse_requests request
-        left join public.integration_api_keys linked_key on linked_key.public_id = request.requested_by ->> 'apiKeyId'
-        left join public.users linked_user on linked_user.id::text = coalesce(request.requested_by ->> 'userId', linked_key.owner_user_id::text)
-        left join public.better_auth_users linked_auth_user on linked_auth_user.id = request.requested_by ->> 'userId'
-       where request.scan_id is not null
-         and lower(coalesce(linked_user.email, linked_auth_user.email, linked_key.created_by, '')) = any(${emailParameter}::text[])
-      union
-      select coalesce(request.fulfilled_by_scan_id, request.scan_id)::text
-        from public.scan_requests request
-        left join public.integration_api_keys linked_key on linked_key.public_id = request.requested_by ->> 'apiKeyId'
-        left join public.users linked_user on linked_user.id::text = coalesce(request.requested_by ->> 'userId', linked_key.owner_user_id::text)
-        left join public.better_auth_users linked_auth_user on linked_auth_user.id = request.requested_by ->> 'userId'
-       where coalesce(request.fulfilled_by_scan_id, request.scan_id) is not null
-         and lower(coalesce(linked_user.email, linked_auth_user.email, linked_key.created_by, '')) = any(${emailParameter}::text[])
-    )), false)
+    or coalesce(${prefix}scan_id = any(${scanIdsParameter}::text[]), false)
   )`;
 }
 
@@ -290,6 +274,7 @@ async function loadAdminMcpTelemetryDashboardUncached(
   includeCanary = false,
   excludeMacMiniScanBot = true,
 ) {
+  const exclusions = await loadMcpTrafficExclusions();
   const snapshotConfig = ADMIN_OPERATIONAL_SNAPSHOT_CONFIG[snapshotPeriod] ?? ADMIN_OPERATIONAL_SNAPSHOT_CONFIG["24h"];
   const toolConfig = ADMIN_OPERATIONAL_SNAPSHOT_CONFIG[toolPeriod] ?? ADMIN_OPERATIONAL_SNAPSHOT_CONFIG["24h"];
   const sourceConfig = ADMIN_OPERATIONAL_SNAPSHOT_CONFIG[sourcePeriod] ?? ADMIN_OPERATIONAL_SNAPSHOT_CONFIG["24h"];
@@ -298,11 +283,11 @@ async function loadAdminMcpTelemetryDashboardUncached(
   const macMiniEventFilter = macMiniMcpTrafficFilter("events", "$1", "$2");
   const dashboardFilterValues: unknown[] = [
     excludeMacMiniScanBot,
-    MAC_MINI_SCAN_BOT_API_KEY_NAMES,
+    exclusions.macmini,
   ];
   if (!includeCanary) {
     dashboardFilterValues.push(
-      INTERNAL_QA_EMAILS,
+      exclusions.qa,
       INTERNAL_QA_REQUESTER_IPS,
       INTERNAL_QA_MCP_CLIENT_NAMES,
     );
@@ -661,6 +646,7 @@ export async function listAdminMcpTelemetryEventsPage(
 ) {
   await requirePlatformAdminContext();
 
+  const exclusions = await loadMcpTrafficExclusions();
   const conditions: string[] = [];
   const values: unknown[] = [];
   const addValue = (value: unknown) => {
@@ -669,17 +655,15 @@ export async function listAdminMcpTelemetryEventsPage(
   };
   const queryText = filters.query?.trim().slice(0, 160) ?? "";
   if (!filters.includeCanary) {
-    const emailParameter = addValue(INTERNAL_QA_EMAILS);
+    const emailParameter = addValue(exclusions.qa);
     const requesterIpParameter = addValue(INTERNAL_QA_REQUESTER_IPS);
     const clientNameParameter = addValue(INTERNAL_QA_MCP_CLIENT_NAMES);
     conditions.push(internalQaMcpTrafficFilter("events", emailParameter, requesterIpParameter, clientNameParameter).replace(/^and /, ""));
   }
   if (filters.excludeMacMiniScanBot !== false) {
-    const apiKeyNamesParameter = addValue(MAC_MINI_SCAN_BOT_API_KEY_NAMES);
+    const apiKeyNamesParameter = addValue(exclusions.macmini);
     conditions.push(macMiniMcpTrafficFilter("events", "true", apiKeyNamesParameter).replace(/^and /, ""));
   }
-  const activityVisibilitySql = conditions.join(" and ");
-  const activityVisibilityValues = [...values];
 
   if (queryText) {
     const parameter = addValue(`%${queryText}%`);
@@ -741,7 +725,14 @@ export async function listAdminMcpTelemetryEventsPage(
       { readOnly: true },
     ),
     query<AdminMcpTelemetryEventRow>(
-      `select ${MCP_RESPONSE_CATEGORY_SQL} as response_category,
+      `with page_events as materialized (
+         select events.*, case when events.scan_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+           then events.scan_id::uuid else null end as linked_scan_id
+         from public.mcp_tool_invocation_events events
+         ${whereSql}
+         order by events.occurred_at desc, events.event_id desc
+         limit ${limitParameter} offset ${offsetParameter}
+       ) select ${MCP_RESPONSE_CATEGORY_SQL} as response_category,
               ${MCP_AGENT_NEXT_STEP_SQL} as agent_next_step,
               ${MCP_RETRY_SQL} as response_retry,
               ${MCP_FAILURE_SOURCE_SQL} as failure_source,
@@ -799,7 +790,7 @@ export async function listAdminMcpTelemetryEventsPage(
               end as scan_elapsed_seconds,
               requester.request_context as requester_request_context,
               requester.requested_by as requester_requested_by
-         from public.mcp_tool_invocation_events events
+         from page_events events
          left join public.scans canonical_scan
            on not ${MCP_INVALID_REQUEST_SQL} and canonical_scan.id = case
              when events.scan_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
@@ -835,11 +826,11 @@ export async function listAdminMcpTelemetryEventsPage(
              from (
                select request.request_context, request.requested_by, request.requested_url, request.requested_at
                  from public.pulse_requests request
-                where request.scan_id::text = events.scan_id
+                where request.scan_id = events.linked_scan_id
                union all
                select request.request_context, request.requested_by, request.requested_url, request.requested_at
                  from public.scan_requests request
-                where coalesce(request.fulfilled_by_scan_id, request.scan_id)::text = events.scan_id
+                where (request.fulfilled_by_scan_id = events.linked_scan_id or (request.fulfilled_by_scan_id is null and request.scan_id = events.linked_scan_id))
              ) candidate
             order by (
               coalesce(
@@ -857,30 +848,12 @@ export async function listAdminMcpTelemetryEventsPage(
             candidate.requested_at desc
             limit 1
          ) requester on not ${MCP_INVALID_REQUEST_SQL}
-         ${whereSql}
-        order by events.occurred_at desc
-        limit ${limitParameter}
-       offset ${offsetParameter}`,
+        order by events.occurred_at desc, events.event_id desc`,
       [...values, limit, offset],
       { readOnly: true },
     ),
   ]);
 
-  const contextAnchors = mcpContextAnchors(eventResult.rows);
-  const relatedRows = contextAnchors.length ? await query<{
-    event_id: string; source_event_id: string; source_occurred_at: string; request_details: unknown;
-  }>(mcpRelatedContextSql(activityVisibilitySql, activityVisibilityValues.length + 1),
-    [...activityVisibilityValues, JSON.stringify(contextAnchors)], { readOnly: true }) : { rows: [] };
-  const relatedByEvent = new Map(relatedRows.rows.map(row => [row.event_id, parseMcpRelatedContext(row)]));
-
-  const anchors = mcpCallerAnchors(eventResult.rows);
-  const activityRows = anchors.length ? await query<{
-    event_id: string; calls5m: number; calls10m: number; calls60m: number; calls24h: number; quota_hits60m: number;
-  }>(mcpCallerActivitySql(activityVisibilitySql, activityVisibilityValues.length + 1),
-    [...activityVisibilityValues, JSON.stringify(anchors)], { readOnly: true }) : { rows: [] };
-  const activityByEvent = new Map(activityRows.rows.map((row) => [row.event_id, {
-    calls5m: row.calls5m, calls10m: row.calls10m, calls60m: row.calls60m, calls24h: row.calls24h, quotaHits60m: row.quota_hits60m,
-  }]));
 
   return {
     items: eventResult.rows.map((row) => {
@@ -899,8 +872,8 @@ export async function listAdminMcpTelemetryEventsPage(
       const evidenceUnavailable = isAdminMcpEvidenceUnavailable(event);
       return {
         ...event,
-        caller_activity: activityByEvent.get(event.event_id) ?? null,
-        related_context: relatedByEvent.get(event.event_id) ?? null,
+        caller_activity: null,
+        related_context: null,
         evidence_matrix: evidenceUnavailable ? null : parseAdminEvidenceMatrix(rawEvidenceMatrix),
         score: evidenceUnavailable ? null : event.score,
         top_finding_count: evidenceUnavailable ? null : event.top_finding_count,
@@ -915,8 +888,9 @@ export async function listAdminMcpTelemetryEventsPage(
 
 async function loadAdminMcpDiscoveryUncached(
   period: McpDiscoveryPeriod, search: string, surface: string | null, client: string | null,
-  source: string | null, limit: number, offset: number, includeInternalQa: boolean, excludeMacMini: boolean,
+  source: string | null, includeInternalQa: boolean, excludeMacMini: boolean,
 ) {
+  const exclusions = await loadMcpTrafficExclusions();
   const invocationVisibility = [
     `($13::boolean or ${internalQaMcpTrafficFilter("events", "$8", "$9", "$10").replace(/^and /, "")})`,
     macMiniMcpTrafficFilter("events", "$12", "$11").replace(/^and /, ""),
@@ -926,67 +900,68 @@ async function loadAdminMcpDiscoveryUncached(
       invocationVisibility,
       activationVisibility: "($13::boolean or lower(coalesce(activation.client_name, '')) <> all($10::text[]))",
     }),
-    [MCP_DISCOVERY_PERIODS[period], search, surface, client, limit, offset, source,
-      INTERNAL_QA_EMAILS, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES,
-      MAC_MINI_SCAN_BOT_API_KEY_NAMES, excludeMacMini, includeInternalQa],
+    [MCP_DISCOVERY_PERIODS[period], search, surface, client, 2147483647, 0, source,
+      exclusions.qa, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES,
+      exclusions.macmini, excludeMacMini, includeInternalQa],
     { readOnly: true },
   );
   return result ?? { total_count: 0, items: [] };
 }
 
-const loadCachedAdminMcpDiscovery = unstable_cache(loadAdminMcpDiscoveryUncached, ["admin-mcp-discovery-v3"], { revalidate: 30 });
+const loadCachedAdminMcpDiscovery = unstable_cache(loadAdminMcpDiscoveryUncached, ["admin-mcp-discovery-v4"], { revalidate: 30 });
 
 export async function loadAdminMcpDiscovery(input: {
   period: McpDiscoveryPeriod; search: string; surface: string | null; client: string | null; source: string | null;
   limit: number; offset: number; includeInternalQa: boolean; excludeMacMini: boolean;
 }) {
   await requirePlatformAdminContext();
-  return loadCachedAdminMcpDiscovery(
+  const grouped = await loadCachedAdminMcpDiscovery(
     input.period in MCP_DISCOVERY_PERIODS ? input.period : "24h", input.search.slice(0, 100),
     input.surface, input.client?.slice(0, 100) ?? null, input.source,
-    Math.max(1, Math.min(100, input.limit)), Math.max(0, Math.min(1_000_000, input.offset)),
     input.includeInternalQa, input.excludeMacMini,
   );
+  const offset = Math.max(0, Math.min(1_000_000, input.offset));
+  return { total_count: grouped.total_count, items: grouped.items.slice(offset, offset + Math.max(1, Math.min(100, input.limit))) };
 }
 
-export async function loadAdminMcpWorkflowEvents(input: {
+async function loadAdminMcpWorkflowEventsUncached(input: {
   period: McpDiscoveryPeriod; client: string | null; surface: string | null; source: string | null;
   includeInternalQa: boolean; excludeMacMini: boolean;
 }) {
-  await requirePlatformAdminContext();
+  const exclusions = await loadMcpTrafficExclusions();
   const visibility = [
     `($5::boolean or ${internalQaMcpTrafficFilter("events", "$6", "$7", "$8").replace(/^and /, "")})`,
     macMiniMcpTrafficFilter("events", "$9", "$10").replace(/^and /, ""),
   ].join(" and ");
-  const result = await query<import("../../lib/admin/mcp-workflows").McpWorkflowEvent & { total_events: string }>(`
-    with recent as materialized (
-      select events.*, count(*) over() as total_events
-      from public.mcp_tool_invocation_events events
-      where events.occurred_at >= now() - ($1::int * interval '1 hour') and events.occurred_at <= now()
-        and ($2::text is null or events.client_name = $2)
-        and ($3::text is null or events.surface = $3)
-        and ($4::text is null or events.source = $4)
-        and ${visibility}
-      order by events.occurred_at desc, events.event_id desc limit 5000
-    )
+  const result = await queryOne<{ events: import("../../lib/admin/mcp-workflows").McpWorkflowEvent[]; total_events: string }>(`
+    with ${mcpWorkflowCohortSql(visibility)}, enriched as (
     select recent.event_id, recent.request_id, recent.occurred_at, recent.session_id, recent.scan_id,
       recent.client_name, recent.source, recent.surface, recent.tool_name, recent.outcome,
       recent.error_code, recent.quota_outcome, recent.duration_ms, recent.scan_decision,
       recent.scan_status, recent.requested_resource, to_jsonb(recent)->'request_details' as request_details,
-      scan.status as canonical_status, snapshot.scan_outcome as canonical_outcome, recent.total_events
+      scan.status as canonical_status, snapshot.scan_outcome as canonical_outcome
     from recent
     left join public.scans scan on scan.id = case when recent.scan_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then recent.scan_id::uuid else null end
     left join public.scan_snapshots snapshot on snapshot.scan_id = scan.id
-    order by recent.occurred_at desc, recent.event_id desc`,
+    ) select (select count(*) from cohort) as total_events,
+      coalesce((select jsonb_agg(enriched order by occurred_at desc, event_id desc) from enriched), '[]'::jsonb) as events`,
     [MCP_DISCOVERY_PERIODS[input.period], input.client, input.surface, input.source, input.includeInternalQa,
-      INTERNAL_QA_EMAILS, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES, input.excludeMacMini, MAC_MINI_SCAN_BOT_API_KEY_NAMES],
+      exclusions.qa, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES, input.excludeMacMini, exclusions.macmini],
     { readOnly: true });
-  return { events: result.rows, totalEvents: Number(result.rows[0]?.total_events ?? 0) };
+  if (!result) throw new Error("MCP workflow cohort unavailable");
+  return { events: result.events, totalEvents: Number(result.total_events) };
 }
 
 
+const loadCachedMcpWorkflowEvents = unstable_cache(loadAdminMcpWorkflowEventsUncached, ["admin-mcp-workflow-events-v2"], { revalidate: 30 });
+export async function loadAdminMcpWorkflowEvents(input: Parameters<typeof loadAdminMcpWorkflowEventsUncached>[0]) {
+  await requirePlatformAdminContext();
+  return loadCachedMcpWorkflowEvents(input);
+}
+
 async function loadMcpFunnelUncached(period: McpDiscoveryPeriod, client: string | null, surface: string | null,
   source: string | null, includeInternalQa: boolean, excludeMacMini: boolean, followUpMinutes: number) {
+  const exclusions = await loadMcpTrafficExclusions();
   const visibility = [
     `($5::boolean or ${internalQaMcpTrafficFilter("events", "$6", "$7", "$8").replace(/^and /, "")})`,
     macMiniMcpTrafficFilter("events", "$9", "$10").replace(/^and /, ""),
@@ -994,8 +969,8 @@ async function loadMcpFunnelUncached(period: McpDiscoveryPeriod, client: string 
   const result = await queryOne<McpFunnelData>(mcpFunnelSql({ invocationVisibility: visibility,
     activationVisibility: "($5::boolean or lower(coalesce(activation.client_name, '')) <> all($8::text[]))" }),
     [MCP_DISCOVERY_PERIODS[period], client, surface, source, includeInternalQa,
-      INTERNAL_QA_EMAILS, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES, excludeMacMini,
-      MAC_MINI_SCAN_BOT_API_KEY_NAMES, followUpMinutes, SCAN_NO_GO_SNAPSHOT_OUTCOMES, MCP_FUNNEL_RESULT_TOOLS], { readOnly: true });
+      exclusions.qa, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES, excludeMacMini,
+      exclusions.macmini, followUpMinutes, SCAN_NO_GO_SNAPSHOT_OUTCOMES, MCP_FUNNEL_RESULT_TOOLS], { readOnly: true });
   if (!result) throw new Error("MCP funnel query returned no summary");
   return result;
 }
@@ -1005,4 +980,37 @@ export async function loadAdminMcpFunnel(input: { period: McpDiscoveryPeriod; cl
   await requirePlatformAdminContext();
   return loadCachedMcpFunnel(input.period in MCP_DISCOVERY_PERIODS ? input.period : "24h", input.client, input.surface, input.source,
     input.includeInternalQa, input.excludeMacMini, (MCP_FUNNEL_FOLLOW_UP_MINUTES as readonly number[]).includes(input.followUpMinutes) ? input.followUpMinutes : 30);
+}
+
+
+export async function loadAdminMcpEventContext(eventId: string, visibility: { includeInternalQa: boolean; includeMacMini: boolean }) {
+  await requirePlatformAdminContext();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId)) throw new Error("Invalid event ID");
+  const exclusions = await loadMcpTrafficExclusions();
+  const activityVisibilityValues = [visibility.includeInternalQa, exclusions.qa, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES, !visibility.includeMacMini, exclusions.macmini];
+  const activityVisibilitySql = `($1::boolean or ${internalQaMcpTrafficFilter("events", "$2", "$3", "$4").replace(/^and /, "")}) ${macMiniMcpTrafficFilter("events", "$5", "$6")}`;
+  // Derive every correlation anchor from a visible retained event, never client input.
+  const retained = await query<AdminMcpTelemetryEvent>(`select event_id, occurred_at::text as occurred_at, session_id, actor_id, scan_id, source, surface, request_details
+    from public.mcp_tool_invocation_events events where event_id = $7::uuid and (${activityVisibilitySql})`,
+    [...activityVisibilityValues, eventId], { readOnly: true });
+  if (!retained.rows.length) throw new Error("Event unavailable in this traffic scope");
+  const events = retained.rows;
+  const contextAnchors = mcpContextAnchors(events);
+  const relatedRowsPromise = contextAnchors.length ? query<{
+    event_id: string; source_event_id: string; source_occurred_at: string; request_details: unknown;
+  }>(mcpRelatedContextSql(activityVisibilitySql, activityVisibilityValues.length + 1),
+    [...activityVisibilityValues, JSON.stringify(contextAnchors)], { readOnly: true }) : { rows: [] };
+
+  const anchors = mcpCallerAnchors(events);
+  const activityRowsPromise = anchors.length ? query<{
+    event_id: string; calls5m: number; calls10m: number; calls60m: number; calls24h: number; quota_hits60m: number;
+  }>(mcpCallerActivitySql(activityVisibilitySql, activityVisibilityValues.length + 1),
+    [...activityVisibilityValues, JSON.stringify(anchors)], { readOnly: true }) : { rows: [] };
+  const [relatedRows, activityRows] = await Promise.all([relatedRowsPromise, activityRowsPromise]);
+  const relatedByEvent = new Map(relatedRows.rows.map(row => [row.event_id, parseMcpRelatedContext(row)]));
+  const activityByEvent = new Map(activityRows.rows.map((row) => [row.event_id, {
+    calls5m: row.calls5m, calls10m: row.calls10m, calls60m: row.calls60m, calls24h: row.calls24h, quotaHits60m: row.quota_hits60m,
+  }]));
+
+  return { callerActivity: activityByEvent.get(eventId) ?? null, relatedContext: relatedByEvent.get(eventId) ?? null };
 }

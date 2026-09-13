@@ -1,3 +1,4 @@
+import { McpContextOnDemand } from "./mcp-context-on-demand";
 import Link from "next/link";
 import { McpDetailsPopup } from "./mcp-details-popup";
 import React from "react";
@@ -36,6 +37,7 @@ export function McpRequestDetails({ event, traffic, period }: {
         <p className="mt-2 whitespace-pre-wrap">{event.related_context.taskContext.questionSummary}</p>
         <Link className="mt-2 block text-xs text-sky-700 underline" href={`/app/admin/mcp?${new URLSearchParams({ q: event.related_context.eventId, traffic, timeSpan: "all" })}`} prefetch={false}>Source request · {event.related_context.occurredAt}</Link>
       </section> : null}
+      {!event.related_context && event.event_id ? <McpContextOnDemand eventId={event.event_id} traffic={traffic} kind="related" /> : null}
       <section aria-label="What the caller sent">
         <h3 className="font-semibold text-slate-950">What the caller sent</h3>
         <p className="mt-1 text-xs text-slate-500">Bounded, redacted previews of submitted arguments and metadata. These are caller-supplied values, not verified claims or necessarily the user’s wording. Initialization metadata is labelled separately.</p>
@@ -72,10 +74,16 @@ export function McpRequestDetails({ event, traffic, period }: {
       </section>
       {event.request_id ? <p className="break-all">Request correlation ID: {event.request_id}</p> : null}
       {event.event_id ? <p className="break-all">Telemetry event ID: {event.event_id}</p> : null}
+      {details?.requesterChanged !== undefined ? <p>Requester IP versus session initialization: {details.requesterChanged ? "Changed" : "Same"}. Caller identity remains based on initialization; shared provider IPs do not identify people.</p> : null}
       <p>Session: {event.session_id ? <Link className="break-all text-sky-700 underline" href={href(event.session_id)} prefetch={false}>{event.session_id}</Link> : "Not recorded"}{details ? ` (${details.sessionBasis.replaceAll("_", " ")})` : ""}</p>
       <p>{actorBasis}: {event.actor_id ? <Link className="break-all text-sky-700 underline" href={href(event.actor_id)} prefetch={false}>{event.actor_id}</Link> : "Not recorded"}</p>
       <p className="text-slate-500">Neither session nor requester counts establish unique agents or people.</p>
-      <p>Quota: {event.quota_outcome.replaceAll("_", " ")} · {event.transport_outcome.replaceAll("_", " ")}</p>
+      <p>Rate-limit outcome: {event.quota_outcome === "allowed" ? "No rate limit reported" : event.quota_outcome.replaceAll("_", " ")} · {event.transport_outcome.replaceAll("_", " ")}</p>
+      <p>Quota consumed: {details?.response?.summary?.quotaConsumed === true ? "Yes" : details?.response?.summary?.quotaConsumed === false ? "No" : "Not recorded"}. Creation: {details?.response?.summary?.creationDecision?.replaceAll("_", " ") ?? "Not recorded"}.</p>
+      <p>Rate-limit outcome alone does not establish that quota was checked or consumed.</p>
+      {details?.response?.summary?.anonymousCreationQuota ? <p>Anonymous creation allowance: {details.response.summary.anonymousCreationQuota.remaining} remaining of {details.response.summary.anonymousCreationQuota.limit}; resets {details.response.summary.anonymousCreationQuota.resetAt}. This is separate from weighted read throttling.</p> : null}
+      {details?.response?.summary?.firstResult ? <p>Initial scan response: {details.response.summary.firstResult}; preview wait {details.response.summary.previewWaitMs ?? "unknown"} ms; server-internal reads {details.response.summary.internalReadCount ?? "unknown"}. A preliminary preview is not a completed report.</p> : null}
+      {details?.response?.summary?.completeness ? <pre className="overflow-auto text-xs">{JSON.stringify({boundedResultCompleteness: details.response.summary.completeness}, null, 2)}</pre> : null}
       {details?.rateLimit ? <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 font-mono text-xs">{JSON.stringify(details.rateLimit, null, 2)}</pre>
         : event.quota_outcome === "rate_limited" ? <p>Limit details were not retained.</p> : null}
   </McpDetailsPopup>;

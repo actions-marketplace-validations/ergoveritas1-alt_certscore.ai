@@ -1,3 +1,4 @@
+import { AdminDataBoundary, AdminDataLoading } from "../../../../components/admin/admin-data-panel";
 import Link from "next/link";
 import { Suspense } from "react";
 import { SCAN_FROM_VALUES, formatScanFromLabel } from "@website-signal-risk-scanner/shared";
@@ -292,10 +293,9 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
   const excludeMacMiniScanBot = !includeMacMini;
   const activeSnapshotPeriod = normalizeSnapshotPeriod(resolvedSearchParams.snapshot);
   const hasFilters = Boolean(activeQuery) || activeStatus !== "any" || activeFreshness !== "any" || activeAccess !== "any" || Boolean(activeOutcome) || Boolean(activeLanguage) || Boolean(activeIndustry) || activeScanFrom !== "any" || activeTimeSpan !== "all";
-  const [operationalSnapshot, filterOptions, scanPage] = await Promise.all([
-    withServerTiming("app.admin.scans.operational_snapshot", () => getAdminScanOperationalSnapshot(activeSnapshotPeriod, includeCanary, excludeMacMiniScanBot)),
-    withServerTiming("app.admin.scans.filter-options", () => getAdminScanFilterOptions()),
-    withServerTiming("app.admin.scans.list", () => listAdminScansPage(pageSize, (currentPage - 1) * pageSize, {
+  const snapshotPromise = withServerTiming("app.admin.scans.operational_snapshot", () => getAdminScanOperationalSnapshot(activeSnapshotPeriod, includeCanary, excludeMacMiniScanBot));
+  const filterOptionsPromise = withServerTiming("app.admin.scans.filter-options", () => getAdminScanFilterOptions());
+  const scanPagePromise = withServerTiming("app.admin.scans.list", () => listAdminScansPage(pageSize, (currentPage - 1) * pageSize, {
       query: activeQuery || null,
       status: activeStatus,
       freshness: activeFreshness,
@@ -307,54 +307,31 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
       timeSpan: activeTimeSpan,
       includeCanary,
       excludeMacMiniScanBot
-    }))
-  ]);
-  const totalCount = scanPage.totalCount;
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const normalizedPage = Math.min(currentPage, totalPages);
-  const scans = scanPage.items;
-  const runDelta = adminOperationalSnapshotDelta(operationalSnapshot.metrics.runs, operationalSnapshot.comparison.runs);
-  const failureDelta = adminOperationalSnapshotDelta(operationalSnapshot.metrics.failedRuns, operationalSnapshot.comparison.failedRuns, "higher_is_bad");
-  const latencyDelta = adminOperationalSnapshotDelta(operationalSnapshot.metrics.p95DurationSeconds ?? 0, operationalSnapshot.comparison.p95DurationSeconds ?? 0, "higher_is_bad");
-  const snapshotHref = (values: Record<string, string | null | undefined>) => adminOperationalSnapshotHref("/app/admin/scans", { snapshot: activeSnapshotPeriod, traffic: trafficScope, ...values });
-  const snapshotMetrics = [
-    { label: "Runs", value: snapshotNumber(operationalSnapshot.metrics.runs), detail: operationalSnapshot.period.label, comparison: runDelta.label, anomaly: runDelta.anomaly, href: snapshotHref({}) },
-    { label: "Requests", value: snapshotNumber(operationalSnapshot.metrics.requests), detail: "scan requests", definition: "requests" as const },
-    { label: "Completed", value: snapshotNumber(operationalSnapshot.metrics.completedRuns), detail: "physical runs", definition: "successful" as const, href: snapshotHref({ status: "completed" }) },
-    { label: "Limited", value: snapshotNumber(operationalSnapshot.metrics.limitedRuns), detail: "evidence-limited", href: snapshotHref({ access: "limited" }) },
-    { label: "Failed", value: snapshotNumber(operationalSnapshot.metrics.failedRuns), detail: "physical runs", definition: "errors" as const, comparison: failureDelta.label, anomaly: failureDelta.anomaly, href: snapshotHref({ status: "failed" }) },
-    { label: "Duration", value: `${snapshotDuration(operationalSnapshot.metrics.p50DurationSeconds)} / ${snapshotDuration(operationalSnapshot.metrics.p95DurationSeconds)}`, detail: "p50 / p95", definition: "latency" as const, comparison: latencyDelta.label, anomaly: latencyDelta.anomaly },
-  ];
-  const snapshotRates = [
-    { label: "Completion", value: snapshotPercentage(operationalSnapshot.rates.completion), href: snapshotHref({ status: "completed" }) },
-    { label: "Failures", value: snapshotPercentage(operationalSnapshot.rates.failure), anomaly: failureDelta.anomaly, href: snapshotHref({ status: "failed" }) },
-    { label: "Limited", value: snapshotPercentage(operationalSnapshot.rates.limited), href: snapshotHref({ access: "limited" }) },
-    { label: "Reuse", value: snapshotPercentage(operationalSnapshot.rates.reuse), href: snapshotHref({ freshness: "reused" }) },
-    { label: "No-go", value: snapshotNumber(operationalSnapshot.metrics.noGoRuns), href: snapshotHref({ status: "no_go" }) },
-    { label: "Active", value: snapshotNumber(operationalSnapshot.metrics.activeRuns), href: snapshotHref({ status: "running" }) },
-  ];
-  const liveTargets = scans.flatMap((scan) => {
-    if (!["queued", "running", "finalizing"].includes(scan.status)) return [];
-    const id = scan.rowKind === "scan" ? scan.scanId : scan.requestPublicId;
-    return id ? [{
-      id,
-      kind: scan.rowKind,
-      status: scan.status
-    } as const] : [];
-  });
+    }));
 
-  return (
-    <AdminNavigationProvider>
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div className="space-y-1">
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Scan Admin</h2>
-          <p className="text-sm text-slate-500">Requester IP identifies who reached CertScore. Scanner egress identifies the outbound runtime that reached the target site.</p>
-        </div>
-        <AdminTrafficFilters basePath="/app/admin/scans" scope={trafficScope} searchParams={resolvedSearchParams} />
-      </div>
-
-      <AdminOperationalSnapshot
+  async function SnapshotPanel() {
+    const operationalSnapshot = await snapshotPromise;
+    const runDelta = adminOperationalSnapshotDelta(operationalSnapshot.metrics.runs, operationalSnapshot.comparison.runs);
+    const failureDelta = adminOperationalSnapshotDelta(operationalSnapshot.metrics.failedRuns, operationalSnapshot.comparison.failedRuns, "higher_is_bad");
+    const latencyDelta = adminOperationalSnapshotDelta(operationalSnapshot.metrics.p95DurationSeconds ?? 0, operationalSnapshot.comparison.p95DurationSeconds ?? 0, "higher_is_bad");
+    const snapshotHref = (values: Record<string, string | null | undefined>) => adminOperationalSnapshotHref("/app/admin/scans", { snapshot: activeSnapshotPeriod, traffic: trafficScope, ...values });
+    const snapshotMetrics = [
+      { label: "Runs", value: snapshotNumber(operationalSnapshot.metrics.runs), detail: operationalSnapshot.period.label, comparison: runDelta.label, anomaly: runDelta.anomaly, href: snapshotHref({}) },
+      { label: "Requests", value: snapshotNumber(operationalSnapshot.metrics.requests), detail: "scan requests", definition: "requests" as const },
+      { label: "Completed", value: snapshotNumber(operationalSnapshot.metrics.completedRuns), detail: "physical runs", definition: "successful" as const, href: snapshotHref({ status: "completed" }) },
+      { label: "Limited", value: snapshotNumber(operationalSnapshot.metrics.limitedRuns), detail: "evidence-limited", href: snapshotHref({ access: "limited" }) },
+      { label: "Failed", value: snapshotNumber(operationalSnapshot.metrics.failedRuns), detail: "physical runs", definition: "errors" as const, comparison: failureDelta.label, anomaly: failureDelta.anomaly, href: snapshotHref({ status: "failed" }) },
+      { label: "Duration", value: `${snapshotDuration(operationalSnapshot.metrics.p50DurationSeconds)} / ${snapshotDuration(operationalSnapshot.metrics.p95DurationSeconds)}`, detail: "p50 / p95", definition: "latency" as const, comparison: latencyDelta.label, anomaly: latencyDelta.anomaly },
+    ];
+    const snapshotRates = [
+      { label: "Completion", value: snapshotPercentage(operationalSnapshot.rates.completion), href: snapshotHref({ status: "completed" }) },
+      { label: "Failures", value: snapshotPercentage(operationalSnapshot.rates.failure), anomaly: failureDelta.anomaly, href: snapshotHref({ status: "failed" }) },
+      { label: "Limited", value: snapshotPercentage(operationalSnapshot.rates.limited), href: snapshotHref({ access: "limited" }) },
+      { label: "Reuse", value: snapshotPercentage(operationalSnapshot.rates.reuse), href: snapshotHref({ freshness: "reused" }) },
+      { label: "No-go", value: snapshotNumber(operationalSnapshot.metrics.noGoRuns), href: snapshotHref({ status: "no_go" }) },
+      { label: "Active", value: snapshotNumber(operationalSnapshot.metrics.activeRuns), href: snapshotHref({ status: "running" }) },
+    ];
+    return <AdminOperationalSnapshot
         ariaLabel={`Scan activity trend: ${snapshotNumber(operationalSnapshot.metrics.runs)} runs during ${operationalSnapshot.period.label.toLowerCase()}`}
         basePath="/app/admin/scans"
         breakdown={operationalSnapshot.scanFromCounts.map((scanFrom) => ({ label: scanFrom.label, value: snapshotNumber(scanFrom.count), detail: `${snapshotNumber(scanFrom.completed)} completed · ${snapshotNumber(scanFrom.failed)} failed`, href: snapshotHref({ scanFrom: scanFrom.value }) }))}
@@ -366,9 +343,25 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
         subtitle={`Physical scan runs and scan requests · ${operationalSnapshot.period.label}`}
         trend={operationalSnapshot.trend.map((bucket, index) => ({ key: `${bucket.bucket}:${index}`, label: bucket.label, value: bucket.runs, title: `${bucket.label}: ${bucket.runs} runs · ${bucket.failed} failed · ${bucket.limited} limited`, className: bucket.failed > 0 ? "bg-rose-400 hover:bg-rose-500" : bucket.limited > 0 ? "bg-amber-400 hover:bg-amber-500" : undefined }))}
         trendTotal={operationalSnapshot.period.label}
-      />
+      />;
+  }
+  async function ScanRows() {
+    const [filterOptions, scanPage] = await Promise.all([filterOptionsPromise, scanPagePromise]);
+    const totalCount = scanPage.totalCount;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const normalizedPage = Math.min(currentPage, totalPages);
+    const scans = scanPage.items;
+    const liveTargets = scans.flatMap((scan) => {
+      if (!["queued", "running", "finalizing"].includes(scan.status)) return [];
+      const id = scan.rowKind === "scan" ? scan.scanId : scan.requestPublicId;
+      return id ? [{
+        id,
+        kind: scan.rowKind,
+        status: scan.status
+      } as const] : [];
+    });
 
-      <Card className="min-w-0 overflow-hidden border-slate-200 bg-white">
+    return <Card className="min-w-0 overflow-hidden border-slate-200 bg-white">
       <CardHeader className="pb-2"><div className="flex flex-wrap items-end justify-between gap-2"><div><CardTitle>Scan activity</CardTitle><p className="mt-1 text-sm text-slate-500">Physical runs and retained scan requests matching the table filters.</p></div><p className="text-sm text-slate-500">{snapshotNumber(totalCount)} matching items</p></div></CardHeader>
       <AdminTableRefreshBoundary basePath="/app/admin/scans" label="Refreshing scans">
       <CardContent className="min-w-0 space-y-3 pt-0">
@@ -474,7 +467,22 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
         </div>
       </CardContent>
       </AdminTableRefreshBoundary>
-    </Card>
+    </Card>;
+  }
+  return (
+    <AdminNavigationProvider>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="space-y-1">
+          <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Scan Admin</h2>
+          <p className="text-sm text-slate-500">Requester IP identifies who reached CertScore. Scanner egress identifies the outbound runtime that reached the target site.</p>
+        </div>
+        <AdminTrafficFilters basePath="/app/admin/scans" scope={trafficScope} searchParams={resolvedSearchParams} />
+      </div>
+
+    <AdminDataBoundary label="Scan snapshot"><Suspense fallback={<AdminDataLoading label="Scan snapshot" />}><SnapshotPanel /></Suspense></AdminDataBoundary>
+
+    <AdminDataBoundary label="Scan activity"><Suspense fallback={<AdminDataLoading label="Scan activity" />}><ScanRows /></Suspense></AdminDataBoundary>
     </div>
     </AdminNavigationProvider>
   );
@@ -484,7 +492,7 @@ export default async function AdminScansPage({ searchParams }: AdminScansPagePro
   const resolvedSearchParams = searchParams ? await searchParams : {};
 
   return (
-    <Suspense fallback={<AdminScansContentFallback />}>
+    <Suspense key={JSON.stringify(resolvedSearchParams)} fallback={<AdminScansContentFallback />}>
       <AdminScansContent resolvedSearchParams={resolvedSearchParams} />
     </Suspense>
   );

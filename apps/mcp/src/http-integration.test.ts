@@ -188,6 +188,12 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
   let scanCreateRequestCount = 0;
   const apiServer = createHttpServer((request, response) => {
     const requestUrl = new URL(request.url ?? "/", apiOrigin);
+    if (request.method === "GET" && requestUrl.pathname === "/api/v2/scans/00000000-0000-4000-8000-000000000124/report-evidence") {
+      const second = requestUrl.searchParams.has("cursor");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ type: "certscore_report_evidence_page", version: 1, scanId: "00000000-0000-4000-8000-000000000124", snapshot: "a".repeat(64), reportUrl: "https://certscore.ai/scan/00000000-0000-4000-8000-000000000124", entries: [{ path: second ? "/coverage" : "/findings", value: second ? "limited" : [] }], pagination: { offset: second ? 1 : 0, returned: 1, total: 2, complete: second, nextCursor: second ? null : `v1.${"a".repeat(64)}.1` }, coverage: { scope: "public_report_projection", exportTruncated: false, observationCompleteness: "see_report_coverage", exclusions: [] }, reconstruction: "JSON Pointer entries" }));
+      return;
+    }
     if (request.method === "GET" && request.url === "/microsoft-jwks") {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ keys: [{ ...microsoftPublicJwk, alg: "RS256", kid: microsoftKid, use: "sig" }] }));
@@ -403,8 +409,8 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     const microsoftClient = new Client({ name: "certscore-microsoft-http-integration", version: "0.1.0" });
     await microsoftClient.connect(microsoftTransport);
     const microsoftTools = await microsoftClient.listTools();
-    assert.equal(microsoftTools.tools.length, 3);
-    assert.deepEqual(microsoftTools.tools.map((tool) => tool.name).sort(), ["certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
+    assert.equal(microsoftTools.tools.length, 4);
+    assert.deepEqual(microsoftTools.tools.map((tool) => tool.name).sort(), ["certscore_get_report_evidence_page", "certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
     const microsoftCreated = await microsoftClient.callTool({
       name: "certscore_scan_site",
       arguments: { url: "https://example.com", waitForCompletion: false }
@@ -428,6 +434,7 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
     });
     assert.equal(unauthenticated.status, 401);
+    assert.match(unauthenticated.headers.get("x-request-id") ?? "", /^[a-f0-9-]{36}$/);
     assert.match(unauthenticated.headers.get("www-authenticate") ?? "", /oauth-protected-resource\/mcp/);
 
     const token = signCertScoreAccessToken({
@@ -474,6 +481,12 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     assert.equal(authenticatedInternalOperation, "scan_bundle");
     assert.match(authenticatedInternalTimestamp ?? "", /^\d+$/);
     assert.match(authenticatedInternalProof ?? "", /^[A-Za-z0-9_-]+$/);
+    const authenticatedPage = await client.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124" } });
+    assert.equal(authenticatedPage.isError, undefined, JSON.stringify(authenticatedPage));
+    assert.equal((authenticatedPage.structuredContent as any).pagination.complete, false);
+    const authenticatedNextPage = await client.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124", cursor: (authenticatedPage.structuredContent as any).pagination.nextCursor } });
+    assert.equal(authenticatedNextPage.isError, undefined, JSON.stringify(authenticatedNextPage));
+    assert.equal((authenticatedNextPage.structuredContent as any).pagination.complete, true);
     await client.close();
 
     const anonymousTransport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp/anonymous`), {
@@ -796,6 +809,9 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     assert.equal(toolsListObservation.reasonCode, "session_requester_changed_allowed");
     assert.equal(getObservation.requesterSessionIdentityMatched, false);
     assert.equal(getObservation.reasonCode, "session_requester_changed_allowed");
+    assert.match(String(unknownSessionObservation.requestId), /^[a-f0-9-]{36}$/);
+    assert.match(String(initializeObservation.requestId), /^[a-f0-9-]{36}$/);
+    assert.notEqual(initializeObservation.requestId, unknownSessionObservation.requestId);
     assert.equal(unknownSessionObservation.finalHttpStatus, 404);
     assert.equal(missingSessionObservation.finalHttpStatus, 400);
     assert.equal(mismatchObservation.finalHttpStatus, 401);
@@ -833,13 +849,20 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     const lightClient = new Client({ name: "certscore-light-http-integration", version: "0.1.0" });
     await lightClient.connect(lightTransport);
     const lightTools = await lightClient.listTools();
+    const lightPage = await lightClient.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124" } });
+    assert.equal(lightPage.isError, undefined, JSON.stringify(lightPage));
+    assert.equal((lightPage.structuredContent as any).pagination.complete, false);
+    const lightNextPage = await lightClient.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124", cursor: (lightPage.structuredContent as any).pagination.nextCursor } });
+    assert.equal(lightNextPage.isError, undefined, JSON.stringify(lightNextPage));
+    assert.equal((lightNextPage.structuredContent as any).pagination.complete, true);
+
     const parityProjection = (tool: (typeof microsoftTools.tools)[number]) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema
     });
     assert.deepEqual(microsoftTools.tools.map(parityProjection), lightTools.tools.map(parityProjection));
-    assert.deepEqual(lightTools.tools.map((tool) => tool.name).sort(), ["certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
+    assert.deepEqual(lightTools.tools.map((tool) => tool.name).sort(), ["certscore_get_report_evidence_page", "certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
     const lightScanTool = lightTools.tools.find((tool) => tool.name === "certscore_scan_site");
     assert.match(lightScanTool?.description ?? "", /Creates a public-website privacy scan or reuses an eligible recent completed scan/);
     assert.match(lightScanTool?.description ?? "", /preConsentPreview/);

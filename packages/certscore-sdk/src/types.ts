@@ -953,3 +953,16 @@ export interface PulseErrorResponse {
   disclaimer?: string;
   [key: string]: unknown;
 }
+
+/** Versioned, lossless export of the public report projection; observation coverage is separate. */
+export interface ReportEvidencePage {
+  type: "certscore_report_evidence_page";
+  version: 1;
+  scanId: string;
+  snapshot: string;
+  reportUrl: string;
+  entries: Array<{ path: string; value: unknown; stringPart?: number; stringParts?: number }>;
+  pagination: { offset: number; returned: number; total: number; complete: boolean; nextCursor: string | null };
+  coverage: { scope: "public_report_projection"; exportTruncated: false; observationCompleteness: "see_report_coverage"; exclusions: string[] };
+  reconstruction: string;
+}

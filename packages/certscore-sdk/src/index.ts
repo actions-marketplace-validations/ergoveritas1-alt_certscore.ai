@@ -12,6 +12,7 @@ export {
   ThrottledError
 } from "./errors.js";
 export type {
+  ReportEvidencePage,
   AfterActionSummary,
   AgentInterpretation,
   ApiV2RequestOptions,

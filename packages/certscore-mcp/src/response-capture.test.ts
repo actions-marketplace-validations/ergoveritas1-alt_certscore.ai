@@ -52,3 +52,52 @@ test("malformed optional metadata cannot suppress the invocation event", () => {
   assert.equal(summary.summaryTruncated, true);
   assert.equal(summary.upstream, undefined);
 });
+
+test("captures nested domain scan identity and the returned typed guidance", async () => {
+  const {withResponseGuidance} = await import('./response-guidance.js');
+  const {projectMcpToolInvocationObservation} = await import('./server.js');
+  const payload = {type: 'certscore_domain_latest_scan', scan: {scanId: '00000000-0000-4000-8000-000000000123', status: 'completed', scanFrom: 'eu_ie'}};
+  const result = withResponseGuidance('certscore_get_latest_domain_scan', {}, toToolResult(payload));
+  const captured = captureMcpResponse(result);
+  assert.equal(captured.scanAssociation, 'linked');
+  assert.equal(captured.status, 'completed');
+  assert.equal(captured.actionCategory, 'get_bundle');
+  assert.equal(captured.recommendedNextTool, 'certscore_get_scan_bundle');
+  assert.equal(captured.retryDisposition, 'not_needed');
+  assert.equal(captured.creationDecision, 'not_requested');
+  assert.equal(captured.quotaConsumed, undefined);
+  const observation = projectMcpToolInvocationObservation({args:{domain:'example.com'}, result, durationMs:206, toolName:'certscore_get_latest_domain_scan'});
+  assert.equal(observation.scanId,payload.scan.scanId);
+  assert.equal(observation.scanStatus,'completed');
+  assert.equal(observation.scanFrom,'eu_ie');
+  const empty = withResponseGuidance('certscore_get_latest_domain_scan', {}, toToolResult({type:'certscore_domain_latest_scan',scan:null}));
+  assert.equal(captureMcpResponse(empty).scanAssociation,'no_eligible_scan');
+  assert.equal(captureMcpResponse(empty).actionCategory,'create_if_requested');
+});
+
+test("typed capture retains paging and explicit consumption, never raw guidance prose", async () => {
+  const {withResponseGuidance} = await import('./response-guidance.js');
+  const page = captureMcpResponse(withResponseGuidance('certscore_list_findings', {}, toToolResult({scanId:'s',pagination:{offset:0,returned:2,limit:2,truncated:true}})));
+  assert.equal(page.actionCategory,'get_next_page');
+  assert.deepEqual(page.pagination,{nextOffset:2,complete:false});
+  const queued = captureMcpResponse(withResponseGuidance('certscore_scan_site', {}, toToolResult({scanId:'s',status:'queued',retryAfterSeconds:5,quotaConsumed:true})));
+  assert.equal(queued.retryAfterSeconds,5);
+  assert.equal(queued.quotaConsumed,true);
+  assert.equal(queued.actionCategory,'poll_status');
+  assert.equal(queued.retryDisposition,'follow_guidance');
+  const diagnostic = captureMcpResponse(withResponseGuidance('certscore_get_connection_status', {}, toToolResult({type:'certscore_auth_check',diagnostics:{nextAction:'secret@example.com'}})));
+  assert.equal(diagnostic.scanAssociation,'not_applicable');
+  assert.equal(diagnostic.actionCategory,'review_connection');
+  assert.doesNotMatch(JSON.stringify(diagnostic),/secret@example/);
+});
+
+test('Light captures bounded preview, completeness and separate anonymous allowance', () => {
+  const result=withResponseCapture(toToolResult({status:'running', anonymousQuotaLimit:20, anonymousQuotaRemaining:19, anonymousQuotaResetAt:'2026-09-12T12:00:00Z', findingsMetadata:{returned:1,total:12},preConsentCookiesTrackers:{returned:2,total:8},mcpMetadata:{omittedSections:['additionalFindings','secret@invalid']}}), {firstResult:'preview',previewWaitMs:900,internalReadCount:2});
+  const capture=captureMcpResponse(result);
+  assert.equal(capture.firstResult,'preview');
+  assert.equal(capture.previewWaitMs,900);
+  assert.equal(capture.internalReadCount,2);
+  assert.deepEqual(capture.anonymousCreationQuota,{limit:20,remaining:19,resetAt:'2026-09-12T12:00:00Z'});
+  assert.deepEqual(capture.completeness,{findingsReturned:1,findingsTotal:12,inventoryReturned:2,inventoryTotal:8,omittedSections:['additionalFindings']});
+  assert.ok(Buffer.byteLength(JSON.stringify(capture))<=2048);
+});

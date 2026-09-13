@@ -6,6 +6,7 @@ export const MCP_RESPONSE_CATEGORIES = {
   execution_failed: "Execution failed", rate_limited: "Rate limited", success: "Success", not_recorded: "Not recorded",
 } as const;
 export const MCP_AGENT_NEXT_STEPS = {
+  summarize: "Summarize result", get_next_page: "Read next page", create_if_requested: "Create if requested", review_connection: "Review connection",
   correct_input: "Correct input", poll_status: "Poll status", get_bundle: "Get bundle",
   wait_retry: "Wait and retry", stop_review: "Stop/review", not_recorded: "Not recorded",
 } as const;
@@ -38,6 +39,7 @@ export const MCP_RESPONSE_CATEGORY_SQL = projection(`
   when ${status} in ('created', 'accepted', 'queued', 'running', 'processing', 'finalizing') then 'pending'
   when ${field("isError")} = 'false' then 'success'`);
 export const MCP_AGENT_NEXT_STEP_SQL = projection(`
+  when ${field("actionCategory")} in ('poll_status', 'get_bundle', 'get_next_page', 'create_if_requested', 'summarize', 'review_connection', 'stop_review') then ${field("actionCategory")}
   when ${field("recommendedNextTool")} = 'certscore_get_scan_status' then 'poll_status'
   when ${field("recommendedNextTool")} = 'certscore_get_scan_bundle' then 'get_bundle'
   when ${action} like '%tool discovery%' or ${action} like '%correct%' or ${action} like '%provide%' or ${action} like '%ask for a publicly%' or ${action} like '%check the spelling%' or ${action} like 'use the unchanged scanid%' then 'correct_input'
@@ -46,6 +48,7 @@ export const MCP_AGENT_NEXT_STEP_SQL = projection(`
   when ${action} like '%wait%' and ${action} like '%retry%' then 'wait_retry'
   when ${action} like '%stop%' or ${action} like '%review%' or ${action} like '%contact support%' then 'stop_review'`);
 export const MCP_RETRY_SQL = projection(`
+  when ${field("retryDisposition")} = 'not_needed' then 'No retry needed'
   when ${field("retryable")} = 'false' then 'Not retryable'
   when ${field("retryable")} = 'true' and ${action} like '%freshness=refresh%' and ${action} like '%new scan%' then 'New scan required'
   when jsonb_typeof(${summary}->'retryAfterSeconds') = 'number' then 'After ' || ${field("retryAfterSeconds")} || 's'

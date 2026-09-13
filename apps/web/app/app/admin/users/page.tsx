@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { AdminDataBoundary, AdminDataLoading } from "../../../../components/admin/admin-data-panel";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import { MembershipRoleForm, type MembershipRole } from "../../../../components/admin/membership-role-form";
@@ -94,19 +96,18 @@ function SortHeader({
   );
 }
 
-export default async function AdminUsersPage({ searchParams }: AdminUsersPageProps) {
+async function AdminUsersContent({ searchParams }: AdminUsersPageProps) {
   const resolved = searchParams ? await searchParams : {};
   const pageSize = normalizePageSize(resolved.perPage);
   const requestedPage = normalizePage(resolved.page);
   const sortKey = normalizeAdminUsersSortKey(resolved.sort);
   const direction = normalizeAdminUsersSortDirection(resolved.dir);
-  const [requestedUserPage, workspaces, mcpActivationFunnel] = await Promise.all([
+  const [requestedUserPage, workspaces] = await Promise.all([
     withServerTiming(
       "app.admin.users.list",
       () => listAdminUsersPage(pageSize, (requestedPage - 1) * pageSize, sortKey, direction)
     ),
-    withServerTiming("app.admin.users.workspaces", () => listCompanies()),
-    withServerTiming("app.admin.users.mcp_activation", () => getAdminMcpActivationFunnel())
+    withServerTiming("app.admin.users.workspaces", () => listCompanies())
   ]);
   const pageCount = Math.max(1, Math.ceil(requestedUserPage.totalCount / pageSize));
   const page = Math.min(requestedPage, pageCount);
@@ -128,30 +129,7 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
       {userCreated ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">User and workspace created successfully. A welcome email with a secure password setup link was sent.</div> : null}
       {existingUserWorkspaceCreated ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">That account already existed without a workspace. A new workspace was created and a fresh password setup link was sent.</div> : null}
       {userAlreadyExists ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">That user already exists and is assigned to a workspace. Use the existing user row to manage their workspace.</div> : null}
-      <Card className="border-violet-200 bg-violet-50/40">
-        <CardHeader>
-          <CardTitle>Claude activation funnel</CardTitle>
-          <p className="text-sm text-slate-600">External users authorized during the last 90 days. Conversion is measured from each user&apos;s first retained authorization.</p>
-        </CardHeader>
-        <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-          {[
-            { baseline: true, label: "OAuth approved", oneHour: mcpActivationFunnel.authorizedUsers, twentyFourHours: mcpActivationFunnel.authorizedUsers },
-            { label: "MCP initialized", oneHour: mcpActivationFunnel.initialized1h, twentyFourHours: mcpActivationFunnel.initialized24h },
-            { label: "Tools listed", oneHour: mcpActivationFunnel.toolsListed1h, twentyFourHours: mcpActivationFunnel.toolsListed24h },
-            { label: "First tool", oneHour: mcpActivationFunnel.firstTool1h, twentyFourHours: mcpActivationFunnel.firstTool24h },
-            { label: "Scan requested", oneHour: mcpActivationFunnel.scanRequested1h, twentyFourHours: mcpActivationFunnel.scanRequested24h }
-          ].map((stage) => (
-            <div className="rounded-lg border border-violet-100 bg-white px-3 py-2" key={stage.label}>
-              <p className="text-xs font-semibold text-slate-700">{stage.label}</p>
-              {stage.baseline ? (
-                <><p className="mt-1 text-lg font-semibold text-slate-950">{stage.twentyFourHours}</p><p className="text-xs text-slate-500">retained cohort</p></>
-              ) : (
-                <><p className="mt-1 text-lg font-semibold text-slate-950">{stage.twentyFourHours} <span className="text-xs font-medium text-slate-500">{activationRate(stage.twentyFourHours, mcpActivationFunnel.authorizedUsers)} within 24h</span></p><p className="text-xs text-slate-500">{stage.oneHour} within 1h</p></>
-              )}
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+
       <Card className="border-slate-200 bg-white">
         <CardHeader><CardTitle>Create user</CardTitle><p className="text-sm text-slate-600">Create a user, automatically assign them a new workspace, and send a secure link to set their password.</p></CardHeader>
         <CardContent>
@@ -337,4 +315,44 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
       </Card>
     </div>
   );
+}
+
+async function ActivationFunnel() {
+  const mcpActivationFunnel = await withServerTiming("app.admin.users.mcp_activation", () => getAdminMcpActivationFunnel());
+  return <Card className="border-violet-200 bg-violet-50/40">
+        <CardHeader>
+          <CardTitle>Claude activation funnel</CardTitle>
+          <p className="text-sm text-slate-600">External users authorized during the last 90 days. Conversion is measured from each user&apos;s first retained authorization.</p>
+        </CardHeader>
+        <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            { baseline: true, label: "OAuth approved", oneHour: mcpActivationFunnel.authorizedUsers, twentyFourHours: mcpActivationFunnel.authorizedUsers },
+            { label: "MCP initialized", oneHour: mcpActivationFunnel.initialized1h, twentyFourHours: mcpActivationFunnel.initialized24h },
+            { label: "Tools listed", oneHour: mcpActivationFunnel.toolsListed1h, twentyFourHours: mcpActivationFunnel.toolsListed24h },
+            { label: "First tool", oneHour: mcpActivationFunnel.firstTool1h, twentyFourHours: mcpActivationFunnel.firstTool24h },
+            { label: "Scan requested", oneHour: mcpActivationFunnel.scanRequested1h, twentyFourHours: mcpActivationFunnel.scanRequested24h }
+          ].map((stage) => (
+            <div className="rounded-lg border border-violet-100 bg-white px-3 py-2" key={stage.label}>
+              <p className="text-xs font-semibold text-slate-700">{stage.label}</p>
+              {stage.baseline ? (
+                <><p className="mt-1 text-lg font-semibold text-slate-950">{stage.twentyFourHours}</p><p className="text-xs text-slate-500">retained cohort</p></>
+              ) : (
+                <><p className="mt-1 text-lg font-semibold text-slate-950">{stage.twentyFourHours} <span className="text-xs font-medium text-slate-500">{activationRate(stage.twentyFourHours, mcpActivationFunnel.authorizedUsers)} within 24h</span></p><p className="text-xs text-slate-500">{stage.oneHour} within 1h</p></>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>;
+}
+
+export default async function AdminUsersPage({ searchParams }: AdminUsersPageProps) {
+  const resolved = searchParams ? await searchParams : {};
+  return <div className="space-y-4">
+    <AdminDataBoundary key={JSON.stringify(resolved)} label="Users"><Suspense fallback={<AdminDataLoading label="Users" />}>
+      <AdminUsersContent searchParams={Promise.resolve(resolved)} />
+    </Suspense></AdminDataBoundary>
+    <details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">Claude activation funnel</summary>
+      <AdminDataBoundary label="Claude activation funnel"><Suspense fallback={<AdminDataLoading label="Claude activation funnel" />}><ActivationFunnel /></Suspense></AdminDataBoundary>
+    </details>
+  </div>;
 }

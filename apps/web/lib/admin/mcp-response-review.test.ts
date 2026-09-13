@@ -6,6 +6,9 @@ import { MCP_RESPONSE_CATEGORY_SQL, MCP_AGENT_NEXT_STEP_SQL, MCP_RETRY_SQL, MCP_
 // Run with MCP_REVIEW_TEST_PG_SOCKET pointing to an isolated local PostgreSQL server.
 test("retained-response projections and pagination filters agree in PostgreSQL", { skip: !process.env.MCP_REVIEW_TEST_PG_SOCKET }, () => {
   const cases = [
+    { summary: { status: "completed", actionCategory: "get_bundle", retryDisposition: "not_needed" }, expected: ["success", "get_bundle", "No retry needed", "not_applicable", true] },
+    { summary: { actionCategory: "create_if_requested", scanAssociation: "no_eligible_scan", retryDisposition: "not_needed" }, expected: ["success", "create_if_requested", "No retry needed", "not_applicable", true] },
+    { summary: { actionCategory: "get_next_page", recommendedNextAction: "Stop and review" }, expected: ["success", "get_next_page", "Not recorded", "not_applicable", true] },
     { summary: null, expected: ["not_recorded", "not_recorded", "Not recorded", "not_recorded", false] },
     { summary: { version: "1" }, expected: ["not_recorded", "not_recorded", "Not recorded", "not_recorded", false] },
     { summary: { isError: "false" }, expected: ["not_recorded", "not_recorded", "Not recorded", "not_recorded", false] },
@@ -21,12 +24,12 @@ test("retained-response projections and pagination filters agree in PostgreSQL",
   ];
   const rows = cases.map((item, id) => ({ id, request_details: { response: { summary: item.summary === null ? null : { version: 1, captureBasis: "response_generated", kind: "tool_result", isError: false, ...item.summary } } }, outcome: "error", scan_status: "failed" }));
   const sql = `with events as (select * from jsonb_to_recordset($fixture$${JSON.stringify(rows)}$fixture$::jsonb) as t(id int, request_details jsonb, outcome text, scan_status text)), projected as (select id, ${MCP_RESPONSE_CATEGORY_SQL} as category, ${MCP_AGENT_NEXT_STEP_SQL} as next_step, ${MCP_RETRY_SQL} as retry, ${MCP_FAILURE_SOURCE_SQL} as source, ${MCP_RESPONSE_CAPTURED_SQL} as captured from events) select jsonb_agg(jsonb_build_array(category,next_step,retry,source,captured) order by id) from projected;`;
-  const output = execFileSync(process.env.MCP_REVIEW_TEST_PSQL ?? "psql", ["-h", process.env.MCP_REVIEW_TEST_PG_SOCKET!, "-p", "55484", "-d", "postgres", "-A", "-t", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
+  const output = execFileSync(process.env.MCP_REVIEW_TEST_PSQL ?? "psql", ["-h", process.env.MCP_REVIEW_TEST_PG_SOCKET!, "-p", process.env.MCP_REVIEW_TEST_PG_PORT ?? "55484", "-d", "postgres", "-A", "-t", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
   assert.deepEqual(JSON.parse(output.trim()), cases.map(item => item.expected));
   // Actual WHERE expressions used before LIMIT/OFFSET, not post-page filtering.
   for (const [expression, expected] of [[MCP_RESPONSE_CATEGORY_SQL, "execution_failed"], [MCP_AGENT_NEXT_STEP_SQL, "not_recorded"], [MCP_FAILURE_SOURCE_SQL, "findings"]]) {
     const query = sql.slice(0, sql.indexOf(", projected as")) + ` select jsonb_agg(id order by id) from events where ${expression} = '${expected}';`;
-    const ids = JSON.parse(execFileSync(process.env.MCP_REVIEW_TEST_PSQL ?? "psql", ["-h", process.env.MCP_REVIEW_TEST_PG_SOCKET!, "-p", "55484", "-d", "postgres", "-At", "-v", "ON_ERROR_STOP=1"], { input: query, encoding: "utf8" }).trim());
+    const ids = JSON.parse(execFileSync(process.env.MCP_REVIEW_TEST_PSQL ?? "psql", ["-h", process.env.MCP_REVIEW_TEST_PG_SOCKET!, "-p", process.env.MCP_REVIEW_TEST_PG_PORT ?? "55484", "-d", "postgres", "-At", "-v", "ON_ERROR_STOP=1"], { input: query, encoding: "utf8" }).trim());
     const column = expression === MCP_RESPONSE_CATEGORY_SQL ? 0 : expression === MCP_AGENT_NEXT_STEP_SQL ? 1 : 3;
     assert.deepEqual(ids, cases.flatMap((item, id) => item.expected[column] === expected ? [id] : []));
   }

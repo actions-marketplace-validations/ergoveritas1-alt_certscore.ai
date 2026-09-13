@@ -1,6 +1,7 @@
 import { captureMcpResponse, withResponseCapture } from "@certscore/mcp";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHmac, randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 import { mcpTelemetryActorId, verifyCertScoreAccessToken } from "@certscore/mcp-auth";
@@ -8,6 +9,7 @@ import { createCertScoreMcpServer } from "@certscore/mcp/server";
 import { CERTSCORE_MCP_VERSION } from "@certscore/mcp/version";
 import { getAllowedOrigins, getEnv } from "./env.js";
 import { McpHttpSessionStore } from "./session-store.js";
+import { oauthSessionIdentity, oauthSessionMismatch, type OAuthSessionIdentity } from "./session-identity.js";
 import { McpReadThrottle, mcpReadCallsFromJsonRpc, mcpReadRateLimitGuidance } from "./read-throttle.js";
 import { anonymousMcpRequester, anonymousMcpRequesterFromHeaders, anonymousSessionBinding, authenticatedMcpCallerBinding } from "./requester-identity.js";
 import { createHostedMcpTelemetry } from "./telemetry.js";
@@ -32,6 +34,16 @@ const sessions = new McpHttpSessionStore({
   ttlSeconds: env.SESSION_TTL_SECONDS
 });
 const readThrottle = new McpReadThrottle();
+// Only populated after HTTP authentication and session binding succeed. Never
+// mutate session-global credentials: overlapping calls may use different tokens.
+const requestCorrelation = new AsyncLocalStorage<string>();
+const transportRequestIds = new WeakMap<IncomingMessage, string>();
+function transportRequestId(req: IncomingMessage) {
+  let id = transportRequestIds.get(req);
+  if (!id) { id = randomUUID(); transportRequestIds.set(req, id); }
+  return id;
+}
+const requestCredential = new AsyncLocalStorage<string>();
 
 function installSseKeepalive(res: ServerResponse) {
   const keepalive = setInterval(() => {
@@ -66,8 +78,8 @@ function publicMetadata() {
     resource: `${env.MCP_PUBLIC_URL}/mcp`,
     authorization_servers: [issuer],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["scan:read", "mcp"],
-    grant_gated_scopes: ["scan:create"],
+    scopes_supported: ["scan:read", "scan:create", "mcp"],
+    self_serve_scopes: ["scan:read", "scan:create", "mcp"],
     resource_documentation: `${issuer}/developers/mcp`
   };
 }
@@ -108,11 +120,16 @@ function unauthorized(
   res: ServerResponse,
   req: IncomingMessage,
   reason: "missing_token" | "invalid_token" | "session_token_mismatch",
-  message = "Valid OAuth bearer token required."
+  message = "Valid OAuth bearer token required.",
+  context?: { bindingMismatch: string; rpcMethod: string | null }
 ) {
-  console.warn(JSON.stringify({ event: "mcp_http.auth_failed", reason, source: "mcp-http" }));
+  const requestId = transportRequestId(req);
+  const path = req.url?.split("?")[0];
+  const route = path === "/mcp/anonymous" || path === "/mcp/light" ? path : "/mcp";
+  console.warn(JSON.stringify({ event: "mcp_http.auth_failed", reason, source: "mcp-http", requestId, route, httpStatus: 401, stage: "before_tool_execution", ...context }));
   json(res, 401, { error: "unauthorized", error_description: message }, {
     ...corsHeaders(req),
+    "X-Request-Id": requestId,
     "WWW-Authenticate": `Bearer resource_metadata="${env.MCP_PUBLIC_URL}/.well-known/oauth-protected-resource/mcp"`
   });
 }
@@ -122,7 +139,7 @@ function microsoftUnauthorized(
   req: IncomingMessage,
   reason: "missing_token" | "invalid_scheme" | "invalid_token" | "wrong_client" | "session_token_mismatch"
 ) {
-  console.warn(JSON.stringify({ event: "mcp_http.microsoft_auth", outcome: "rejected", reason, source: "mcp-http" }));
+  console.warn(JSON.stringify({ event: "mcp_http.microsoft_auth", outcome: "rejected", reason, source: "mcp-http", requestId: randomUUID(), route: "/mcp/microsoft", httpStatus: 401, stage: "before_tool_execution" }));
   json(res, 401, { error: "unauthorized", error_description: "Valid Microsoft Entra application bearer token required." }, {
     ...corsHeaders(req),
     "WWW-Authenticate": "Bearer"
@@ -130,7 +147,7 @@ function microsoftUnauthorized(
 }
 
 function microsoftForbidden(res: ServerResponse, req: IncomingMessage) {
-  console.warn(JSON.stringify({ event: "mcp_http.microsoft_auth", outcome: "rejected", reason: "missing_role", source: "mcp-http" }));
+  console.warn(JSON.stringify({ event: "mcp_http.microsoft_auth", outcome: "rejected", reason: "missing_role", source: "mcp-http", requestId: randomUUID(), route: "/mcp/microsoft", httpStatus: 403, stage: "before_tool_execution" }));
   json(res, 403, { error: "forbidden", error_description: "The Microsoft Entra application token lacks the required application role." }, corsHeaders(req));
 }
 
@@ -275,6 +292,7 @@ function logAnonymousMcpObservation(input: {
   const requestedMcpProtocolVersion = initializeProtocolVersion(input.parsedBody);
   const event = {
     event: "mcp_http.request_observed",
+    requestId: transportRequestId(input.req),
     timestamp: new Date().toISOString(),
     source: "mcp-http",
     durationMs: input.startedAtMs === undefined ? null : Math.max(0, Date.now() - input.startedAtMs),
@@ -337,10 +355,13 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
   const clientIp = requestSource.ip;
   let token: string | undefined;
   let tokenHash: string;
+  const sessionSurface = microsoft ? "microsoft" : light ? "light" : anonymous ? "anonymous" : "oauth";
+  let oauthIdentity: OAuthSessionIdentity | undefined;
   let authenticatedCallerHash: string | null = null;
   let authenticatedActorId: string | null = null;
   let authenticatedOrganizationId: string | null = null;
   let authenticatedUserId: string | null = null;
+  let grantedOAuthScopes: string[] | undefined;
   let microsoftIdentity: { clientId: string; tenantId: string } | null = null;
   if (microsoft) {
     const auth = await authenticateMicrosoft(req);
@@ -364,6 +385,8 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
     }
     token = auth.token;
     tokenHash = auth.tokenHash;
+    oauthIdentity = oauthSessionIdentity(auth.claims);
+    grantedOAuthScopes = auth.claims.scope.split(/\s+/).filter(Boolean);
     authenticatedCallerHash = sessions.hashToken(authenticatedMcpCallerBinding(auth.claims));
     authenticatedActorId = mcpTelemetryActorId({
       issuer: auth.claims.iss,
@@ -420,7 +443,11 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
       surface
     });
     const server = createCertScoreMcpServer({
-      apiKey: token,
+      resolveApiKey: sessionSurface === "oauth" ? () => {
+        const credential = requestCredential.getStore();
+        if (!credential) throw new Error("Validated MCP request credential is unavailable.");
+        return credential;
+      } : undefined,
       anonymousRequesterSecret: env.jwtSecret,
       baseUrl: env.CERTSCORE_BASE_URL,
       forwardedClientIp: clientIp,
@@ -436,9 +463,11 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
       timeout: env.CERTSCORE_REQUEST_TIMEOUT_MS,
       initialPreConsentPreviewWaitMs: env.CERTSCORE_MCP_INITIAL_PRECONSENT_PREVIEW_WAIT_MS,
       toolProfile: light ? "light" : "full",
+      grantedOAuthScopes,
       exampleDomainDemoUrl: anonymous
         ? "https://ergoveritas.com/.well-known/certscore-canary/sentinels/broad-baseline.html"
         : null,
+      resolveRequestId: () => requestCorrelation.getStore(),
       onToolInvocationStarted: request => telemetry.observeToolRequestStarted(request),
       onToolInvocation: (observation, context) => {
         const invocationSource = context.headers
@@ -470,6 +499,8 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
         server,
         telemetry,
         tokenHash,
+        surface: sessionSurface,
+        oauthIdentity,
         transport
       });
       if (sessionResult.evicted > 0) {
@@ -523,9 +554,15 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
     }
     return;
   }
+  const identityMismatch = session.surface !== sessionSurface ? "surface"
+    : sessionSurface === "oauth"
+      ? session.oauthIdentity && oauthIdentity
+        ? oauthSessionMismatch(session.oauthIdentity, oauthIdentity)
+        : "missing_identity"
+      : null;
   // Hosted MCP clients may distribute one anonymous Light session across egress addresses.
   // The opaque session ID remains authoritative; other surfaces retain requester binding.
-  if (session.tokenHash !== tokenHash && (!light || microsoft)) {
+  if (identityMismatch || (sessionSurface !== "oauth" && session.tokenHash !== tokenHash && (!light || microsoft))) {
     if (microsoft) {
       return microsoftUnauthorized(res, req, "session_token_mismatch");
     }
@@ -545,8 +582,13 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
       });
       return;
     }
-    return unauthorized(res, req, "session_token_mismatch", "Bearer token does not match this MCP session.");
+    const method = jsonRpcMethod(parsedBody);
+    return unauthorized(res, req, "session_token_mismatch", "Authorization identity does not match this MCP session. Initialize a new session.", {
+      bindingMismatch: identityMismatch ?? "requester",
+      rpcMethod: ["initialize", "tools/list", "tools/call", "ping", "notifications/initialized"].includes(method ?? "") ? method : null,
+    });
   }
+  if (sessionId) sessions.touch(sessionId);
   const readCalls = mcpReadCallsFromJsonRpc(parsedBody);
   for (const readCall of readCalls) {
     const publicLight = light && !microsoft;
@@ -615,6 +657,7 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
         }
       }, { ...corsHeaders(req), "Retry-After": String(decision.retryAfterSeconds) });
       session.telemetry?.observeTransportRateLimit({
+        requestId: transportRequestId(req),
         responseSummary: captureMcpResponse(undefined, withResponseCapture({
           code: -32029, message: guidance.message,
           data: { code: "rate_limited", retryable: true, retryAfterSeconds: decision.retryAfterSeconds },
@@ -654,7 +697,11 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
     res.setHeader(key, value);
   }
   installSseKeepalive(res);
-  await session.transport.handleRequest(req, res, parsedBody);
+  if (sessionSurface === "oauth") {
+    await requestCredential.run(token!, () => session.transport.handleRequest(req, res, parsedBody));
+  } else {
+    await session.transport.handleRequest(req, res, parsedBody);
+  }
   if (!microsoft && res.statusCode < 400 && jsonRpcMethod(parsedBody) === "tools/list") {
     session.telemetry?.observeActivation("mcp_tools_listed");
   }
@@ -726,7 +773,7 @@ const server = createServer(async (req, res) => {
   if ((url.pathname === "/mcp" || url.pathname === "/mcp/anonymous" || url.pathname === "/mcp/light" || (env.microsoftMcpEnabled && url.pathname === "/mcp/microsoft")) && (req.method === "GET" || req.method === "POST" || req.method === "DELETE")) {
     const anonymous = url.pathname !== "/mcp";
     const microsoft = url.pathname === "/mcp/microsoft";
-    return handleMcp(req, res, anonymous, url.pathname === "/mcp/light" || microsoft, microsoft).catch((error) => {
+    return requestCorrelation.run(transportRequestId(req), () => handleMcp(req, res, anonymous, url.pathname === "/mcp/light" || microsoft, microsoft)).catch((error) => {
       console.error(JSON.stringify({
         event: "mcp_http.request_failed",
         timestamp: new Date().toISOString(),
