@@ -31,7 +31,7 @@ export default function DeveloperMcpPage() {
         <section aria-labelledby="route-choice" className="rounded-xl border border-slate-200 bg-white p-6 sm:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Start here</p>
           <h2 className="mt-2 text-3xl font-semibold text-slate-950" id="route-choice">Which route should I choose?</h2>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">Choose Hosted OAuth for scanning, reports and workspace history. Connect once with your own account; no CertScore staff approval is needed.</p>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">Choose Hosted OAuth for scanning, reports and workspace history. Sign in with your own account and the connection completes automatically. No separate Connect screen or CertScore staff approval is needed.</p>
           <div className="mt-6 grid gap-5 lg:grid-cols-2">
             <article className="rounded-xl border-2 border-sky-400 bg-sky-50 p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">Recommended for agents</p>

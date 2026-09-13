@@ -115,16 +115,17 @@ test("invalid OAuth clients cannot select an external error redirect", () => {
   assert.doesNotMatch(source, /redirectWithParams\(redirectUri \|\|/);
 });
 
-test("read-only OAuth consent directs empty workspaces to their first scan", () => {
+test("self-serve OAuth connects after sign-in without a second approval screen", () => {
   const page = readFileSync(new URL("../../app/oauth/authorize/page.tsx", import.meta.url), "utf8");
-  const server = readFileSync(new URL("./mcp-oauth.ts", import.meta.url), "utf8");
-
-  assert.match(page, /This connection is read-only\./);
-  assert.match(page, /cannot create the first scan with the requested access/);
-  assert.match(page, /href="\/app#scan-a-site"/);
-  assert.match(page, /CERTSCORE_OAUTH_CREATE_SCOPE/);
-  assert.match(server, /getMcpOAuthWorkspaceActivity/);
-  assert.match(server, /from scans where organization_id = \$1/);
+  assert.doesNotMatch(page, /<form|hasReusableMcpOAuthConsent|name="decision"/);
+  assert.match(page, /redirect\(`\/login\?next=/);
+  assert.match(page, /redirectUriAllowed\(client, redirectUri\)/);
+  assert.match(page, /codeChallengeMethod !== "S256"/);
+  assert.match(page, /scopeResolution.invalidScopes.length > 0/);
+  assert.match(page, /scopeResolution.deniedScopes.length > 0/);
+  assert.match(page, /organizationId: organization.id, ownerUserId: user.id/);
+  assert.match(page, /scopes: scopeResolution.approvedScopes/);
+  assert.match(page, /target.searchParams.set\("state", state\)/);
 });
 
 test("active workspace connections receive client-independent self-serve scan creation", () => {
@@ -140,14 +141,10 @@ test("active workspace connections receive client-independent self-serve scan cr
   assert.match(server, /organization_members\.user_id::text = \$3/);
   assert.match(server, /autoIncludeGrantedCreateScope: true/);
   assert.match(registrationRoute, /CERTSCORE_OAUTH_CREATE_SCOPE/);
-  const consentPage = readFileSync(new URL("../../app/oauth/authorize/page.tsx", import.meta.url), "utf8");
-  assert.match(consentPage, /Ready to scan\. No staff approval needed\./);
-  assert.match(consentPage, /OAUTH_SCAN_CREATE_HOURLY_LIMIT/);
-  assert.match(consentPage, /OAUTH_SCAN_CREATE_DAILY_LIMIT/);
-  assert.match(consentPage, /Scan https:\/\/your-site\.com with CertScore and summarize the findings\./);
   const authorizationRoute = readFileSync(new URL("../../app/api/v2/oauth/authorize/route.ts", import.meta.url), "utf8");
-  assert.match(authorizationRoute, /eventName: "oauth_authorized"/);
-  assert.match(authorizationRoute, /persistProductAnalyticsEvent/);
+  assert.match(authorizationRoute, /recordMcpOAuthAuthorization/);
+  const event = readFileSync(new URL("./mcp-oauth-authorization-event.ts", import.meta.url), "utf8");
+  assert.match(event, /eventName: "oauth_authorized"/);
 });
 
 
