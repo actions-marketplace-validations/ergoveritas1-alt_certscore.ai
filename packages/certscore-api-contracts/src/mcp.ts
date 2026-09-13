@@ -519,6 +519,14 @@ export const mcpPreConsentCookiesTrackersOutputSchema = apiV2PreConsentCookiesTr
 
 export const certScoreMcpToolContracts = [
   {
+    name: "certscore_get_connection_status",
+    title: "Check CertScore connection",
+    description: "Read current authenticated connection mode, granted scopes, workspace access, rolling scan quota and recovery action. No scan ID is needed and no scan is created. Use this to diagnose read-only access or quota limits; reconnect only for expired, revoked or expanded access.",
+    inputSchema: {},
+    outputSchema: z.object({ type: z.literal("certscore_auth_check"), authenticated: z.literal(true), scopes: z.array(z.string()), expiresAt: z.string().nullable(), diagnostics: z.object({mode:z.string(), workspaceAccess:z.enum(["active","unavailable"]), createAllowedByScope:z.boolean(), canRequestScanNow:z.boolean(), quota:z.unknown().nullable(),nextAction:z.string()}).passthrough() }).passthrough(),
+    annotations: { title: "Check CertScore connection", ...readOnlyOpenWorldAnnotations }
+  },
+  {
     name: "certscore_scan_site",
     title: "Scan site",
     description: "Creates a public-website privacy scan or reuses an eligible recent completed scan. Coverage includes pre-consent storage, trackers, consent and CMP signals, privacy-policy disclosures, transport security, and GDPR/ePrivacy or CCPA/CPRA review signals. The response contains a stable scanId, lifecycle status, retry timing, and sometimes a bounded preliminary preConsentPreview; preliminary data contains no final findings or score. Results are automated public-web observations, not legal advice, certification, or a compliance determination. Tool and workflow documentation: https://certscore.ai/developers/mcp.",

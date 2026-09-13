@@ -36,7 +36,6 @@ test("self-serve provisioning is idempotent and serialized per user", async () =
 test("the Google completion redirect rejects cross-origin targets", async () => {
   const googleComplete = await readFile("apps/web/app/auth/google/complete/route.ts", "utf8");
 
-  assert.match(googleComplete, /nextPath\.startsWith\("\/"\)/);
-  assert.match(googleComplete, /!nextPath\.startsWith\("\/\/"\)/);
-  assert.match(googleComplete, /return "\/app"/);
+  assert.match(googleComplete, /safeAuthReturnPath as getSafeRedirectPath/);
+  assert.match(googleComplete, /getSafeRedirectPath\(requestUrl.searchParams.get\("next"\)\)/);
 });

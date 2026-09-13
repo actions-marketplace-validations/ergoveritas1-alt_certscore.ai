@@ -24,9 +24,42 @@ test('local real OAuth token exchange, status, bundle, refresh and same MCP sess
     const original=await token({grant_type:'authorization_code',code,code_verifier:verifier,redirect_uri:redirectUri});access=original.access_token;
     await rpc('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'CertScore local OAuth refresh gate',version:'1'}});assert.ok(session);const firstSession=session;
     if(process.env.OAUTH_GATE_ALL_TOOLS === '1') {
+      const check = await rpc('tools/call',{name:'certscore_get_connection_status',arguments:{}});
+      assert.equal(check.structuredContent.diagnostics.workspaceAccess,'active');
+      const {signCertScoreAccessToken}=await import('@certscore/mcp-auth');
+      for (const scenario of ['expired','read_only','removed_member']) {
+        const key=signCertScoreAccessToken({audience:origin,issuer,clientId:context.clientId,jwtSecret:oauth.getMcpJwtSecret(),organizationId:context.organizationId,subject:context.ownerUserId,userId:scenario==='removed_member'?'00000000-0000-4000-8000-000000000000':context.ownerUserId,scopes:scenario==='read_only'?['scan:read','mcp']:['scan:read','scan:create','mcp'],expiresInSeconds:scenario==='expired'?-3600:60});
+        const response=await fetch(issuer+'/api/v2/auth/check?diagnostics=1',{headers:{authorization:'Bearer '+key}});
+        if(scenario==='expired'){assert.equal(response.status,401);continue;}
+        assert.equal(response.status,200); const result=await response.json();
+        assert.equal(result.diagnostics.canRequestScanNow,false);
+        assert.equal(result.diagnostics.quota,null);
+        assert.equal(result.diagnostics.workspaceAccess,scenario==='removed_member'?'unavailable':'active');
+      }
+      const resources = await rpc('resources/list', {});
+      assert.ok(resources.resources.some((r:any)=>r.uri==='certscore://connection'));
+      const connection = await rpc('resources/read', {uri:'certscore://connection'});
+      const diagnostics = JSON.parse(connection.contents[0].text);
+      assert.equal(diagnostics.authenticated, true);
+      assert.equal(diagnostics.diagnostics.mode, 'hosted_oauth');
+      assert.equal(diagnostics.diagnostics.workspaceAccess, 'active');
+      assert.equal(typeof diagnostics.diagnostics.quota.hourlyRemaining, 'number');
+      const prompts = await rpc('prompts/list', {});
+      assert.equal(prompts.prompts.length,3);
+      for (const uri of ['certscore://project-instructions','certscore://reconnect','certscore://example-report']) {
+        const resource=await rpc('resources/read',{uri});
+        assert.ok(resource.contents[0].text.length>0);
+        if(uri==='certscore://example-report') assert.equal(JSON.parse(resource.contents[0].text).example,true);
+      }
+      for (const [name,args] of [['certscore_launch_review',{url:'https://ergoveritas.com'}],['certscore_remediation_checklist',{scanId}]] as const) {
+        const prompt=await rpc('prompts/get',{name,arguments:args});assert.ok(prompt.messages[0].content.text.length>0);
+      }
+      const compare = await rpc('prompts/get', {name:'certscore_compare_scans',arguments:{beforeScanId:scanId,afterScanId:scanId}});
+      assert.match(compare.messages[0].content.text,/do not start a new scan/);
+
       const {certScoreMcpToolContracts}=await import('@certscore/api-contracts');
       const advertised=await rpc('tools/list',{});
-      assert.equal(advertised.tools.length,12);
+      assert.equal(advertised.tools.length,13);
       const cases:Array<[string,Record<string,unknown>]>=[
         ['certscore_scan_site',{url:'https://ergoveritas.com/.well-known/certscore-canary/sentinels/broad-baseline.html',freshness:'latest',scanFrom:'eu_ie'}],
         ['certscore_get_scan',{scanId}],
@@ -56,6 +89,8 @@ test('local real OAuth token exchange, status, bundle, refresh and same MCP sess
           assert.equal(guidance?.tool,name,'response guidance must identify this tool');
           assert.equal(guidance?.version,'certscore.mcp-response-guidance.v1');
           assert.ok(guidance.nextAction?.instruction,'actionable guidance required');
+          assert.ok(guidance.purpose?.length > 20,'tool purpose guidance required');
+          console.info(JSON.stringify({responseOverheadTool:name,compactBytes:Buffer.byteLength(result.content.at(-1).text),fullMetadataBytes:Buffer.byteLength(JSON.stringify(guidance))}));
           if(name==='certscore_list_findings'){findingId=result.structuredContent.findings[0]?.id;assert.ok(result.structuredContent.findings.length<=5);}
           if(args.scanId)assert.equal(result.structuredContent.scanId,scanId);
           if(name==='certscore_explain_finding')assert.equal(result.structuredContent.id,findingId);

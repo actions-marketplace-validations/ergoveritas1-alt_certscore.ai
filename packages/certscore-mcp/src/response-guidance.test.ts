@@ -45,3 +45,41 @@ test('finding explanation text is bounded without changing retained structured e
   assert.equal(r.structuredContent, payload);
   assert.ok(r.content.every(item => item.type !== 'text' || item.text.length < 8000));
 });
+test('guidance carries canonical risk and actual quota without changing unknowns', () => {
+  const g = metadata(guide('certscore_scan_site', { riskLevel: 'monitor', quotaConsumed: false }));
+  assert.equal(g.risk, 'monitor'); assert.equal(g.quotaConsumed, false);
+  assert.equal(metadata(guide('certscore_scan_site', { quotaConsumed: true })).quotaConsumed, true);
+  assert.equal(metadata(guide('certscore_scan_site', { quotaConsumed: 'true' })).quotaConsumed, null);
+});
+test('nested no-go domain results never recommend the bundle workflow', () => {
+  const g = metadata(guide('certscore_get_latest_domain_scan', { scan: { scanId: 'abc', status: 'completed_limited', resultDisposition: 'no_go' } }));
+  assert.equal(g.nextAction.tool, null);
+});
+test('all thirteen tools carry a concrete purpose for tool selection', async () => {
+  const { certScoreMcpToolContracts } = await import('@certscore/api-contracts');
+  assert.equal(certScoreMcpToolContracts.length, 13);
+  for (const contract of certScoreMcpToolContracts) {
+    const g = metadata(guide(contract.name, { scanId: 'abc' }));
+    assert.ok(g.purpose?.length > 20, contract.name);
+  }
+});
+test('bundle guidance counts the returned nested inventory rows', () => {
+  assert.equal(metadata(guide('certscore_get_scan_bundle', { preConsentCookiesTrackers: { rows: [{}, {}] } })).returnedRows, 2);
+});
+
+
+test('follow-ups reference actual returned IDs and remain optional',()=>{
+ const g=metadata(guide('certscore_get_scan_bundle',{scanId:'abc',status:'completed',findings:[{id:'retained-finding'}]}));
+ assert.equal(g.optionalFollowUps[0].arguments.findingId,'retained-finding');
+ const empty=metadata(guide('certscore_get_scan_bundle',{scanId:'abc',status:'completed',findings:[]}));
+ assert.deepEqual(empty.optionalFollowUps,[]);
+ const active=metadata(guide('certscore_get_scan_status',{scanId:'abc',status:'running',findings:[{id:'not-final'}]}));
+ assert.deepEqual(active.optionalFollowUps,[]);
+});
+
+test('routine guidance text stays under 800 bytes while full metadata remains available',()=>{
+ const result=guide('certscore_get_scan_status',{scanId:'00000000-0000-4000-8000-000000000123',status:'running'});
+ const text=result.content.at(-1); assert.equal(text?.type,'text');
+ assert.ok(Buffer.byteLength(text!.text as string)<800);
+ assert.ok(metadata(result).purpose);
+});

@@ -6,6 +6,8 @@ import { getCurrentUser } from "../../../server/auth";
 import { bootstrapAppUserSession } from "../../../server/bootstrap-user";
 import { OAUTH_SCAN_CREATE_DAILY_LIMIT, OAUTH_SCAN_CREATE_HOURLY_LIMIT } from "../../../server/integrations/api-keys";
 import {
+  createAuthorizationCode,
+  hasReusableMcpOAuthConsent,
   getMcpOAuthClient,
   getMcpOAuthWorkspaceActivity,
   redirectUriAllowed,
@@ -102,6 +104,22 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
     );
   }
   const requestedScope = oauthScopeString(scopeResolution.approvedScopes);
+  // A changed client/workspace/scope set must go through the visible consent form.
+  // Hosts can explicitly ask to show consent again using prompt=consent.
+  if (!first(params.prompt)?.split(/\s+/).includes("consent") && await hasReusableMcpOAuthConsent({
+    clientId, organizationId: organization.id, ownerUserId: user.id,
+    scopes: scopeResolution.approvedScopes
+  })) {
+    const code = await createAuthorizationCode({
+      clientId, organizationId: organization.id, ownerUserId: user.id,
+      redirectUri, codeChallenge, scopes: scopeResolution.approvedScopes
+    });
+    const target = new URL(redirectUri);
+    target.searchParams.set("code", code);
+    target.searchParams.set("scope", requestedScope);
+    if (state) target.searchParams.set("state", state);
+    redirect(target.toString());
+  }
   const canCreateScans = scopeResolution.approvedScopes.includes(CERTSCORE_OAUTH_CREATE_SCOPE);
   const workspaceActivity = canCreateScans ? null : await getMcpOAuthWorkspaceActivity(organization.id);
   const hasWorkspaceScans = Boolean(workspaceActivity && (workspaceActivity.scanCount > 0 || workspaceActivity.domainCount > 0));
@@ -142,6 +160,7 @@ export default async function AuthorizePage({ searchParams }: AuthorizePageProps
             {canCreateScans ? (
               <div className="rounded border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
                 <p className="font-semibold">Ready to scan. No staff approval needed.</p>
+                <p className="mt-1">Connect once. Your agent can reconnect automatically while this access remains valid. New permissions require your consent.</p>
                 <p className="mt-1">
                   Create up to {OAUTH_SCAN_CREATE_HOURLY_LIMIT} new scans per hour and{" "}
                   {OAUTH_SCAN_CREATE_DAILY_LIMIT} per day for this workspace. Eligible recent-result reuse does not consume the allowance.

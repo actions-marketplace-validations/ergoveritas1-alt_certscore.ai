@@ -265,6 +265,36 @@ export function redirectUriAllowed(client: McpOAuthClient, redirectUri: string) 
   return client.redirectUris.includes(redirectUri);
 }
 
+/** Reuse only a live, already-consented grant; never combine scopes from different grants.
+ * Read the primary so a recently revoked grant cannot be reused from a stale replica.
+ */
+export async function hasReusableMcpOAuthConsent(input: {
+  clientId: string;
+  organizationId: string;
+  ownerUserId: string;
+  scopes: readonly string[];
+}) {
+  if (!input.scopes.length) return false;
+  const row = await queryOne<{ allowed: boolean }>(
+    `select true as allowed
+       from mcp_oauth_refresh_tokens tokens
+       join organizations org on org.id = tokens.organization_id
+       join organization_members member
+         on member.organization_id = tokens.organization_id
+        and member.user_id::text = tokens.owner_user_id
+      where tokens.client_id = $1
+        and tokens.organization_id = $2
+        and tokens.owner_user_id = $3
+        and tokens.revoked_at is null
+        and tokens.expires_at > timezone('utc', now())
+        and tokens.scope @> $4::text[]
+        and org.plan_status = 'active'
+      limit 1`,
+    [input.clientId, input.organizationId, input.ownerUserId, [...input.scopes]]
+  );
+  return row?.allowed === true;
+}
+
 export async function createAuthorizationCode(input: {
   clientId: string;
   codeChallenge: string;

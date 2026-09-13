@@ -1,10 +1,11 @@
+import { registerAdoptionFeatures, EXAMPLE_SCAN_ID } from "./adoption.js";
 import { withResponseGuidance } from "./response-guidance.js";
 import { randomUUID } from "node:crypto";
 import { captureMcpResponse, withResponseCapture } from "./response-capture.js";
 import type { McpResponseSummary } from "@website-signal-risk-scanner/shared";
 import { z } from "zod";
 import { captureMcpCallerInput, type McpCallerInput } from "@website-signal-risk-scanner/shared/dist/mcp-caller-input.js";
-import { CertScoreClient } from "@certscore/sdk";
+import { CertScoreClient, CertScoreError } from "@certscore/sdk";
 import { certScoreMcpToolContracts, isCanonicalScanId } from "@certscore/api-contracts";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ErrorCode, McpError, type RequestInfo } from "@modelcontextprotocol/sdk/types.js";
@@ -423,6 +424,8 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
         route: options.toolProfile === "light" ? "light" : options.grantedOAuthScopes ? "hosted_oauth" : options.anonymousSurface ? "anonymous" : "scoped_api_key",
         scopesGranted: options.grantedOAuthScopes ?? null,
         createAllowedByScope: options.grantedOAuthScopes ? options.grantedOAuthScopes.includes("scan:create") : null,
+        resources: options.toolProfile === "light" ? [] : ["certscore://connection", "certscore://project-instructions", "certscore://reconnect", "certscore://example-report"],
+        prompts: options.toolProfile === "light" ? [] : ["certscore_launch_review", "certscore_compare_scans", "certscore_remediation_checklist"],
         quotaRemaining: null,
         quotaNote: "Remaining allowance is not loaded at handshake. Scan creation enforces current workspace and requester limits; inspect quota errors rather than assuming a fresh allowance.",
         recommendedNextTool: options.grantedOAuthScopes && !options.grantedOAuthScopes.includes("scan:create") ? "certscore_get_latest_domain_scan" : "certscore_scan_site",
@@ -433,6 +436,27 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
       }
     })
   });
+  if (options.toolProfile !== "light") registerAdoptionFeatures(server,
+    async () => {
+      try {
+        return await clientForRequest({}).getConnectionStatus();
+      } catch (error) {
+        if (error instanceof CertScoreError && error.status === 401) return { authenticated: false, status: "reconnect_required", quota: null, nextAction: "Read certscore://reconnect and reconnect the existing Hosted OAuth connector. Do not share tokens." };
+        return { authenticated: null, status: "check_unavailable", quota: null, nextAction: "Retry the connection check. If your host reports expired or revoked access, read certscore://reconnect. Do not assume a failed check means quota is available." };
+      }
+    },
+    async () => {
+      try {
+        const exampleClient = clientForRequest({});
+        const [report, metadata] = await Promise.all([exampleClient.getScanPulse(EXAMPLE_SCAN_ID), exampleClient.getScanResource(EXAMPLE_SCAN_ID)]);
+        return { originalCompletedAt: metadata.completedAt ?? null, coverage: metadata.coverage, status: metadata.status, example: true, label: "Retained example, not a current scan of your website", scanId: EXAMPLE_SCAN_ID,
+          reportUrl: `https://certscore.ai/scan/${EXAMPLE_SCAN_ID}`,
+          report: JSON.stringify(report).length <= 30000 ? report : null,
+          note: "Use original timestamps and coverage from the report. If omitted here for size, open the report URL. No new scan was created." };
+      } catch {
+        return { example: true, available: false, scanId: EXAMPLE_SCAN_ID, nextAction: "The retained example is unavailable. Do not create a replacement scan automatically." };
+      }
+    });
   const sdkCreateToolError = (server as any).createToolError.bind(server) as (message: string) => ReturnType<typeof toInvalidArgumentsToolError>;
   (server as any).createToolError = (message: string) => message.includes("Input validation error:")
     ? toInvalidArgumentsToolError(message)
@@ -547,6 +571,11 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
     });
     registeredToolNames.add(name);
   };
+
+  registerTool("certscore_get_connection_status", toolContract("certscore_get_connection_status"), async (_input: unknown, extra: McpRequestExtra) => {
+    try { const status = await clientForRequest(extra).getConnectionStatus(); return toToolResult(status, JSON.stringify(status)); }
+    catch (error) { return toToolError(error); }
+  });
 
   registerTool(
     "certscore_scan_site",

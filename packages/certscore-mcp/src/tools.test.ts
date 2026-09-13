@@ -1637,7 +1637,7 @@ test("toToolError promotes typed creation quota details", () => {
   assert.deepEqual(payload.error?.creationRateLimit, creationRateLimit);
   assert.equal(payload.error?.retryAfterSeconds, 30);
   assert.match(payload.error?.recommendedNextAction ?? "", /No scan was created/i);
-  assert.match(payload.error?.recommendedNextAction ?? "", /contact support@certscore\.ai/i);
+  assert.match(payload.error?.recommendedNextAction ?? "", /certscore_get_latest_domain_scan/);
 });
 
 test("toToolError preserves the non-public target reason without exposing an address", () => {
@@ -1944,4 +1944,37 @@ test("bundle text reserves scan identity, risk, finding IDs and inventory counts
   assert.match(text,/storage_review/);
   assert.match(text,/total=2; returned=2/);
   assert.match(text,/https:\/\/certscore.ai\/scan\//);
+});
+
+
+test('creation quota recovery is self-serve and does not recommend reconnecting', () => {
+  const result = toToolError(new CertScoreError('Quota exhausted', {status:429, code:'rate_limited', responseBody:{error:{retryAfterSeconds:3600, creationRateLimit:{hourlyLimit:20}, recommendedNextAction:'Contact support for approval.'}}}), {scanCreation:true});
+  const text = result.content[0]; assert.equal(text.type, 'text');
+  const {error} = JSON.parse(text.text as string);
+  assert.equal(error.scanStarted, false);
+  assert.equal(error.quotaConsumed, false);
+  assert.equal(error.recovery.requiresReauthorization, false);
+  assert.equal(error.recovery.retryAfterSeconds, 3600);
+  assert.equal(error.alternativeTool, 'certscore_get_latest_domain_scan');
+  assert.doesNotMatch(error.recommendedNextAction, /support for approval/);
+});
+
+
+test("tiny report provides finding IDs and a read-only path to omitted descriptions", () => {
+  const text = pulseReportText({scanId: "scan_tiny", topFindings: [{id: "storage_review", label: "Storage review", criticality: "high", confidence: "good"}]});
+  assert.match(text, /findingId=storage_review/);
+  assert.match(text, /description and evidence detail are not included in this response tier/);
+  assert.match(text, /certscore_list_findings with scanId=scan_tiny/);
+  assert.match(text, /certscore_explain_finding/);
+  assert.doesNotMatch(text, /No compact description|evidence=unknown/);
+});
+
+test("bundle distinguishes byte-budget inventory omission from missing evidence", () => {
+  const text = scanBundleText({scanId: "scan_bounded", status: "completed", mcpMetadata: {omittedSections: ["preConsentCookiesTrackers"]}});
+  assert.match(text, /inventory: omitted to fit the response byte limit/);
+  assert.match(text, /certscore_get_preconsent_cookies_trackers with scanId=scan_bounded/);
+  assert.doesNotMatch(text, /inventory: total=unknown/);
+  const unavailable = scanBundleText({scanId: "scan_active", status: "running"});
+  assert.match(unavailable, /inventory: not included in this response/);
+  assert.doesNotMatch(unavailable, /omitted to fit/);
 });

@@ -24,8 +24,8 @@ test('real OAuth code exchange and refresh preserve consented scopes and reject 
       create table organizations(id uuid,plan text,plan_status text);
       create table organization_members(organization_id uuid,user_id uuid);
       create table mcp_oauth_scan_create_grants(grant_kind text,grantee_id text,revoked_at timestamptz);
-      create table mcp_oauth_authorization_codes(code_hash text primary key,client_id text,redirect_uri text,code_challenge text,code_challenge_method text,scope text[],organization_id uuid,owner_user_id uuid,expires_at timestamptz,consumed_at timestamptz);
-      create table mcp_oauth_refresh_tokens(token_hash text primary key,family_id text,client_id text,scope text[],organization_id uuid,owner_user_id uuid,expires_at timestamptz,revoked_at timestamptz,last_used_at timestamptz);
+      create table mcp_oauth_authorization_codes(code_hash text primary key,client_id text,redirect_uri text,code_challenge text,code_challenge_method text,scope text[],organization_id uuid,owner_user_id text,expires_at timestamptz,consumed_at timestamptz);
+      create table mcp_oauth_refresh_tokens(token_hash text primary key,family_id text,client_id text,scope text[],organization_id uuid,owner_user_id text,expires_at timestamptz,revoked_at timestamptz,last_used_at timestamptz);
     `);
     const oauth=await import('./mcp-oauth');
     db=await import('@website-signal-risk-scanner/db');
@@ -45,13 +45,32 @@ test('real OAuth code exchange and refresh preserve consented scopes and reject 
     assert.equal(await oauth.exchangeAuthorizationCode({...request,redirectUri:'http://localhost:8787/other'}),null);
     const grant=await oauth.exchangeAuthorizationCode(request);assert.ok(grant);
     assert.equal(await oauth.exchangeAuthorizationCode(request),null);
+    const consent = {...context, scopes: resolution.approvedScopes};
+    assert.equal(await oauth.hasReusableMcpOAuthConsent(consent), false, 'first connection requires consent');
     const refresh=await oauth.createRefreshToken({...context,scopes:grant.scope});
+    assert.equal(await oauth.hasReusableMcpOAuthConsent(consent), true, 'existing full grant reconnects');
+    assert.equal(await oauth.hasReusableMcpOAuthConsent({...consent, ownerUserId:randomUUID()}), false);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent({...consent, organizationId:randomUUID()}), false);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent({...consent, clientId:'another-client'}), false);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent({...consent, scopes:['unsupported:scope']}), false);
+    await admin.query("update organizations set plan_status='inactive' where id=$1",[org]);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent(consent), false);
+    await admin.query("update organizations set plan_status='active' where id=$1",[org]);
+    await admin.query('delete from organization_members where user_id=$1',[user]);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent(consent), false);
+    await admin.query('insert into organization_members values ($1,$2)',[org,user]);
     const rotated=await oauth.rotateRefreshToken(refresh);assert.ok(rotated);
     assert.deepEqual(rotated.row.scope,grant.scope);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent(consent),true,'rotation preserves consent');
     assert.equal(await oauth.rotateRefreshToken(refresh),null);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent(consent),false,'replay revokes the family and consent');
     const readOnly=await oauth.createRefreshToken({...context,scopes:['scan:read','mcp']});
     const readRotated=await oauth.rotateRefreshToken(readOnly);assert.ok(readRotated);
     assert.deepEqual(readRotated.row.scope,['scan:read','mcp']);
+    assert.equal(await oauth.hasReusableMcpOAuthConsent(consent),false,'read-only grants cannot silently acquire create');
+    assert.equal(await oauth.hasReusableMcpOAuthConsent({...consent,scopes:['scan:read','mcp']}),true);
+    await admin.query("update mcp_oauth_refresh_tokens set expires_at=now()-interval '1 second'");
+    assert.equal(await oauth.hasReusableMcpOAuthConsent({...consent,scopes:['scan:read','mcp']}),false,'expired grants require consent');
   } finally {
     if(db){await db.getReadPool().end();await db.getWritePool().end();}
     for(const [key,value] of Object.entries(old)){if(value===undefined)delete process.env[key];else process.env[key]=value;}

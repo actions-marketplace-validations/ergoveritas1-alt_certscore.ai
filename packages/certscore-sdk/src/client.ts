@@ -242,6 +242,11 @@ export class CertScoreClient {
   }
 
   /** Retrieve the API v2 scan resource for an eligible public scan. */
+  /** Read-only credential and workspace diagnostics; never creates a scan. */
+  async getConnectionStatus(): Promise<Record<string, unknown>> {
+    return this.fetchJson<Record<string, unknown>>("/api/v2/auth/check?diagnostics=1");
+  }
+
   async getScanResource(scanId: string, options: ApiV2RequestOptions = {}): Promise<ScanResource> {
     return this.fetchJson<ScanResource>(`/api/v2/scans/${encodeURIComponent(scanId)}`, options);
   }
