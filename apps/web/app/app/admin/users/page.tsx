@@ -40,6 +40,7 @@ const SORT_LABELS = {
   access: "Access level",
   activity: "Activity",
   assign: "Assign",
+  lastActivity: "Last activity",
   lastLogin: "Last login",
   lastScan: "Last scan",
   plan: "Plan",
@@ -47,7 +48,7 @@ const SORT_LABELS = {
 } as const;
 
 function sortHref(sortKey: keyof typeof SORT_LABELS, currentSort: keyof typeof SORT_LABELS, currentDirection: "asc" | "desc") {
-  const defaultDirection = sortKey === "activity" || sortKey === "lastLogin" || sortKey === "lastScan" ? "desc" : "asc";
+  const defaultDirection = sortKey === "lastActivity" || sortKey === "activity" || sortKey === "lastLogin" || sortKey === "lastScan" ? "desc" : "asc";
   const direction = sortKey === currentSort
     ? currentDirection === "asc" ? "desc" : "asc"
     : defaultDirection;
@@ -169,7 +170,7 @@ async function AdminUsersContent({ searchParams }: AdminUsersPageProps) {
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="user" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="lastLogin" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="lastScan" /></th>
-                <th className="whitespace-nowrap pb-2 pr-4">Last activity</th>
+                <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="lastActivity" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4">Last activity type</th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="activity" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="access" /></th>
