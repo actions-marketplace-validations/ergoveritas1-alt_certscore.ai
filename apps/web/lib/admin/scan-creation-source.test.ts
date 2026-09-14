@@ -7,6 +7,8 @@ import { scanCreationSource, scanCreatedViaSql, scanCreatorSql } from "./scan-cr
 test("creation channels use exact retained values, never requester identity", () => {
   assert.equal(scanCreationSource("homepage-anonymous"), "browser_homepage");
   assert.equal(scanCreationSource("manual-dashboard"), "browser_dashboard");
+  assert.equal(scanCreationSource("new-domain-overview"), "browser_dashboard");
+  assert.equal(scanCreationSource("marketing-full-scan"), "browser");
   assert.equal(scanCreationSource("mcp"), "mcp");
   assert.equal(scanCreationSource("mcp_light"), "mcp_light");
   assert.equal(scanCreationSource("mcp_authenticated"), "mcp_authenticated");

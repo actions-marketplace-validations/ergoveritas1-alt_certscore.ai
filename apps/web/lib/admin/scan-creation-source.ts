@@ -24,8 +24,8 @@ const CHANNELS: Record<Exclude<ScanCreationSource, "unknown">, readonly string[]
   mcp_authenticated: ["mcp_authenticated"],
   mcp: ["mcp", "mcp_anonymous"],
   browser_homepage: ["homepage-anonymous", "marketing-anonymous-full-scan"],
-  browser_dashboard: ["manual-dashboard"],
-  browser: ["browser"],
+  browser_dashboard: ["manual-dashboard", "new-domain-overview"],
+  browser: ["browser", "marketing-full-scan"],
   api: ["pulse_api", "sdk", "other_api", "gpt_action"],
   scheduled: ["scheduler", "scheduled-monitoring"],
   internal: ["corpus-import", "validation_ops"]
