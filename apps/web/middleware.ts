@@ -1,5 +1,7 @@
-import type { NextRequest } from "next/server";
+import type { NextFetchEvent, NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { isPublicDocumentRequest, PUBLIC_PAGE_TIMING_NAME } from "./lib/product-analytics/public-page-request";
+import { issuePublicPageToken } from "./server/product-analytics/public-page-token";
 
 const sessionCookieNames = new Set([
   "session_token",
@@ -17,7 +19,25 @@ function hasSessionCookie(request: NextRequest) {
   return request.cookies.getAll().some((cookie) => isRecognizedSessionCookieName(cookie.name));
 }
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event: NextFetchEvent) {
+  const pathname = request.nextUrl.pathname;
+  if (pathname !== "/app" && !pathname.startsWith("/app/")) {
+    const response = NextResponse.next();
+    if (process.env.CERTSCORE_PUBLIC_PAGE_REQUEST_LOGGING_ENABLED === "0"
+      || !isPublicDocumentRequest(request.method, pathname, request.headers)) return response;
+    try {
+      const { identity, token } = issuePublicPageToken(pathname, process.env.BETTER_AUTH_SECRET ?? "");
+      // Per-response metadata, never embedded in cached HTML or stored in cookies.
+      response.headers.append("Server-Timing", `${PUBLIC_PAGE_TIMING_NAME};desc="${token}"`);
+      response.headers.set("Cache-Control", "private, no-store, max-age=0");
+      event.waitUntil(import("./server/product-analytics/public-page-repository")
+        .then(({ persistPublicPageRequest }) => persistPublicPageRequest(identity, false, request.headers.get("user-agent") ?? ""))
+        .catch(() => { console.error(JSON.stringify({ event: "public_page_request.write_failed" })); }));
+    } catch {
+      console.error(JSON.stringify({ event: "public_page_request.configuration_failed" }));
+    }
+    return response;
+  }
   if (hasSessionCookie(request)) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-certscore-operational-event-id", crypto.randomUUID());
@@ -35,5 +55,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*"]
+  runtime: "nodejs",
+  matcher: ["/((?!api(?:/|$)|_next(?:/|$)|mcp/?$|\\.well-known(?:/|$)).*)"]
 };

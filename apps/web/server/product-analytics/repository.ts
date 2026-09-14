@@ -73,6 +73,10 @@ export async function persistProductAnalyticsEvent(payload: ProductAnalyticsPayl
     ]
   );
 
+  await pruneProductAnalyticsEvents();
+}
+
+export async function pruneProductAnalyticsEvents() {
   if (Date.now() - lastPrunedAt > 60 * 60 * 1_000) {
     lastPrunedAt = Date.now();
     await query(

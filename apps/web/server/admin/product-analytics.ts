@@ -1,4 +1,5 @@
 import "server-only";
+import { pageViewPredicateSql } from "../product-analytics/public-page-sql";
 import { activityTrafficSql, activityTrafficDefaultVisibilitySql } from "../../lib/admin/activity-provenance";
 
 import { unstable_cache } from "next/cache";
@@ -16,14 +17,14 @@ import {
 } from "../../lib/admin/admin-operational-snapshot";
 
 export type ProductAnalyticsPeriod = AdminOperationalSnapshotPeriod;
-export type ProductAnalyticsEventName = "page_viewed" | "navigation_clicked" | "action_clicked" | "form_started" | "form_submitted" | "form_succeeded" | "form_failed" | "scan_started" | "scan_completed" | "scan_viewed" | "report_viewed" | "scroll_depth_reached" | "session_engaged" | "web_vital_recorded" | "client_error" | "account_created" | "oauth_authorized" | "mcp_initialized" | "mcp_tools_listed" | "mcp_first_tool_invoked" | "mcp_scan_requested" | "analytics_opted_in" | "analytics_opted_out";
+export type ProductAnalyticsEventName = "page_requested" | "page_viewed" | "navigation_clicked" | "action_clicked" | "form_started" | "form_submitted" | "form_succeeded" | "form_failed" | "scan_started" | "scan_completed" | "scan_viewed" | "report_viewed" | "scroll_depth_reached" | "session_engaged" | "web_vital_recorded" | "client_error" | "account_created" | "oauth_authorized" | "mcp_initialized" | "mcp_tools_listed" | "mcp_first_tool_invoked" | "mcp_scan_requested" | "analytics_opted_in" | "analytics_opted_out";
 export type AdminEventName = ProductAnalyticsEventName | "scan_requested" | "api_request" | "mcp_tool_invoked" | "full_scan.started" | "full_scan.completed" | "preview_scan.started" | "preview_scan.completed" | "v2_lambda_result.received" | "v2_lambda_result.failed";
 export type ProductAnalyticsOutcome = "observed" | "started" | "submitted" | "success" | "failure" | "opted_in" | "opted_out";
 export const ADMIN_EVENT_ROUTES = ["Web", "API", "Pulse", "SDK", "MCP", "Other"] as const;
 export type AdminEventRoute = (typeof ADMIN_EVENT_ROUTES)[number];
 
 type Count = string | number | null | undefined;
-type SummaryRow = { actors: Count; authenticated: Count; errors: Count; events: Count; newest_at: string | null; p50_duration_ms: Count; p95_duration_ms: Count; page_views: Count; scans: Count; sessions: Count; opted_out: Count };
+type SummaryRow = { actors: Count; authenticated: Count; errors: Count; events: Count; newest_at: string | null; p50_duration_ms: Count; p95_duration_ms: Count; page_views: Count; page_requests: Count; scans: Count; sessions: Count; opted_out: Count };
 type ComparisonRow = { errors: Count; events: Count; p95_duration_ms: Count };
 type TrendRow = { bucket: string; bucket_start: string; events: Count; sessions: Count };
 type RouteRow = { normalized_route: string; events: Count; sessions: Count };
@@ -387,7 +388,8 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
               count(distinct session_id) filter (where session_id is not null) as sessions,
               count(distinct actor_id) filter (where actor_id is not null) as actors,
               count(*) filter (where is_authenticated) as authenticated,
-              count(*) filter (where event_name in ('page_viewed', 'scan_viewed', 'report_viewed')) as page_views,
+              count(*) filter (where ${pageViewPredicateSql()}) as page_views,
+              count(*) filter (where event_name = 'page_requested') as page_requests,
               count(distinct scan_id) filter (where scan_id is not null) as scans,
               count(*) filter (where event_name = 'client_error' or outcome = 'failure' or event_name ~* 'failed|error') as errors,
               count(*) filter (where event_name = 'analytics_opted_out') as opted_out,
@@ -470,7 +472,7 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
     label: config.label,
     metrics: {
       events: number(summary?.events), sessions: number(summary?.sessions), actors: number(summary?.actors),
-      authenticated: number(summary?.authenticated), pageViews: number(summary?.page_views), scans: number(summary?.scans),
+      authenticated: number(summary?.authenticated), pageViews: number(summary?.page_views), pageRequests: number(summary?.page_requests), scans: number(summary?.scans),
       errors: number(summary?.errors), optedOut: number(summary?.opted_out),
       p50DurationMs: summary?.p50_duration_ms === null || summary?.p50_duration_ms === undefined ? null : number(summary.p50_duration_ms),
       p95DurationMs: summary?.p95_duration_ms === null || summary?.p95_duration_ms === undefined ? null : number(summary.p95_duration_ms)
@@ -485,7 +487,7 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
 
 const loadCachedProductAnalyticsDashboard = unstable_cache(
   loadProductAnalyticsDashboardUncached,
-  ["admin-events-operational-snapshot-v1"],
+  ["admin-events-operational-snapshot-v2"],
   { revalidate: 30 },
 );
 
@@ -506,7 +508,12 @@ export async function listProductAnalyticsEventsPage(
   const config = ADMIN_OPERATIONAL_SNAPSHOT_CONFIG[period] ?? ADMIN_OPERATIONAL_SNAPSHOT_CONFIG["24h"];
   const values = unifiedEventQueryValues(config.interval);
   const clauses = ["true", ...visibilityClauses(includeInternal, excludeMacMiniScanBot)];
-  if (filters.eventName) { values.push(filters.eventName); clauses.push(`events.event_name = $${values.length}`); }
+  if (filters.eventName === "page_viewed") {
+    clauses.push(pageViewPredicateSql("events."));
+  } else if (filters.eventName) {
+    values.push(filters.eventName);
+    clauses.push(`events.event_name = $${values.length}`);
+  }
   if (filters.outcome) { values.push(filters.outcome); clauses.push(`events.outcome = $${values.length}`); }
   if (filters.route) { values.push(filters.route); clauses.push(`events.event_route = $${values.length}`); }
   const queryText = filters.query?.trim().slice(0, 160);

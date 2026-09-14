@@ -23,13 +23,18 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const periods = ["1h", "24h", "7d", "30d", "1y"] as const;
-const eventNames: AdminEventName[] = ["page_viewed", "navigation_clicked", "action_clicked", "form_started", "form_submitted", "form_succeeded", "form_failed", "scan_started", "scan_completed", "scan_viewed", "report_viewed", "scroll_depth_reached", "session_engaged", "web_vital_recorded", "client_error", "account_created", "oauth_authorized", "mcp_initialized", "mcp_tools_listed", "mcp_first_tool_invoked", "mcp_scan_requested", "analytics_opted_in", "analytics_opted_out", "scan_requested", "api_request", "mcp_tool_invoked", "full_scan.started", "full_scan.completed", "preview_scan.started", "preview_scan.completed", "v2_lambda_result.received", "v2_lambda_result.failed"];
+const eventNames: AdminEventName[] = ["page_requested", "page_viewed", "navigation_clicked", "action_clicked", "form_started", "form_submitted", "form_succeeded", "form_failed", "scan_started", "scan_completed", "scan_viewed", "report_viewed", "scroll_depth_reached", "session_engaged", "web_vital_recorded", "client_error", "account_created", "oauth_authorized", "mcp_initialized", "mcp_tools_listed", "mcp_first_tool_invoked", "mcp_scan_requested", "analytics_opted_in", "analytics_opted_out", "scan_requested", "api_request", "mcp_tool_invoked", "full_scan.started", "full_scan.completed", "preview_scan.started", "preview_scan.completed", "v2_lambda_result.received", "v2_lambda_result.failed"];
 const outcomes: ProductAnalyticsOutcome[] = ["observed", "started", "submitted", "success", "failure", "opted_in", "opted_out"];
 
 type Props = { searchParams?: Promise<{ audienceFilters?: string; event?: string; excludeInternal?: string; excludeMacMiniScanBot?: string; includeCanary?: string; outcome?: string; page?: string; perPage?: string; period?: string; q?: string; route?: string; scanBotFilter?: string; snapshot?: string; traffic?: string }> };
 
 function count(value: number) { return new Intl.NumberFormat("en-US").format(value); }
-function label(value: string) { return value.replace(/[_.]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
+function label(value: string) {
+  if (value === "public_page_browser_confirmed") return "Browser-confirmed view";
+  if (value === "public_page_request") return "Not browser-confirmed";
+  if (value === "initial_browser_view_unlinked") return "Browser view · request not linked";
+  return value.replace(/[_.]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 function option<T extends string>(value: string | undefined, values: readonly T[]) { return values.includes(value as T) ? value as T : null; }
 function eventAge(value: string) {
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1_000));
@@ -94,6 +99,7 @@ export default async function ProductAnalyticsPage({ searchParams }: Props) {
   const rates = [
     { label: "Authenticated", value: percentage(dashboard.metrics.events > 0 ? dashboard.metrics.authenticated / dashboard.metrics.events : null) },
     { label: "Errors", value: percentage(dashboard.metrics.events > 0 ? dashboard.metrics.errors / dashboard.metrics.events : null), anomaly: errorDelta.anomaly, href: snapshotHref({ outcome: "failure" }) },
+    { label: "Public page requests", value: count(dashboard.metrics.pageRequests), href: snapshotHref({ event: "page_requested" }) },
     { label: "Page views", value: count(dashboard.metrics.pageViews), href: snapshotHref({ event: "page_viewed" }) },
     { label: "Opt-outs", value: count(dashboard.metrics.optedOut), href: snapshotHref({ event: "analytics_opted_out" }) },
     { label: "Events / session", value: dashboard.metrics.sessions > 0 ? (dashboard.metrics.events / dashboard.metrics.sessions).toFixed(2) : "—" },
@@ -105,7 +111,7 @@ export default async function ProductAnalyticsPage({ searchParams }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">First-party operational telemetry</p><h2 className="text-2xl font-semibold tracking-tight text-slate-950">Events</h2><p className="mt-1 text-sm text-slate-500">Privacy-bounded activity across Web, API, Pulse, SDK, MCP, and scan lifecycle routes.</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">First-party operational telemetry</p><h2 className="text-2xl font-semibold tracking-tight text-slate-950">Events</h2><p className="mt-1 text-sm text-slate-500">Privacy-bounded activity across Web, API, Pulse, SDK, MCP, and scan lifecycle routes. Public page requests are recorded without JavaScript; browser confirmation updates the same request. A request alone does not establish a rendered view.</p></div>
         <AdminTrafficFilters basePath="/app/admin/analytics" scope={trafficScope} searchParams={resolved} />
       </div>
 

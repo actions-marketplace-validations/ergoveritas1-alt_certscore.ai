@@ -1,4 +1,5 @@
 export const PRODUCT_ANALYTICS_EVENT_NAMES = [
+  "page_requested",
   "page_viewed",
   "navigation_clicked",
   "action_clicked",
@@ -29,6 +30,7 @@ export type ProductAnalyticsCategory = "navigation" | "interaction" | "form" | "
 export type ProductAnalyticsOutcome = "observed" | "started" | "submitted" | "success" | "failure" | "opted_in" | "opted_out";
 
 export type ProductAnalyticsPayload = {
+  pageRequestToken?: string;
   eventId?: string;
   actorId?: string;
   campaignMedium?: string;
@@ -117,6 +119,7 @@ export function parseProductAnalyticsPayload(value: unknown): ProductAnalyticsPa
   const uuid = (candidate: unknown) => typeof candidate === "string" && UUID_PATTERN.test(candidate) ? candidate : undefined;
   const boundedNumber = (candidate: unknown, max: number) => typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0 && candidate <= max ? candidate : undefined;
   return {
+    pageRequestToken: typeof input.pageRequestToken === "string" && input.pageRequestToken.length <= 160 ? input.pageRequestToken : undefined,
     eventId: uuid(input.eventId),
     eventName: input.eventName as ProductAnalyticsEventName,
     category: input.category as ProductAnalyticsCategory,

@@ -3,6 +3,33 @@ import test from "node:test";
 import { trackProductEvent } from "./client";
 import { ANALYTICS_CONSENT_STORAGE_KEY } from "../analytics/consent";
 
+test("public request confirmation never creates browser identity regardless of consent", () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const choice of [null, "granted", "denied"]) {
+      let body: Record<string, unknown> | undefined;
+      const forbiddenStorage = () => { throw new Error("Public page confirmation must not access tracking storage"); };
+      Object.defineProperty(globalThis, "window", { configurable: true, value: {
+        localStorage: { getItem: (key: string) => key === ANALYTICS_CONSENT_STORAGE_KEY ? choice : forbiddenStorage(), setItem: forbiddenStorage },
+        sessionStorage: { getItem: forbiddenStorage, setItem: forbiddenStorage },
+        location: { pathname: "/developers", search: "?utm_source=test" }, innerWidth: 1200,
+      } });
+      Object.defineProperty(globalThis, "navigator", { configurable: true, value: { language: "en" } });
+      globalThis.fetch = async (_url, init) => { body = JSON.parse(String(init?.body)); return new Response(null, { status: 201 }); };
+      trackProductEvent({ eventName: "page_viewed", category: "navigation", feature: "route", outcome: "observed", pageRequestToken: "server-issued-proof" });
+      assert.ok(body);
+      assert.equal(body.pageRequestToken, "server-issued-proof");
+      for (const key of ["actorId", "sessionId", "campaignSource", "scanId"]) assert.equal(body[key], undefined);
+    }
+  } finally {
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow); else Reflect.deleteProperty(globalThis, "window");
+    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator); else Reflect.deleteProperty(globalThis, "navigator");
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("declined analytics still delivers scan IDs for authenticated app activity without browser tracking IDs", async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");

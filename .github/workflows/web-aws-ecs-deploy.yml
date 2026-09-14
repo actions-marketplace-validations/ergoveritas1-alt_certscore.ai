@@ -180,6 +180,12 @@ jobs:
       - name: Test canonical scan no-go reports
         run: pnpm test:scan-no-go
 
+      - name: Test public page request logging
+        run: |
+          node --import tsx --test \
+            apps/web/lib/product-analytics/*.test.ts \
+            apps/web/middleware.test.ts
+
       - name: Typecheck web
         run: pnpm --filter @website-signal-risk-scanner/web typecheck
 
