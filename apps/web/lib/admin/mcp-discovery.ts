@@ -1,4 +1,4 @@
-import { MCP_REQUEST_VALIDATION_CODES } from "./mcp-request-outcome";
+import { MCP_REQUEST_VALIDATION_CODES } from "./mcp-request-validation";
 const validationCodesSql = MCP_REQUEST_VALIDATION_CODES.map(code => `'${code}'`).join(",");
 export const MCP_DISCOVERY_PERIODS = { "1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720 } as const;
 export type McpDiscoveryPeriod = keyof typeof MCP_DISCOVERY_PERIODS;

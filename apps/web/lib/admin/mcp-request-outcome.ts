@@ -1,13 +1,7 @@
 import { SCAN_NO_GO_REASON_CODES, SCAN_NO_GO_REASON_PRESENTATIONS } from "@website-signal-risk-scanner/shared";
+import { MCP_REQUEST_VALIDATION_LABELS as requestErrorLabels } from "./mcp-request-validation";
+export { MCP_REQUEST_VALIDATION_CODES } from "./mcp-request-validation";
 /** Request validation is separate from execution failure, including historical events. */
-const requestErrorLabels: Record<string, string> = {
-  invalid_url: "Invalid target URL",
-  invalid_scan_id: "Invalid scan ID",
-  invalid_arguments: "Invalid arguments",
-  unknown_tool: "Unknown tool",
-};
-
-export const MCP_REQUEST_VALIDATION_CODES = Object.keys(requestErrorLabels);
 type RequestOutcome = { outcome: string; error_code: string | null; scan_status?: string | null };
 
 export function mcpRequestValidationLabel(event: RequestOutcome): string | null {

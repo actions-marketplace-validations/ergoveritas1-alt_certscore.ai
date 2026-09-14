@@ -2,7 +2,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import pg from "pg";
+import { build } from "esbuild";
 import { discoveryBehavior, discoveryDiagnostic, mcpClientHref, mcpDiscoverySql, type McpDiscoveryClient } from "./mcp-discovery";
+
+test("discovery navigation helpers bundle for browsers without Node-only dependencies", async () => {
+  const result = await build({
+    entryPoints: [new URL("./mcp-discovery.ts", import.meta.url).pathname],
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  assert.equal(result.errors.length, 0);
+  assert.ok(result.outputFiles[0]?.text.includes("Catalogue only"));
+});
 
 test("discovery-only diagnosis distinguishes telemetry gaps from absent execution", () => {
   assert.match(discoveryDiagnostic({tool_calls:0,catalog_reads:4,initializations:4,missing_session_events:8}),/Linkage limited/);
