@@ -42,6 +42,10 @@ export type AdminUserListItem = {
   lastMcpOAuthAuthorizedAt: string | null;
   lastMcpToolInvocationAt: string | null;
   lastMcpToolsListedAt: string | null;
+  lastProductEventAt: string | null;
+  lastProductEventFeature: string | null;
+  lastProductEventName: string | null;
+  lastProductEventOutcome: string | null;
   lastScanAt: string | null;
   lastScanRequestedAt: string | null;
   membershipRole: string | null;
@@ -164,6 +168,10 @@ export async function listAdminUsers(): Promise<AdminUserListItem[]> {
       lastMcpOAuthAuthorizedAt: null,
       lastMcpToolInvocationAt: null,
       lastMcpToolsListedAt: null,
+      lastProductEventAt: null,
+      lastProductEventFeature: null,
+      lastProductEventName: null,
+      lastProductEventOutcome: null,
       organizationId: organization?.id ?? null,
       organizationName: organization?.name ?? null,
       organizationSlug: organization?.slug ?? null,
@@ -223,6 +231,10 @@ function mapAdminUserOverviewRow(
     lastMcpOAuthAuthorizedAt: mcpActivation?.last_oauth_authorized_at ?? null,
     lastMcpToolInvocationAt: mcpUsage?.last_tool_invocation_at ?? null,
     lastMcpToolsListedAt: mcpActivation?.last_mcp_tools_listed_at ?? null,
+    lastProductEventAt: row.last_product_event_at,
+    lastProductEventFeature: row.last_product_event_feature,
+    lastProductEventName: row.last_product_event_name,
+    lastProductEventOutcome: row.last_product_event_outcome,
     organizationId: row.organization_id,
     organizationName: row.organization_name,
     organizationSlug: row.organization_slug,

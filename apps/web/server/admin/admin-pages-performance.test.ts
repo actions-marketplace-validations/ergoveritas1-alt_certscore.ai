@@ -27,12 +27,14 @@ test('Users preserves submitted/claimed/request counts and sorting with grouped 
       create temp table scans(domain_id uuid, submitted_by_user_id uuid, claimed_by_user_id uuid, created_at timestamptz, completed_at timestamptz);
       create temp table scan_requests(requested_by jsonb, requested_at timestamptz);
       create temp table pulse_requests(requested_by jsonb, requested_at timestamptz);
+      create temp table product_analytics_events(event_id text, user_id uuid, occurred_at timestamptz, event_name text, feature text, outcome text);
       insert into users select ('00000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid, chr(96+n)||'@example.test',null,'password',now(),now() from generate_series(1,3) n;
       insert into scans select id,id,id,'2026-09-01','2026-09-01' from users where email='a@example.test';
       insert into scans select b.id,a.id,b.id,'2026-09-02',null from users a,users b where a.email='a@example.test' and b.email='b@example.test';
       insert into scans select id,null,id,'2026-09-03','2026-09-03' from users where email='a@example.test';
       insert into scan_requests select jsonb_build_object('userId',id),'2026-09-04' from users where email='a@example.test';
       insert into pulse_requests select jsonb_build_object('userId',id),'2026-09-05' from users where email='a@example.test';
+      insert into product_analytics_events select 'event-a',id,'2026-09-07','mcp_tools_listed','mcp:claude','success' from users where email='a@example.test';
       insert into better_auth_users values ('login-a','a@example.test','admin');
       insert into better_auth_sessions values ('login-a','2026-09-06');`);
     const source = repository.slice(repository.indexOf('export async function loadAdminUsersPageData('));

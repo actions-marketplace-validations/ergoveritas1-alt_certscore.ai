@@ -1179,6 +1179,10 @@ export type AdminUserOverviewRow = AdminUserRow & {
   completed_scans: number;
   domain_count: number;
   last_mcp_connector_at?: string | null;
+  last_product_event_at: string | null;
+  last_product_event_feature: string | null;
+  last_product_event_name: string | null;
+  last_product_event_outcome: string | null;
   last_completed_scan_at: string | null;
   last_associated_scan_at: string | null;
   last_scan_at: string | null;
@@ -2104,6 +2108,17 @@ export async function loadAdminUsersPageData(
            union all
            select requested_by ->> 'userId', requested_at from pulse_requests
          ) requests where user_id is not null group by user_id
+       ), latest_product_activity as (
+         select distinct on (events.user_id)
+                events.user_id,
+                events.occurred_at,
+                events.event_name,
+                events.feature,
+                events.outcome
+           from product_analytics_events events
+           join selected_users on selected_users.id = events.user_id
+          where events.occurred_at >= timezone('utc', now()) - interval '90 days'
+          order by events.user_id, events.occurred_at desc, events.event_id desc
        )
        select selected_users.id,
               selected_users.email,
@@ -2116,6 +2131,10 @@ export async function loadAdminUsersPageData(
               coalesce(connector_activity.connector_names, array[]::text[]) as mcp_connector_names,
               coalesce(connector_activity.active_connector_count, 0)::int as active_mcp_connector_count,
               connector_activity.last_connector_at as last_mcp_connector_at,
+              latest_product_activity.occurred_at as last_product_event_at,
+              latest_product_activity.event_name as last_product_event_name,
+              latest_product_activity.feature as last_product_event_feature,
+              latest_product_activity.outcome as last_product_event_outcome,
               selected_memberships.organization_id,
               selected_memberships.role as membership_role,
               organizations.name as organization_name,
@@ -2139,6 +2158,7 @@ export async function loadAdminUsersPageData(
          left join user_activity on user_activity.user_id = selected_users.id
          left join associated_activity on associated_activity.user_id = selected_users.id
          left join request_activity on request_activity.user_id = selected_users.id::text
+         left join latest_product_activity on latest_product_activity.user_id = selected_users.id
         order by ${getAdminUsersOrderBy(sortKey, direction)}
         limit $1 offset $2`,
       [normalizedLimit, normalizedOffset],

@@ -47,7 +47,10 @@ const SORT_LABELS = {
 } as const;
 
 function sortHref(sortKey: keyof typeof SORT_LABELS, currentSort: keyof typeof SORT_LABELS, currentDirection: "asc" | "desc") {
-  const direction = sortKey === currentSort && currentDirection === "asc" ? "desc" : "asc";
+  const defaultDirection = sortKey === "activity" || sortKey === "lastLogin" || sortKey === "lastScan" ? "desc" : "asc";
+  const direction = sortKey === currentSort
+    ? currentDirection === "asc" ? "desc" : "asc"
+    : defaultDirection;
   return `/app/admin/users?${new URLSearchParams({ dir: direction, sort: sortKey }).toString()}`;
 }
 
@@ -58,6 +61,21 @@ function occurredAtOrAfter(value: string | null, boundary: string | null) {
 
 function activationRate(value: number, total: number) {
   return total > 0 ? `${Math.round((value / total) * 100)}%` : "—";
+}
+
+function formatActivityLabel(value: string | null) {
+  if (!value) return "Activity recorded";
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function activityAge(value: string) {
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1_000));
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
+  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
+  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`;
+  return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
 }
 
 function SortHeader({
@@ -172,6 +190,8 @@ async function AdminUsersContent({ searchParams }: AdminUsersPageProps) {
                 const oauthAuthorizedAt = user.lastMcpOAuthAuthorizedAt ?? user.lastMcpConnectorAt;
                 const initializedAfterAuthorization = occurredAtOrAfter(user.lastMcpInitializedAt, user.lastMcpOAuthAuthorizedAt);
                 const toolsListedAfterAuthorization = occurredAtOrAfter(user.lastMcpToolsListedAt, user.lastMcpOAuthAuthorizedAt);
+                const connectorTitle = user.mcpConnectorNames.join(", ");
+                const mcpReady = initializedAfterAuthorization && toolsListedAfterAuthorization;
                 return (
                   <tr key={user.id}>
                   <td className="py-2.5 pr-4 align-top">
@@ -200,25 +220,30 @@ async function AdminUsersContent({ searchParams }: AdminUsersPageProps) {
                   <td className="whitespace-nowrap py-2.5 pr-4 align-top text-sm text-slate-600">
                     {formatAdminCompactDateTime(user.lastScanAt)}
                   </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4 align-top text-sm text-slate-600">
-                    <p>{user.domainCount} domains <span className="text-slate-300">·</span> {user.totalScans} scans</p>
+                  <td className="w-[22rem] min-w-[18rem] max-w-[22rem] py-2.5 pr-4 align-top text-sm text-slate-600">
+                    <p className="truncate">{user.domainCount} domains <span className="text-slate-300">·</span> {user.totalScans} scans</p>
+                    {user.lastProductEventAt ? (
+                      <p
+                        className="mt-1 truncate text-xs"
+                        title={`${formatActivityLabel(user.lastProductEventName)} · ${formatActivityLabel(user.lastProductEventFeature)} · ${formatActivityLabel(user.lastProductEventOutcome)} · ${formatAdminCompactDateTime(user.lastProductEventAt)}`}
+                      >
+                        <Link className="font-medium text-sky-700 hover:text-sky-900" href={`/app/admin/users/${user.id}/activity`}>
+                          Latest: {formatActivityLabel(user.lastProductEventName)}
+                        </Link>
+                        {user.lastProductEventFeature ? <> <span className="text-slate-300">·</span> {formatActivityLabel(user.lastProductEventFeature)}</> : null}
+                        <span className="text-slate-300"> ·</span> {activityAge(user.lastProductEventAt)}
+                      </p>
+                    ) : null}
                     {oauthAuthorizedAt ? (
-                      <>
-                        <p className="mt-1 text-xs text-violet-700" title={`Last OAuth authorization activity ${formatAdminCompactDateTime(oauthAuthorizedAt)}`}>
-                          {user.mcpConnectorNames.join(", ") || "MCP"} {user.activeMcpConnectorCount > 0 ? "authorized" : user.lastMcpOAuthAuthorizedAt ? "approved" : "authorization ended"} <span className="text-violet-300">·</span> OAuth {formatAdminCompactDateTime(oauthAuthorizedAt)}
-                        </p>
-                        {user.lastMcpOAuthAuthorizedAt ? (
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            Activation: {initializedAfterAuthorization ? "MCP initialized" : "awaiting initialization"} <span className="text-slate-300">·</span> {toolsListedAfterAuthorization ? "Tools listed" : "awaiting tool discovery"}
-                          </p>
-                        ) : null}
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          MCP usage (90d): {user.mcpToolInvocationCount === null
+                      <p
+                        className="mt-0.5 truncate text-xs text-violet-700"
+                        title={`${connectorTitle || "MCP"} · OAuth ${formatAdminCompactDateTime(oauthAuthorizedAt)} · ${mcpReady ? "Ready" : "Setup incomplete"}`}
+                      >
+                        MCP: {user.activeMcpConnectorCount} active {user.activeMcpConnectorCount === 1 ? "connection" : "connections"} <span className="text-violet-300">·</span> {mcpReady ? "ready" : "setup incomplete"} <span className="text-violet-300">·</span> {user.mcpToolInvocationCount === null
                             ? "unavailable"
-                            : `${user.mcpToolInvocationCount} tool ${user.mcpToolInvocationCount === 1 ? "call" : "calls"}`}
-                          {user.lastMcpToolInvocationAt ? <> <span className="text-slate-300">·</span> Last used {formatAdminCompactDateTime(user.lastMcpToolInvocationAt)}</> : null}
-                        </p>
-                      </>
+                            : `${user.mcpToolInvocationCount} ${user.mcpToolInvocationCount === 1 ? "call" : "calls"} / 90d`}
+                        {user.lastMcpToolInvocationAt ? <> <span className="text-violet-300">·</span> last {formatAdminCompactDateTime(user.lastMcpToolInvocationAt)}</> : null}
+                      </p>
                     ) : null}
                   </td>
                   <td className="whitespace-nowrap py-2.5 pr-4 align-top text-slate-600">

@@ -3,7 +3,7 @@ export type AdminUsersSortDirection = "asc" | "desc";
 
 const ADMIN_USERS_SORT_EXPRESSIONS: Record<AdminUsersSortKey, string> = {
   access: "coalesce(selected_memberships.role, login_activity.account_role, 'user')",
-  activity: "coalesce(user_activity.total_scans, 0)",
+  activity: "greatest(latest_product_activity.occurred_at, request_activity.last_scan_requested_at, associated_activity.last_scan_at, connector_activity.last_connector_at)",
   assign: "organizations.name",
   lastLogin: "login_activity.last_login_at",
   lastScan: "greatest(request_activity.last_scan_requested_at, associated_activity.last_scan_at)",

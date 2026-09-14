@@ -548,6 +548,10 @@ test("admin users paginate in SQL instead of loading the complete account histor
   assert.match(repositorySource, /limit \$1 offset \$2/);
   assert.match(repositorySource, /user_activity\.user_id = selected_users\.id/);
   assert.match(sortSource, /lastScan: "greatest\(request_activity\.last_scan_requested_at, associated_activity\.last_scan_at\)"/);
+  assert.match(sortSource, /activity: "greatest\(latest_product_activity\.occurred_at,/);
+  assert.match(repositorySource, /latest_product_activity as/);
+  assert.match(repositorySource, /from product_analytics_events events/);
+  assert.match(repositorySource, /events\.occurred_at >= timezone\('utc', now\(\)\) - interval '90 days'/);
   assert.match(repositorySource, /from mcp_oauth_refresh_tokens tokens/);
   assert.match(repositorySource, /active_mcp_connector_count/);
   assert.match(repositorySource, /from public\.mcp_tool_invocation_events/);
@@ -560,12 +564,12 @@ test("admin users paginate in SQL instead of loading the complete account histor
   assert.match(pageSource, /Claude activation funnel/);
   assert.match(pageSource, /within 24h/);
   assert.match(pageSource, /within 1h/);
-  assert.match(pageSource, /activeMcpConnectorCount > 0 \? "authorized" : user\.lastMcpOAuthAuthorizedAt \? "approved" : "authorization ended"/);
   assert.match(pageSource, /lastMcpOAuthAuthorizedAt \?\? user\.lastMcpConnectorAt/);
-  assert.match(pageSource, /Activation:/);
-  assert.match(pageSource, /awaiting initialization/);
-  assert.match(pageSource, /awaiting tool discovery/);
-  assert.match(pageSource, /MCP usage \(90d\):/);
+  assert.match(pageSource, /Latest:/);
+  assert.match(pageSource, /sortKey === "activity" \|\| sortKey === "lastLogin" \|\| sortKey === "lastScan" \? "desc" : "asc"/);
+  assert.match(pageSource, /active.*connection/);
+  assert.match(pageSource, /calls.*\/ 90d/);
+  assert.match(pageSource, /max-w-\[22rem\]/);
   assert.match(pageSource, /lastMcpToolInvocationAt/);
 });
 
