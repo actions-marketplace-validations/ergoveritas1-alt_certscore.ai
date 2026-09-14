@@ -1,6 +1,6 @@
 # Admin activity journeys and audiences
 
-Local implementation; no deployment or production migration performed.
+The ingestion projection was deployed with migration 0200. Visibility is a separate read policy.
 
 Migration 0200 adds ingestion-time `activity_traffic` v1 to product events,
 MCP activation/invocation events, scan requests, Pulse requests and scans.
@@ -16,9 +16,14 @@ from browser UUIDs. Admin Events can therefore identify MCP lifecycle events
 and correlate them with tool calls without recording raw sessions or chats.
 Unlinked/legacy events remain explicitly unlinked.
 
-External-only Admin Events, MCP and Scans require persisted external
-classification, in addition to existing exclusions. Include all traffic exposes
-unknown historical records. No backfill based on guesses is authorized.
+The default Admin Events, MCP and Scans view excludes known internal/QA and
+automation activity while retaining unknown and historical records. It uses
+one shared exclusion predicate plus the existing ownership/canary exclusions;
+tables, summaries, charts, discovery and funnel queries share that policy.
+The legacy `traffic=external` URL remains accepted but is labelled "Exclude
+known internal / QA"; visibility does not assert verified external ownership.
+Include all traffic also exposes internal activity. No guessed backfill or
+change to retained classifications is authorized.
 
 Discovery diagnoses missing linkage separately from discovery-only activity.
 The mocked authenticated Claude protocol regression covers listing, executing

@@ -1,5 +1,5 @@
 import "server-only";
-import { activityTrafficSql } from "../../lib/admin/activity-provenance";
+import { activityTrafficSql, activityTrafficDefaultVisibilitySql } from "../../lib/admin/activity-provenance";
 
 import { unstable_cache } from "next/cache";
 import { query, queryOne } from "@website-signal-risk-scanner/db";
@@ -370,7 +370,7 @@ function unifiedEventQueryValues(interval: string): unknown[] {
 
 function visibilityClauses(includeInternal: boolean, excludeMacMiniScanBot: boolean) {
   const clauses: string[] = [];
-  if (!includeInternal) clauses.push("events.is_staff = false and events.traffic_class = 'external'");
+  if (!includeInternal) clauses.push(`events.is_staff = false and ${activityTrafficDefaultVisibilitySql("events.traffic_class")}`);
   if (excludeMacMiniScanBot) clauses.push("events.is_mac_mini_scan_bot = false");
   return clauses;
 }

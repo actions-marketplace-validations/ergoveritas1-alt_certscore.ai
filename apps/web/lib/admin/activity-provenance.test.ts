@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import pg from "pg";
-import { activityTrafficLabel, activityTrafficSql } from "./activity-provenance";
+import { activityTrafficLabel, activityTrafficSql, activityTrafficDefaultVisibilitySql } from "./activity-provenance";
+import { adminTrafficScopeLabel, resolveAdminTrafficScope } from "./admin-traffic-scope";
 
 test("audience labels never promote absent or caller-declared provenance", () => {
   assert.equal(activityTrafficLabel(undefined), "Unknown audience");
@@ -21,6 +22,41 @@ test("provenance SQL accepts canonical growth-cohort aliases while rejecting SQL
 });
 
 const databaseUrl = process.env.MCP_DISCOVERY_TEST_DATABASE_URL;
+test("default and legacy URLs describe exclusions rather than verified external ownership", () => {
+  assert.equal(resolveAdminTrafficScope({}), "external");
+  assert.equal(resolveAdminTrafficScope({traffic:"external"}), "external");
+  assert.equal(adminTrafficScopeLabel("external"), "Exclude known internal / QA");
+  assert.equal(activityTrafficLabel("unknown"), "Unknown audience");
+});
+
+test("all affected repositories use the shared exclusion rule instead of requiring external classification", () => {
+  for (const file of ["repository.ts", "product-analytics.ts", "mcp-telemetry.ts"]) {
+    const source = readFileSync(`apps/web/server/admin/${file}`, "utf8");
+    assert.match(source, /activityTrafficDefaultVisibilitySql/);
+    assert.doesNotMatch(source, /(?:traffic_class|trafficClass[^\n]*|activityTrafficSql\([^\n]*)\s*=\s*'external'/);
+  }
+});
+
+test("SQL keeps null, historical and anonymous classifications visible and excludes known internal activity", {skip: !databaseUrl}, async () => {
+  assert.ok(["localhost","127.0.0.1","[::1]"].includes(new URL(databaseUrl!).hostname));
+  const db = new pg.Client({connectionString:databaseUrl});
+  await db.connect();
+  try {
+    const result = await db.query(`select label from (values
+      ('legacy', null::text), ('anonymous', 'unknown'), ('customer', 'external'),
+      ('staff', 'internal'), ('daemon', 'automation')
+    ) events(label, traffic_class) where ${activityTrafficDefaultVisibilitySql("events.traffic_class")} order by label`);
+    assert.deepEqual(result.rows.map(row => row.label), ["anonymous", "customer", "legacy"]);
+    for (const alias of ["events", "activation", "repeat_7", "repeat_30"]) {
+      const rows = await db.query(`select count(*)::int as count from (values
+        (null::jsonb), ('{"class":"unknown","basis":"legacy_unclassified"}'::jsonb),
+        ('{"class":"external"}'::jsonb), ('{"class":"internal"}'::jsonb), ('{"class":"automation"}'::jsonb)
+      ) ${alias}(activity_traffic) where ${activityTrafficDefaultVisibilitySql(activityTrafficSql(alias))}`);
+      assert.equal(rows.rows[0].count, 3);
+    }
+  } finally { await db.end(); }
+});
+
 test("ingestion persists versioned traffic and preserves opaque MCP session linkage", { skip: !databaseUrl }, async () => {
   assert.ok(["localhost","127.0.0.1","[::1]"].includes(new URL(databaseUrl!).hostname));
   const db = new pg.Client({ connectionString: databaseUrl }); await db.connect();

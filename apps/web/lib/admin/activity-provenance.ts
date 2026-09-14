@@ -6,3 +6,8 @@ export function activityTrafficSql(alias: string) {
 export function activityTrafficLabel(value: unknown) {
   return value === "external" ? "External" : value === "internal" ? "Internal / QA" : value === "automation" ? "Automation" : "Unknown audience";
 }
+
+/** Repository-owned SQL expressions only. Unknown is visible, never relabelled external. */
+export function activityTrafficDefaultVisibilitySql(classExpression: string) {
+  return `coalesce(${classExpression}, 'unknown') not in ('internal', 'automation')`;
+}

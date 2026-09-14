@@ -1,6 +1,7 @@
 "use server";
 
 import { loadScanTrafficClassification } from "./scan-traffic-classification";
+import { activityTrafficDefaultVisibilitySql } from "../../lib/admin/activity-provenance";
 import { query, queryOne } from "@website-signal-risk-scanner/db";
 import { scanCreatedViaSql, scanCreatorSql, scanCreationSourceSql, type ScanCreationAttribution, type ScanCreationSource } from "../../lib/admin/scan-creation-source";
 import { SCAN_FROM_VALUES, SCAN_NO_GO_SNAPSHOT_OUTCOMES, formatScanFromLabel } from "@website-signal-risk-scanner/shared";
@@ -61,7 +62,7 @@ function adminTrafficVisibilitySql(input: {
     (${input.excludeMacMiniParameter}::boolean = false and ${macMiniFilter})
     or (
       not ${macMiniFilter}
-      and (${input.includeInternalQaParameter}::boolean = true or (not ${internalQaFilter} and ${input.trafficClass ?? "'unknown'"} = 'external'))
+      and (${input.includeInternalQaParameter}::boolean = true or (not ${internalQaFilter} and ${activityTrafficDefaultVisibilitySql(input.trafficClass ?? "'unknown'")}))
     )
   )`;
 }

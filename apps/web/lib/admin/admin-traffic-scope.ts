@@ -54,7 +54,7 @@ export function adminTrafficScopeLabel(scope: AdminTrafficScope) {
   if (scope === "include_internal_qa") return "Include Internal / QA";
   if (scope === "include_mac_mini") return "Include Mac mini";
   if (scope === "all") return "Include all traffic";
-  return "External traffic only";
+  return "Exclude known internal / QA";
 }
 
 export const INTERNAL_QA_EMAILS = ["bmasek@gmail.com"] as const;
