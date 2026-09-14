@@ -11,6 +11,15 @@ test("audience labels never promote absent or caller-declared provenance", () =>
   assert.throws(() => activityTrafficSql("untrusted;sql"));
 });
 
+test("provenance SQL accepts canonical growth-cohort aliases while rejecting SQL syntax", () => {
+  for (const alias of ["events", "activation", "repeat_7", "repeat_30"]) {
+    assert.equal(activityTrafficSql(alias), `coalesce(${alias}.activity_traffic->>'class', 'unknown')`);
+  }
+  for (const alias of ["", "7repeat", "events.class", "events--", "events;select", "events x"]) {
+    assert.throws(() => activityTrafficSql(alias), /Invalid repository SQL alias/);
+  }
+});
+
 const databaseUrl = process.env.MCP_DISCOVERY_TEST_DATABASE_URL;
 test("ingestion persists versioned traffic and preserves opaque MCP session linkage", { skip: !databaseUrl }, async () => {
   assert.ok(["localhost","127.0.0.1","[::1]"].includes(new URL(databaseUrl!).hostname));
