@@ -1,0 +1,83 @@
+{
+  "at": "2026-09-14T18:20:44.984Z",
+  "origin": "https://certscore.ai",
+  "version": {
+    "appUrl": "https://certscore.ai",
+    "gitRef": "codex/hosted-oauth-announcement",
+    "gitSha": "3aa687cf45556c1b30464ff7603ba59e2f5c1591",
+    "imageTag": "3aa687cf45556c1b30464ff7603ba59e2f5c1591",
+    "runtimeTarget": "ecs-fargate",
+    "service": "web",
+    "timestamp": "2026-09-14T18:20:44.980Z"
+  },
+  "pages": [
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/releases",
+      "status": 200
+    },
+    {
+      "path": "/releases/mcp-hosted-oauth",
+      "status": 200
+    },
+    {
+      "path": "/releases/mcp-light",
+      "status": 200
+    },
+    {
+      "path": "/releases/accept-and-reject-path-testing",
+      "status": 200
+    },
+    {
+      "path": "/developers/mcp",
+      "status": 200
+    },
+    {
+      "path": "/developers/quickstart",
+      "status": 200
+    },
+    {
+      "path": "/developers",
+      "status": 200
+    },
+    {
+      "path": "/mcp/light",
+      "status": 200
+    },
+    {
+      "path": "/claude",
+      "status": 200
+    },
+    {
+      "path": "/releases/feed.xml",
+      "status": 200
+    },
+    {
+      "path": "/sitemap.xml",
+      "status": 200
+    },
+    {
+      "path": "/llms.txt",
+      "status": 200
+    },
+    {
+      "path": "/llms-full.txt",
+      "status": 200
+    },
+    {
+      "path": "/api-pulse-agent-guide.txt",
+      "status": 200
+    }
+  ],
+  "metadata": "pass",
+  "ordering": "pass",
+  "documentation": "pass",
+  "asset": {
+    "width": 1200,
+    "height": 630,
+    "bytes": 85568
+  }
+}

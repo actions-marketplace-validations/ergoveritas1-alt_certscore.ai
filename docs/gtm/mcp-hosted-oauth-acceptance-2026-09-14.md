@@ -4,7 +4,7 @@ Verification date: September 14, 2026 (17:46–18:05 UTC initial verification). 
 
 ## Production sources
 
-- Web `/api/version`: `4b73bf8114eb72d975540049d920e4e2fd64ea55`, ECS/Fargate.
+- Initial web acceptance revision: `4b73bf8114eb72d975540049d920e4e2fd64ea55`, ECS/Fargate. Final published web revision: `3aa687cf45556c1b30464ff7603ba59e2f5c1591`; OAuth behavior code is unchanged by this release.
 - Running MCP ECS service `certscore-web-mcp`, task definition `:133`, image `7835c33a8dd682b4487cf57cb5a413d792df4a13`; `/healthz` and MCP initialize report package 0.2.21. AWS service/task definition read directly, not inferred from workflow history.
 - Source policy: `apps/web/server/oauth/mcp-oauth.ts` (`hasMcpOAuthScanCreateGrant`, registered client + active organization + membership); `apps/web/server/oauth/mcp-oauth-scopes.ts`; `apps/web/app/oauth/authorize/page.tsx`. Sign-in completion behavior introduced by `02a60ffd`, included in the serving web revision.
 - Claude web acceptance: https://claude.ai/chat/e3402f4e-eb5c-4fc7-9f6a-c85e17fd4cc6, Opus 5 Medium, web surface observed September 14. The host exposes no numeric web build; date and surface are retained rather than inventing one.
@@ -24,7 +24,7 @@ Verification date: September 14, 2026 (17:46–18:05 UTC initial verification). 
 | Grok compatibility | Not needed for launch; no current evidence asserted. | Not tested | Intentionally excluded. |
 | Report evidence on OAuth | Claude retrieved 1–91 and 92–111 entries through complete=true; current export_findings also succeeds. | Claude web, September 14 | Verified; technical documentation only. Historical 502 and wrong guidance no longer reproduced. Full report links use current report-only short-lived capabilities; preserve image-specific authorization rules. |
 | Scanner/scoring continuity | This patch changes content/discovery only; existing projected evidence remains authoritative. | Source diff | OAuth does not change methodology/scoring or access login-protected targets. Included. |
-| Release/social metadata | Release tests and inspected original 1200×630 PNG; canonical metadata and Article schema tested. | Local validation, September 14 | Prepared; serving-page verification required after deployment. |
+| Release/social metadata | Release tests and inspected original 1200×630 PNG; canonical metadata and Article schema tested. | Local validation, September 14 | Verified and included: production metadata, schema, image and page checks passed at 18:20 UTC. |
 
 ## Canonical catalogs
 
@@ -68,10 +68,27 @@ Fresh-account first sign-in and changed-scope UI are not advertised as tested. C
 
 ## Deployment and final checks
 
-To be completed with serving revision, workflow URL and post-deployment checks. The release is not declared ready solely from this file or repository state.
+Published September 14, 2026. Web serving revision `3aa687cf45556c1b30464ff7603ba59e2f5c1591`, runtime `ecs-fargate`, verified from production `/api/version`.
+
+AWS workflow: https://github.com/ergoveritas1-alt/certscore.ai/actions/runs/34879260015 — success. Exact-image migration check and ECS stability wait passed; this patch adds no migrations. Runtime MCP remains image `7835c33a8dd682b4487cf57cb5a413d792df4a13`, task definition 133, package 0.2.21, independently rechecked after deployment.
+
+Production HTTP verification at 18:20:44 UTC passed all 15 affected pages plus release ordering, canonical URL, Article schema, Open Graph/Twitter metadata, 1200×630 PNG, feed, sitemap, llms discovery, shared eligibility wording and setup anchor. Safe retained output: `outputs/hosted-oauth-launch-2026-09-14/production-public.json`. Browser inspected live desktop and 390×844 mobile article; mobile scroll width equals viewport width (390), with no horizontal overflow. Actual CTA click opened `/developers/mcp#hosted-oauth-start`.
+
+Post-deployment Light discovery at 18:22:29 UTC confirms the same four-tool catalog and 0.2.21 server. Public OAuth metadata verifier passes; that script itself does not test token exchange. Claude external acceptance is separately recorded above and below. Deployment audit passes; its only warning is that no secondary host is configured, so the secondary-host audit was skipped.
+
+Reviewable docs diff: `outputs/hosted-oauth-launch-2026-09-14/reconciled-docs.diff`. Final article: https://certscore.ai/releases/mcp-hosted-oauth. Setup: https://certscore.ai/developers/mcp#hosted-oauth-start. Final LinkedIn, X standalone and optional thread: `docs/gtm/mcp-hosted-oauth-launch-content.md`.
+
+Preflight totals: 1,342 passed, zero failed, zero skipped across eight test suites. Separate OAuth policy checks passed ten tests with two DB-dependent checks skipped; no production DB was required. Web typecheck, focused release/docs tests and deployment CI checks passed.
 
 Local QA: desktop release screenshot inspected; 390×844 mobile headline and body inspected with no overflow. Homepage shows OAuth, A/R, Light in order. Share asset inspected at 1200×630. Focused release/docs tests 11/11 pass; OAuth policy tests 10 pass with two database-dependent tests skipped (no local production DB access). Public AS/resource metadata verifier passes. X weighted-length estimate 239 characters.
 
 Light full workflow at 18:05:42 UTC: production scan_site reused `283c66a7-3b56-49d6-974e-2595815680e9`, quotaConsumed=false; explicit status completed and summary bundle succeeded. Safe evidence: `outputs/hosted-oauth-launch-2026-09-14/light-workflow.json`.
 
 Final preflight: `pnpm preflight:fast` exited 0. The last wording-only correction was followed by the focused 11-test release/docs suite (all passed). No behavior assertion was skipped to obtain preflight success. Local 15-page HTTP verification passed metadata, canonical URL, schema, image dimensions, feed/sitemap/llms inclusion, ordering and reconciled documentation.
+
+
+Post-deployment Claude check at approximately 18:24 UTC: same production connector, three one-time tool approvals, then connection status, explicit completed status for `283c66a7-3b56-49d6-974e-2595815680e9`, and summary bundle all succeeded, once each, no retries and no scans created. Credential mode `hosted_oauth`, authenticated=true; OAuth grants `mcp scan:read scan:create`. Legacy normalized aliases `mcp pulse:read pulse:scan` are reported separately by the connection response. The current refreshed client registration still exposes the same 14 tool names; connection status itself does not enumerate the catalog. Summary bundle remains intentionally byte-bounded (one of twelve canonical findings), with limitations disclosed. Evidence is retained in the same Claude acceptance conversation, final response “Post-deployment read-only check”.
+
+## Final disposition
+
+**READY FOR SOCIAL ANNOUNCEMENT** for the published, explicitly scoped claims. Required product/site/documentation work is deployed and verified; no runtime fix was needed. Cursor/Grok support, fresh-account and changed-scope UI acceptance, and official registry 0.2.21 publication are explicitly excluded rather than claimed. MCP.so review and inaccessible listing edits remain external distribution caveats. Ben's LinkedIn and X publication is the remaining announcement action. Final composer validation remains required for the X draft; no social publication or scheduling was performed.
