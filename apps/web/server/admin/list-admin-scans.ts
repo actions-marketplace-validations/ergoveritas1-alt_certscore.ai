@@ -51,6 +51,8 @@ import {
 } from "./admin-query-cache";
 import { query } from "@website-signal-risk-scanner/db";
 import { resolveAdminPageUrl, type AdminPageUrlSource } from "../../lib/admin/admin-page-url";
+import { type ScanCreationAttribution, type ScanCreationSource } from "../../lib/admin/scan-creation-source";
+import { loadAdminScanCreationAttributions } from "./repository";
 
 function scannerEgressFromScanConfig(scanConfig: Record<string, unknown> | null | undefined) {
   if (shouldUseLocalV2DagScanTool()) {
@@ -80,6 +82,7 @@ function adminRequesterIpAttribution(values: RequesterIpAttribution[]) {
 }
 
 export type AdminScanListItem = {
+  createdVia?: ScanCreationAttribution;
   accessPostureClass: AccessPostureClass | null;
   adminSummaryGeneratedAt: string | null;
   activityAt: string;
@@ -275,7 +278,7 @@ export async function listAdminOverviewScans(limit = 10): Promise<AdminOverviewR
 export async function listAdminScansPage(
   limit = 50,
   offset = 0,
-  filters?: { email?: string | null; excludeMacMiniScanBot?: boolean; includeCanary?: boolean; query?: string | null; status?: AdminScanListStatus; freshness?: AdminScanListFreshness; access?: AdminScanListAccess; outcome?: string | null; language?: string | null; industry?: string | null; scanFrom?: string | null; timeSpan?: AdminScanListTimeSpan }
+  filters?: { createdVia?: ScanCreationSource | null; email?: string | null; excludeMacMiniScanBot?: boolean; includeCanary?: boolean; query?: string | null; status?: AdminScanListStatus; freshness?: AdminScanListFreshness; access?: AdminScanListAccess; outcome?: string | null; language?: string | null; industry?: string | null; scanFrom?: string | null; timeSpan?: AdminScanListTimeSpan }
 ): Promise<{ items: AdminScanListItem[]; totalCount: number }> {
   await requirePlatformAdminContext();
   const requesterEmail = filters?.email?.trim().slice(0, 160) || null;
@@ -283,6 +286,7 @@ export async function listAdminScansPage(
     "app.admin.scans.activity-page",
     () => loadAdminScanActivityPageRefs(limit, offset, {
       query: filters?.query ?? requesterEmail,
+      createdVia: filters?.createdVia,
       status: filters?.status,
       freshness: filters?.freshness,
       access: filters?.access,
@@ -297,13 +301,14 @@ export async function listAdminScansPage(
   );
   const selectedScanIds = [...new Set(page.rows.flatMap((row) => row.scan_id ? [row.scan_id] : []))];
   const selectedRequestIds = page.rows.flatMap((row) => row.request_public_id ? [row.request_public_id] : []);
-  const [scanPageData, scanRequestRows] = await withServerTiming(
+  const [scanPageData, scanRequestRows, creationAttributions] = await withServerTiming(
     "app.admin.scans.row-enrichment",
     () => Promise.all([
       loadAdminScanListPageData(Math.max(selectedScanIds.length, 1), 0, null, selectedScanIds),
       selectedScanIds.length || selectedRequestIds.length
         ? loadAdminScanRequestRows(100_000, null, { publicIds: selectedRequestIds, scanIds: selectedScanIds })
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      loadAdminScanCreationAttributions(selectedScanIds)
     ])
   );
   const {
@@ -527,6 +532,10 @@ export async function listAdminScansPage(
       return mapScanRequestRow(request, linkedScanId ? scansById.get(linkedScanId) ?? null : null);
     });
 
+  const creationMap = new Map(creationAttributions.map((item) => [item.scanId, item]));
+  for (const item of [...scanItems, ...requestItems]) {
+    item.createdVia = creationMap.get(item.linkedScanId ?? item.scanId) ?? { kind: "unknown", requestId: null, requestedAt: null };
+  }
   const scanItemMap = new Map(scanItems.map((item) => [item.scanId, item] as const));
   const requestItemMap = new Map(requestItems.map((item) => [item.requestPublicId, item] as const));
   const items = page.rows.flatMap((row) => {

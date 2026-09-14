@@ -147,6 +147,7 @@ function pulseRequestInsertValues(input: CreatePulseRequestInput, publicId: stri
         userAgent: input.context.userAgent,
         referer: input.context.referer,
         requestId: input.context.requestId ?? null,
+        anonymousMcpSurface: input.context.anonymousMcpSurface ?? null,
         format: input.context.format,
         detail: input.context.detail,
         freshness: input.context.freshness,

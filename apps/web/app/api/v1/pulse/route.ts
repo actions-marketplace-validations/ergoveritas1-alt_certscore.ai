@@ -968,7 +968,7 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
       minimumReusablePagesRequested: PULSE_MIN_REUSABLE_PAGES_REQUESTED,
       normalizedUrl: normalized.normalizedUrl,
       provenance: {
-        source: gptAction ? "gpt_action" : "pulse_api",
+        source: contextBase.source,
         host: request.headers.get("host"),
         userAgent: requester.userAgent,
         originIp: requester.ipHash
@@ -1043,7 +1043,7 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
           provenance: {
             host: request.headers.get("host"),
             originIp: requester.ipHash,
-            source: gptAction ? "gpt_action" : "pulse_api",
+            source: contextBase.source,
             userAgent: requester.userAgent
           },
           pulseRequestId: publicId,

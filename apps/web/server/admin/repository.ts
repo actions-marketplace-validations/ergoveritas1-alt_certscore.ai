@@ -2,6 +2,7 @@
 
 import { loadScanTrafficClassification } from "./scan-traffic-classification";
 import { query, queryOne } from "@website-signal-risk-scanner/db";
+import { scanCreatedViaSql, scanCreatorSql, scanCreationSourceSql, type ScanCreationAttribution, type ScanCreationSource } from "../../lib/admin/scan-creation-source";
 import { SCAN_FROM_VALUES, SCAN_NO_GO_SNAPSHOT_OUTCOMES, formatScanFromLabel } from "@website-signal-risk-scanner/shared";
 import type { AccessPostureClass, RecoverableFindingClass, ScanExecutionTier } from "@website-signal-risk-scanner/shared";
 import { ensureMonitorSiteRequestsTable } from "../monitor-site/monitor-site-request";
@@ -227,6 +228,7 @@ type AdminScanActivityPageResultRow = {
 };
 
 export type AdminScanActivityFilters = {
+  createdVia?: ScanCreationSource | null;
   excludeMacMiniScanBot?: boolean;
   includeCanary?: boolean;
   query?: string | null;
@@ -296,6 +298,7 @@ function adminScanActivityBaseSql() {
       null::text as request_public_id,
       coalesce(s.completed_at, s.started_at, s.created_at) as activity_at,
       s.status,
+      ${scanCreatedViaSql("s.id", "s.scan_config_json")} as created_via_filter,
       case
         when coalesce(
           nullif(s.scan_config_json ->> 'source', ''),
@@ -513,6 +516,7 @@ function adminScanActivityBaseSql() {
       sr.public_id as request_public_id,
       sr.requested_at as activity_at,
       sr.status,
+      ${scanCreatedViaSql("s.id", "s.scan_config_json")} as created_via_filter,
       case
         when coalesce(nullif(sr.request_channel, ''), nullif(s.scan_config_json ->> 'source', '')) = 'api-full-scan'
           and coalesce(sr.requested_by ->> 'anonymous', 'false') = 'true'
@@ -659,6 +663,7 @@ function adminScanActivityBaseSql() {
        and ($10::text is null or access_filter = $10)
        and ($11::text is null or outcome_filter = $11)
        and ($14::text is null or lower(source_filter) = lower($14))
+       and ($26::text is null or created_via_filter = $26)
        and ($19::text[] is null or not (coalesce(source_filter, '') ilike any($19::text[])))
        and ${adminTrafficVisibilitySql({
          excludeMacMiniParameter: "$21",
@@ -695,10 +700,11 @@ export async function loadAdminScanActivityPageRefs(
     exclusionArray(parsedSearch.exclusions.email), exclusionArray(parsedSearch.exclusions.ip),
     exclusionArray(parsedSearch.exclusions.source), filters.includeCanary === true,
     filters.excludeMacMiniScanBot !== false, MAC_MINI_SCAN_BOT_API_KEY_NAMES,
-    INTERNAL_QA_EMAILS, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES
+    INTERNAL_QA_EMAILS, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES, filters.createdVia ?? null
   ];
 
   const canUseBoundedActivityPath = Boolean(
+    !filters.createdVia &&
     since &&
     !queryText &&
     !status &&
@@ -718,6 +724,7 @@ export async function loadAdminScanActivityPageRefs(
   );
 
   const canUseDefaultActivityPath = Boolean(
+    !filters.createdVia &&
     !queryText &&
     !status &&
     !freshness &&
@@ -737,6 +744,7 @@ export async function loadAdminScanActivityPageRefs(
   const exactHostname = normalizeAdminExactHostname(queryText);
   const exactScanId = normalizeAdminExactScanId(queryText);
   const canUseExactIdentityPath = Boolean(
+    !filters.createdVia &&
     since &&
     (exactHostname || exactScanId) &&
     !status &&
@@ -1608,6 +1616,17 @@ export async function loadAdminScanListPageData(limit: number, offset = 0, reque
     validationRuns: [],
     verdictByFindingId: new Map()
   };
+}
+
+export async function loadAdminScanCreationAttributions(scanIds: string[]): Promise<Array<ScanCreationAttribution & { scanId: string }>> {
+  if (!scanIds.length) return [];
+  const result = await query<ScanCreationAttribution & { scanId: string }>(
+    `select s.id as "scanId", ${scanCreationSourceSql("coalesce(origin.channel, s.scan_config_json ->> 'source')")} as kind,
+      origin.public_id as "requestId", origin.requested_at as "requestedAt"
+    from public.scans s left join lateral (${scanCreatorSql("s.id")}) origin on true
+    where s.id = any($1::uuid[])`, [scanIds], { readOnly: true }
+  );
+  return result.rows;
 }
 
 export async function loadAdminScanRequestRows(

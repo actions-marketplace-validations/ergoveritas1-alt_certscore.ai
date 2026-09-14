@@ -820,7 +820,7 @@ export function DomainScanForm({
       });
       const submitHeaders = {
           "Content-Type": "application/json",
-          ...(requestSource ? { "x-certscore-scan-source": requestSource } : {})
+          "x-certscore-scan-source": requestSource ?? (scanSource === "dashboard" ? "manual-dashboard" : "browser")
         };
       const postSubmission = () => fetch(submitUrl, {
         body: submitBody,
@@ -838,7 +838,7 @@ export function DomainScanForm({
         if (shouldRecoverScanSubmission(attempt)) {
           const statusResponse = await fetch(buildScanSubmissionStatusUrl(requestId), {
             cache: "no-store",
-            headers: requestSource ? { "x-certscore-scan-source": requestSource } : undefined
+            headers: { "x-certscore-scan-source": requestSource ?? (scanSource === "dashboard" ? "manual-dashboard" : "browser") }
           });
           if (statusResponse.ok) {
             attempt = await readScanSubmitAttempt(statusResponse);

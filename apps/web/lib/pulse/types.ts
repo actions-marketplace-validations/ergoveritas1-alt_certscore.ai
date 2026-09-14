@@ -18,6 +18,7 @@ export type PulseFeedbackReason = (typeof PULSE_FEEDBACK_REASONS)[number];
 export type PulseAgentResponseClass = "completed_pulse" | "pending_pulse" | "api_error" | "rate_limited";
 
 export type PulseRequestContext = {
+  anonymousMcpSurface?: "mcp_light" | "mcp_anonymous" | null;
   apiKeyId?: string | null;
   channel?: "pulse_api" | "gpt_action" | string | null;
   format: PulseFormat;

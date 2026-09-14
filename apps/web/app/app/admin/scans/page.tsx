@@ -7,6 +7,7 @@ import { getScanFromMarkerInput, ScanFromMarker } from "../../../../components/s
 import { PaginationControls, normalizePage, normalizePageSize } from "../../../../components/ui/pagination-controls";
 import { formatAdminDateTime } from "../../../../lib/admin/date-time";
 import { classifyAdminRequestProvenance } from "../../../../lib/admin/request-provenance";
+import { SCAN_CREATION_SOURCES, scanCreationSource, type ScanCreationSource } from "../../../../lib/admin/scan-creation-source";
 import { projectAdminRequestAdmission } from "../../../../lib/admin/admin-request-admission";
 import { getAdminScanFilterOptions, getAdminScanOperationalSnapshot, listAdminScansPage, type AdminScanListAccess, type AdminScanListFreshness, type AdminScanListItem, type AdminScanListStatus, type AdminScanListTimeSpan } from "../../../../server/admin/list-admin-scans";
 import { withServerTiming } from "../../../../server/performance/log-server-timing";
@@ -30,8 +31,21 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type AdminScansPageProps = {
-  searchParams?: Promise<{ page?: string; perPage?: string; q?: string; status?: string; freshness?: string; access?: string; outcome?: string; language?: string; industry?: string; scanFrom?: string; timeSpan?: string; includeCanary?: string; excludeMacMiniScanBot?: string; scanBotFilter?: string; snapshot?: string; traffic?: string }>;
+  searchParams?: Promise<{ createdVia?: string; page?: string; perPage?: string; q?: string; status?: string; freshness?: string; access?: string; outcome?: string; language?: string; industry?: string; scanFrom?: string; timeSpan?: string; includeCanary?: string; excludeMacMiniScanBot?: string; scanBotFilter?: string; snapshot?: string; traffic?: string }>;
 };
+
+function CreatedViaCell({ scan }: { scan: AdminScanListItem }) {
+  const origin = scan.createdVia;
+  const label = SCAN_CREATION_SOURCES[origin?.kind ?? "unknown"];
+  const title = origin?.requestId
+    ? `Original creation request: ${origin.requestId} · ${formatAdminDateTime(origin.requestedAt)}`
+    : "Creation source from retained scan metadata; original request details unavailable. Unknown means attribution could not be verified.";
+  return <td className="px-2.5 py-1.5">
+    {origin?.requestId ? <details><summary className="cursor-pointer rounded bg-sky-50 px-2 py-1 text-sky-800" title={title}>{label}</summary><p className="mt-1 break-all text-[10px]">{origin.requestId}<br />{formatAdminDateTime(origin.requestedAt)}{origin.requestId.startsWith("pulse_req_") ? <Link className="block text-sky-700 underline" href={`/app/admin/pulse/${encodeURIComponent(origin.requestId)}`}>Open request</Link> : null}</p></details>
+      : <span className="inline-flex rounded bg-slate-50 px-2 py-1 text-slate-700" title={title}>{label}</span>}
+    {scan.rowKind === "request" ? <p className="mt-1 text-[10px] text-slate-500">Requested via: {SCAN_CREATION_SOURCES[scanCreationSource(scan.requestChannel)]}{scan.requestResolutionMode === "reused_existing_scan" ? " · Reused" : " · No new scan"}</p> : null}
+  </td>;
+}
 
 const statuses = ["any", "no_go", "rejected", "failed", "running", "queued", "limited", "completed"] as const;
 const freshnesses = ["any", "fresh", "forced_fresh", "reused"] as const;
@@ -283,6 +297,7 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
   const activeStatus = normalizeStatus(resolvedSearchParams.status);
   const activeFreshness = normalizeFreshness(resolvedSearchParams.freshness);
   const activeAccess = normalizeAccess(resolvedSearchParams.access);
+  const activeCreatedVia = Object.hasOwn(SCAN_CREATION_SOURCES, resolvedSearchParams.createdVia ?? "") ? resolvedSearchParams.createdVia as ScanCreationSource : null;
   const activeOutcome = resolvedSearchParams.outcome?.trim().slice(0, 120) ?? "";
   const activeLanguage = resolvedSearchParams.language?.trim().slice(0, 80) ?? "";
   const activeIndustry = resolvedSearchParams.industry?.trim().slice(0, 200) ?? "";
@@ -297,6 +312,7 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
   const filterOptionsPromise = withServerTiming("app.admin.scans.filter-options", () => getAdminScanFilterOptions());
   const scanPagePromise = withServerTiming("app.admin.scans.list", () => listAdminScansPage(pageSize, (currentPage - 1) * pageSize, {
       query: activeQuery || null,
+      createdVia: activeCreatedVia,
       status: activeStatus,
       freshness: activeFreshness,
       access: activeAccess,
@@ -366,7 +382,8 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
       <AdminTableRefreshBoundary basePath="/app/admin/scans" label="Refreshing scans">
       <CardContent className="min-w-0 space-y-3 pt-0">
         <AdminScansAutoRefresh targets={liveTargets} />
-        <AdminScansFilterForm hasFilters={hasFilters} submitFirst>
+        <AdminScansFilterForm hasFilters={hasFilters || Boolean(activeCreatedVia)} submitFirst>
+          <select aria-label="Filter scans by creation source" className="h-10 w-[11rem] shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-xs" defaultValue={activeCreatedVia ?? ""} name="createdVia"><option value="">Any creation source</option>{Object.entries(SCAN_CREATION_SOURCES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
           <input name="snapshot" type="hidden" value={activeSnapshotPeriod} />
           <input name="traffic" type="hidden" value={trafficScope} />
           <input aria-label="Filter by domain, scan ID, email, requester, IP, or source; use field not-equal syntax to exclude" className="h-10 min-w-[28rem] flex-[1_1_32rem] rounded-lg border border-slate-300 bg-white px-3 text-sm" defaultValue={activeQuery} name="q" placeholder="Domain, scan_id, email, requester, IP · source:homepage-anonymous · ip!=66.*" />
@@ -387,13 +404,13 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
           pageSize={pageSize}
           totalCount={totalCount}
           visibleCount={scans.length}
-          searchParams={{ q: activeQuery, status: activeStatus, freshness: activeFreshness, access: activeAccess, outcome: activeOutcome, language: activeLanguage, industry: activeIndustry, scanFrom: activeScanFrom, timeSpan: activeTimeSpan, snapshot: activeSnapshotPeriod, traffic: trafficScope }}
+          searchParams={{ createdVia: activeCreatedVia ?? "", q: activeQuery, status: activeStatus, freshness: activeFreshness, access: activeAccess, outcome: activeOutcome, language: activeLanguage, industry: activeIndustry, scanFrom: activeScanFrom, timeSpan: activeTimeSpan, snapshot: activeSnapshotPeriod, traffic: trafficScope }}
           showPageJump
         />
         <div className="w-full max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200">
-          <table className="w-[2957px] min-w-[2957px] table-fixed text-left text-xs">
+          <table className="w-[3147px] min-w-[3147px] table-fixed text-left text-xs">
             <colgroup>
-              <col style={{ width: "100px" }} /><col style={{ width: "165px" }} /><col style={{ width: "115px" }} /><col style={{ width: "173px" }} />
+              <col style={{ width: "100px" }} /><col style={{ width: "165px" }} /><col style={{ width: "190px" }} /><col style={{ width: "115px" }} /><col style={{ width: "173px" }} />
               <col style={{ width: "70px" }} /><col style={{ width: "60px" }} /><col style={{ width: "75px" }} /><col style={{ width: "156px" }} />
               <col style={{ width: "80px" }} /><col style={{ width: "205px" }} /><col style={{ width: "135px" }} /><col style={{ width: "145px" }} />
               <col style={{ width: "180px" }} /><col style={{ width: "130px" }} /><col style={{ width: "65px" }} /><col style={{ width: "100px" }} /><col style={{ width: "65px" }} />
@@ -403,7 +420,7 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
               <tr>
                 {[
                   { label: "Status", className: "sticky left-0 z-30 bg-slate-50" },
-                  { label: "Requester IP" }, { label: "Requested" }, { label: "Page" }, { label: "Tranco" },
+                  { label: "Requester IP" }, { label: "Created via" }, { label: "Requested" }, { label: "Page" }, { label: "Tranco" },
                   { label: "Score" }, { label: "Top" }, { label: "Privacy / CMP" },
                   { label: "A/R/O" }, { label: "Transparency" }, { label: "Transport" }, { label: "Runtime" }, { label: "Size" }, { label: "Time" }, { label: "Outcome" }, { label: "From" }, { label: "Freshness" }, { label: "Language" }, { label: "Access" }, { label: "Industry" },
                   { label: "Scan ID" }, { label: "Scanner egress" },
@@ -430,6 +447,7 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
                   <tr key={scan.activityId} className="group h-[52px] hover:bg-slate-50/70">
                     <td className="sticky left-0 z-10 bg-white px-2.5 py-1.5 group-hover:bg-slate-50" title={status.label}><span className="inline-flex items-center gap-1.5 font-semibold"><span aria-hidden="true" className={`inline-block h-2.5 w-2.5 rounded-full ${status.className}`} /><span className={status.label === "No-go" ? "text-rose-700" : "text-slate-700"}>{status.label}</span></span></td>
                     <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${provenance.className}`} title={scan.requesterName ?? provenance.label}>{scan.requesterName ?? provenance.label}</span><p className="mt-0.5 truncate font-mono text-[10px] text-slate-500" title={`${requesterIpLabel(scan)} · ${scan.requesterIpSource.replaceAll("_", " ")}`}>{requesterIpLabel(scan)}</p></td>
+                    <CreatedViaCell scan={scan} />
                     <td className="px-2.5 py-1.5 text-[10px] leading-4 text-slate-600" title={formatAdminDateTime(scan.requestedAt ?? scan.createdAt)}><p className="truncate">{requestedDateTime.date}</p><p className="truncate text-slate-500">{requestedDateTime.time}</p></td>
                     <td className="px-2.5 py-1.5">
                       <div className="flex min-w-0 items-center gap-1.5">
