@@ -49,6 +49,7 @@ function internalQaLinkedRequestSql(
 }
 
 function adminTrafficVisibilitySql(input: {
+  trafficClass?: string;
   excludeMacMiniParameter: string;
   includeInternalQaParameter: string;
   internalQaFilter: string;
@@ -60,7 +61,7 @@ function adminTrafficVisibilitySql(input: {
     (${input.excludeMacMiniParameter}::boolean = false and ${macMiniFilter})
     or (
       not ${macMiniFilter}
-      and (${input.includeInternalQaParameter}::boolean = true or not ${internalQaFilter})
+      and (${input.includeInternalQaParameter}::boolean = true or (not ${internalQaFilter} and ${input.trafficClass ?? "'unknown'"} = 'external'))
     )
   )`;
 }
@@ -293,6 +294,7 @@ function adminScanActivityBaseSql() {
   return `with scan_activity as (
     select
       'scan'::text as row_kind,
+      coalesce(s.activity_traffic->>'class','unknown') as traffic_class,
       ('scan:' || s.id::text) as activity_id,
       s.id as scan_id,
       null::text as request_public_id,
@@ -511,6 +513,7 @@ function adminScanActivityBaseSql() {
 
     select
       'request'::text as row_kind,
+      coalesce(sr.activity_traffic->>'class','unknown') as traffic_class,
       ('request:' || sr.public_id) as activity_id,
       coalesce(sr.fulfilled_by_scan_id, sr.scan_id) as scan_id,
       sr.public_id as request_public_id,
@@ -666,6 +669,7 @@ function adminScanActivityBaseSql() {
        and ($26::text is null or created_via_filter = $26)
        and ($19::text[] is null or not (coalesce(source_filter, '') ilike any($19::text[])))
        and ${adminTrafficVisibilitySql({
+         trafficClass: "traffic_class",
          excludeMacMiniParameter: "$21",
          includeInternalQaParameter: "$20",
          internalQaFilter: "canary_filter",
@@ -779,6 +783,7 @@ export async function loadAdminScanActivityPageRefs(
           where ($1::timestamptz is null or coalesce(s.completed_at, s.started_at, s.created_at) >= $1::timestamptz)
             and ($2::text is null or coalesce(s.scan_config_json ->> 'scanFrom', 'default') = $2)
             and ${adminTrafficVisibilitySql({
+              trafficClass: "coalesce(s.activity_traffic->>'class','unknown')",
               excludeMacMiniParameter: "$4",
               includeInternalQaParameter: "$3",
               internalQaFilter: "exists (select 1 from canary_scan_ids canary where canary.scan_id = s.id)",
@@ -799,6 +804,7 @@ export async function loadAdminScanActivityPageRefs(
             and ($1::timestamptz is null or sr.requested_at >= $1::timestamptz)
             and ($2::text is null or coalesce(s.scan_config_json ->> 'scanFrom', sr.request_context ->> 'scanFrom', 'default') = $2)
             and ${adminTrafficVisibilitySql({
+              trafficClass: "coalesce(sr.activity_traffic->>'class','unknown')",
               excludeMacMiniParameter: "$4",
               includeInternalQaParameter: "$3",
               internalQaFilter: `
@@ -1622,7 +1628,8 @@ export async function loadAdminScanCreationAttributions(scanIds: string[]): Prom
   if (!scanIds.length) return [];
   const result = await query<ScanCreationAttribution & { scanId: string }>(
     `select s.id as "scanId", ${scanCreationSourceSql("coalesce(origin.channel, s.scan_config_json ->> 'source')")} as kind,
-      origin.public_id as "requestId", origin.requested_at as "requestedAt"
+      origin.public_id as "requestId", origin.requested_at as "requestedAt",
+      coalesce(s.activity_traffic->>'class','unknown') as "trafficClass"
     from public.scans s left join lateral (${scanCreatorSql("s.id")}) origin on true
     where s.id = any($1::uuid[])`, [scanIds], { readOnly: true }
   );
@@ -2773,6 +2780,7 @@ export async function loadAdminScanOperationalSnapshot(
         where s.created_at >= ${config.previousStart}
           and s.created_at < ${config.bucketEnd} + interval '${config.step}'
           and ${adminTrafficVisibilitySql({
+            trafficClass: "coalesce(s.activity_traffic->>'class','unknown')",
             excludeMacMiniParameter: "$2",
             includeInternalQaParameter: "$1",
             internalQaFilter: snapshotScanInternalQaFilter,
@@ -2787,6 +2795,7 @@ export async function loadAdminScanOperationalSnapshot(
         where sr.requested_at >= ${config.previousStart}
           and sr.requested_at < ${config.bucketEnd} + interval '${config.step}'
           and ${adminTrafficVisibilitySql({
+            trafficClass: "coalesce(sr.activity_traffic->>'class','unknown')",
             excludeMacMiniParameter: "$2",
             includeInternalQaParameter: "$1",
             internalQaFilter: snapshotRequestInternalQaFilter,

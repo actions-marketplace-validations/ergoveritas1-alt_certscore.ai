@@ -13,6 +13,7 @@ export const SCAN_CREATION_SOURCES = {
 
 export type ScanCreationSource = keyof typeof SCAN_CREATION_SOURCES;
 export type ScanCreationAttribution = {
+  trafficClass?: string;
   kind: ScanCreationSource;
   requestId: string | null;
   requestedAt: string | null;

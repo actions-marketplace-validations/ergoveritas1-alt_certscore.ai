@@ -17,6 +17,11 @@ export function McpSessionFunnel({ data, followUpMinutes, params }: {
 }) {
   const summary = summarizeMcpFunnel(data.sessions);
   const breakdown = mcpFunnelBreakdown(data.sessions);
+  const delivery = data.delivery_scans ?? [];
+  const completed = delivery.filter(row => row.completed_at !== null);
+  const eligible = delivery.filter(row => row.mature);
+  const retrieved = eligible.filter(row => row.retrieved);
+  const missing = eligible.filter(row => !row.retrieved);
   const stages: [string,number,number,string][] = [
     ["Connected",summary.connected,summary.connected,"Sessions with a full follow-up window"],
     ["Called a tool",summary.called,summary.connected,"Of connected sessions; catalogue listing is optional"],
@@ -29,6 +34,15 @@ export function McpSessionFunnel({ data, followUpMinutes, params }: {
       <p className="text-sm text-slate-600">Follow sessions from their first retained connection through scan admission and result retrieval.</p>
     </CardHeader>
     <CardContent className="space-y-4">
+      <p className="text-sm">{data.connected_accounts ?? 0} account-linked connections (distinct accounts) · {data.caller_bindings ?? 0} caller bindings with tool activity. Anonymous bindings and sessions are not unique people.</p>
+      <section aria-label="Per-scan result delivery" className="rounded border p-3 space-y-2">
+        <h3 className="font-semibold">Completed scans → result retrieval</h3>
+        <p className="text-sm">{completed.length} completed scan/session pairs · {eligible.length} with a full post-completion window · {retrieved.length} retrieved · {missing.length} without a recorded retrieval.</p>
+        <p className="text-sm">Retrieval rate: {eligible.length ? `${retrieved.length}/${eligible.length} · ${(100 * retrieved.length / eligible.length).toFixed(1)}%` : "Not yet measurable"}.</p>
+        <p className="text-xs text-slate-500">Each admitted scan is measured separately in its originating session, for {followUpMinutes} minutes after completion (or admission when reusing an already-completed scan). Pending and failed scans are excluded from this rate. Successful retrieval records server generation, not confirmed client receipt. Missing telemetry or another-session retrieval can explain a missing match.</p>
+        {(data.delivery_total ?? 0) > delivery.length ? <p className="text-xs text-amber-800">Bounded sample: {delivery.length} of {data.delivery_total} admitted scan/session pairs; totals and rates above describe only this sample.</p> : null}
+        {missing.length ? <details><summary className="cursor-pointer text-sm">Completed without recorded retrieval · {missing.length}</summary><ul className="mt-2 text-xs space-y-1">{missing.slice(0, 25).map(row => <li key={`${row.session_id}:${row.scan_id}`}><a className="underline" href={`/app/scans/${encodeURIComponent(row.scan_id)}`}>{row.scan_id}</a> · session {row.session_id.slice(0,12)} · {row.new_scan ? "new" : "reused"}</li>)}</ul>{missing.length > 25 ? <p className="text-xs">First 25 shown.</p> : null}</details> : null}
+      </section>
       <form action="/app/admin/mcp" method="get" className="flex flex-wrap items-center gap-2">
         {Object.entries(params).filter(([key,value]) => key !== "followUp" && value !== null && value !== "").map(([key,value]) => <input key={key} type="hidden" name={key} value={value!} />)}
         <label className="text-sm" htmlFor="mcp-funnel-follow-up">Follow each session for</label>
@@ -70,7 +84,7 @@ export function McpSessionFunnel({ data, followUpMinutes, params }: {
         {breakdown.length > 50 ? <p className="text-xs">Largest 50 groups shown; totals above include all sampled groups.</p> : null}
         <p className="mt-2 text-xs text-slate-500">Purpose and integration are taken only from declared scan-request context. Multiple declarations stay grouped as “multiple”; missing declarations remain unknown. These comparisons are descriptive and do not establish that a revision caused a change.</p>
       </details>
-      <p className="text-xs text-slate-500">{data.outside_cohort_calls.toLocaleString()} visible calls have no matching connection in this cohort, including {data.missing_session_calls.toLocaleString()} without a session identifier. They remain in Usage and are excluded here. Unlinked discovery has only declared-client QA filtering. Missing initialization, old sessions and shared/rotating identifiers limit coverage; sessions are not unique agents.</p>
+      <p className="text-xs text-slate-500">{data.outside_cohort_calls.toLocaleString()} visible calls have no matching connection in this cohort, including {data.missing_session_calls.toLocaleString()} without a session identifier. {data.unlinked_initializations ?? 0} initialization events have no linkable session. They remain outside session conversion rates. External-only filters require persisted external provenance; unknown historical traffic is not silently counted as external. Missing initialization, old sessions and shared/rotating identifiers limit coverage; sessions are not unique agents.</p>
       <p className="text-xs text-slate-500">Retrieval includes bundles, reports, evidence, findings and exports. A session converts after at least one admitted scan has a successful retrieval; this does not mean every scan succeeded. No-go delivery and partial results still count as delivery. Calls after the deadline or in another session are not credited; absence does not prove abandonment or dissatisfaction.</p>
     </CardContent>
   </Card>;

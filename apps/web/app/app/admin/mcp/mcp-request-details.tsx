@@ -16,6 +16,7 @@ export function McpRequestDetails({ event, traffic, period }: {
     sharing_not_confirmed: "Question text was omitted because sharing was not confirmed.",
     invalid_context: "Task context was supplied but did not match the supported format.",
     filtered: "Question text was omitted by the sensitive-content filter.",
+    omitted_by_limit: "Question text exceeded the retention budget and was not retained.",
     retained: "Shared question retained below.",
   };
   const href = (id: string) => `/app/admin/mcp?${new URLSearchParams({ q: id, traffic, timeSpan: period })}`;
@@ -27,7 +28,7 @@ export function McpRequestDetails({ event, traffic, period }: {
       <section aria-label="Shared question" className="rounded-lg border border-sky-200 bg-sky-50 p-3">
         <h3 className="font-semibold text-slate-950">Shared question</h3>
         {details?.taskContext?.questionSummary ? <>
-          <p className="mt-1 text-xs text-slate-500">{details.taskContext.questionSource === "user_wording" ? "Shared user wording" : "Agent paraphrase"} · explicitly shared by the client · up to 300 characters</p>
+          <p className="mt-1 text-xs text-slate-500">{details.taskContext.questionSource === "user_wording" ? "Shared user wording" : "Agent paraphrase"} · explicitly shared by the client · {details.version === 2 ? "up to 8,192 characters within the request budget" : "up to 300 characters"}</p>
           <p className="mt-2 whitespace-pre-wrap">{details.taskContext.questionSummary}</p>
         </> : <p className="mt-2">{details?.callerInput ? questionStates[details.callerInput.questionStatus] : "No question text retained. Older records do not distinguish omitted, filtered, and unrecorded text."} Additional text explicitly sent in tool arguments appears under “What the caller sent.” The original chat conversation is not automatically sent.</p>}
       </section>
@@ -40,7 +41,7 @@ export function McpRequestDetails({ event, traffic, period }: {
       {!event.related_context && event.event_id ? <McpContextOnDemand eventId={event.event_id} traffic={traffic} kind="related" /> : null}
       <section aria-label="What the caller sent">
         <h3 className="font-semibold text-slate-950">What the caller sent</h3>
-        <p className="mt-1 text-xs text-slate-500">Bounded, redacted previews of submitted arguments and metadata. These are caller-supplied values, not verified claims or necessarily the user’s wording. Initialization metadata is labelled separately.</p>
+        <p className="mt-1 text-xs text-slate-500">All retained submitted arguments and metadata are shown below, including supplied prompt text. Secrets and sensitive data remain redacted. These are caller-supplied values, not verified claims or necessarily the user’s wording. Initialization metadata is labelled separately. This is not the original chat conversation or an unredacted request payload.</p>
         {details?.callerInput ? <>
           <dl className="mt-3 space-y-3">{details.callerInput.fields.map((field, index) => <div key={`${field.path}:${index}`}>
             <dt className="break-all font-mono text-xs font-semibold">{field.path}</dt>
@@ -48,7 +49,12 @@ export function McpRequestDetails({ event, traffic, period }: {
             <dd className="text-xs text-slate-500">{field.type} · {field.disposition}{field.reason ? ` · ${field.reason.replaceAll("_", " ")}` : ""}</dd>
           </div>)}</dl>
           {details.callerInput.limits.length ? <p className="mt-2 text-amber-800">Additional input omitted: {details.callerInput.limits.map(limit => limit.replaceAll("_", " ")).join(", ")}.</p> : null}
-          <p className="mt-2 text-xs text-slate-500">Maximum 24 fields and 4 KB; previews up to 300 characters. Nested values and sensitive fields may be omitted.</p>
+          <p className="mt-2 text-xs text-slate-500">{details.callerInput.version === 2 ? "Expanded capture: up to 128 fields, 8 nesting levels and 8,192 characters per text value, within a 12 KB input / 16 KB request budget. Values exceeding safety limits are explicitly omitted." : "Legacy capture: maximum 24 fields and 4 KB; previews up to 300 characters. Longer text cannot be recovered from this record."} Sensitive fields may be omitted.</p>
+          <details className="mt-3 rounded-lg border border-slate-200 p-3">
+            <summary className="cursor-pointer font-semibold">Full retained caller input (JSON)</summary>
+            <p className="mt-2 text-xs text-slate-500">Path-indexed captured fields with redaction and omission markers; shared context is separate. This is the stored representation, not a reconstruction of the original request.</p>
+            <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">{JSON.stringify({ callerInput: details.callerInput, sharedContext: details.taskContext ?? null }, null, 2)}</pre>
+          </details>
         </> : <p className="mt-2">Additional caller input was not recorded for this older request. Retained tool options are shown below.</p>}
       </section>
       <p className="break-all"><strong>Requested resource:</strong> {event.requested_resource ?? "Not recorded"}</p>

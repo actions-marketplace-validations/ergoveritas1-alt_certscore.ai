@@ -17,6 +17,9 @@ export type McpFunnelSession = {
 export type McpFunnelData = {
   sessions: McpFunnelSession[]; total_sessions: number; outside_cohort_calls: number;
   missing_session_calls: number; as_of: string;
+  connected_accounts?: number; caller_bindings?: number; unlinked_initializations?: number;
+  delivery_scans?: Array<{ scan_id: string; session_id: string; completed_at: string | null; mature: boolean; retrieved: boolean; new_scan: boolean }>;
+  delivery_total?: number;
 };
 
 // Parameters are shared with the workflow loader (1–10), then follow-up minutes,
@@ -87,8 +90,38 @@ export function mcpFunnelSql(input: { invocationVisibility: string; activationVi
     left join public.scan_snapshots snapshot on snapshot.scan_id = case when events.admitted
       and events.scan_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then events.scan_id::uuid else null end
     group by cohort.session_id, cohort.client_name, cohort.surface, cohort.source, cohort.initialized_at
+  ), delivery_admissions as materialized (
+    select events.scan_id, events.session_id, events.surface, events.source, events.client_name, min(events.occurred_at) as accepted_at,
+      bool_or(events.scan_decision = 'new') as new_scan
+    from recent_calls events where visible and session_id is not null
+      and tool_name = 'certscore_scan_site' and outcome = 'success' and scan_decision in ('new','reused')
+      and scan_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    group by events.scan_id, events.session_id, events.surface, events.source, events.client_name
+  ), delivery_sample as materialized (
+    select * from delivery_admissions order by accepted_at desc, scan_id, session_id limit 5000
+  ), delivery as (
+    select admitted.scan_id, admitted.session_id, admitted.new_scan,
+      case when scans.status in ('completed','completed_limited') then scans.completed_at else null end as completed_at,
+      coalesce(scans.status in ('completed','completed_limited') and scans.completed_at is not null
+        and greatest(scans.completed_at,admitted.accepted_at) + ($11::int * interval '1 minute') <= now(),false) as mature,
+      exists(select 1 from recent_calls events where events.visible and ${same('events','admitted')}
+        and events.scan_id = admitted.scan_id and events.outcome = 'success' and events.tool_name = any($13::text[])
+        and scans.completed_at is not null and scans.status in ('completed','completed_limited')
+        and events.occurred_at >= greatest(scans.completed_at,admitted.accepted_at)
+        and events.occurred_at <= greatest(scans.completed_at,admitted.accepted_at) + ($11::int * interval '1 minute')) as retrieved
+    from delivery_sample admitted join public.scans scans on scans.id=admitted.scan_id::uuid
   )
   select now() as as_of, (select count(*)::int from starts) as total_sessions,
+    (select count(distinct to_jsonb(activation)->>'authenticated_user_id')::int from public.mcp_activation_events activation
+      where activation.stage='mcp_initialized' and (${input.activationVisibility})
+      and activation.occurred_at between now()-($1::int * interval '1 hour') and now()
+      and ($2::text is null or activation.client_name=$2) and ($3::text is null or activation.surface=$3) and ($4::text is null or activation.source=$4)) as connected_accounts,
+    (select count(distinct actor_id)::int from recent_calls where visible) as caller_bindings,
+    (select count(*)::int from public.mcp_activation_events activation where activation.stage='mcp_initialized' and activation.session_id is null
+      and (${input.activationVisibility}) and activation.occurred_at between now()-($1::int * interval '1 hour') and now()
+      and ($2::text is null or activation.client_name=$2) and ($3::text is null or activation.surface=$3) and ($4::text is null or activation.source=$4)) as unlinked_initializations,
+    (select count(*)::int from delivery_admissions) as delivery_total,
+    coalesce((select jsonb_agg(to_jsonb(delivery) order by completed_at desc nulls last,scan_id,session_id) from delivery),'[]'::jsonb) as delivery_scans,
     (select count(*)::int from recent_calls events where events.visible and not exists(select 1 from starts where ${same('starts','events')})) as outside_cohort_calls,
     (select count(*)::int from recent_calls where visible and session_id is null) as missing_session_calls,
     coalesce((select jsonb_agg(to_jsonb(measured) order by initialized_at desc, session_id) from measured),'[]'::jsonb) as sessions`;

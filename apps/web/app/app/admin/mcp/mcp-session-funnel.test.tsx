@@ -21,3 +21,14 @@ test('a zero denominator is unknown, not zero percent conversion',()=>{
   assert.equal(funnelRate(0,0),'— (no eligible sessions)');
   assert.equal(funnelRate(0,3),'0/3 · 0.0%');
 });
+test('per-scan retrieval rates exclude pending pairs and show missing results without claiming abandonment',()=>{
+  const base={session_id:'s',completed_at:'2026-09-08T00:00:00Z',mature:true,new_scan:true};
+  const html=renderToStaticMarkup(<McpSessionFunnel data={{sessions:[],total_sessions:0,outside_cohort_calls:0,missing_session_calls:0,as_of:'2026-09-08T01:00:00Z',connected_accounts:2,caller_bindings:3,
+    delivery_total:3,delivery_scans:[{...base,scan_id:'one',retrieved:true},{...base,scan_id:'two',retrieved:false},{...base,scan_id:'pending',retrieved:false,mature:false}]}} followUpMinutes={30} params={{traffic:'external',timeSpan:'24h'}}/>);
+  assert.match(html,/1\/2 · 50.0%/);
+  assert.match(html,/1 without a recorded retrieval/);
+  assert.match(html,/not confirmed client receipt/);
+  assert.match(html,/2 account-linked connections/);
+  assert.match(html,/\/app\/scans\/two/);
+  assert.doesNotMatch(html,/\/app\/scans\/pending/);
+});

@@ -6,16 +6,20 @@ import { isPlatformAdminEmail } from "../admin/platform-admin";
 import { persistProductAnalyticsEvent } from "../product-analytics/repository";
 
 export async function persistMcpActivationEvent(event: McpActivationEvent) {
+  const user = event.userId
+    ? await queryOne<{ email: string }>(`select email from public.users where id = $1::uuid limit 1`, [event.userId], { readOnly: true })
+    : null;
+  const isStaff = isPlatformAdminEmail(user?.email);
   await query(
     `with inserted as (
        insert into public.mcp_activation_events (
          event_id, occurred_at, stage, surface, auth_class, session_id, actor_id,
          source, source_attribution, caller_product, client_family, client_name,
          attribution_confidence, attribution_signals, attribution_ruleset_version,
-         execution_channel, installation_origin
+         execution_channel, installation_origin, authenticated_user_id, is_staff
        ) values (
          $1::uuid, $2::timestamptz, $3, $4, $5, $6, $7,
-         $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17
+         $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $19::uuid, $20
        )
        on conflict (event_id) do nothing
        returning event_id
@@ -52,16 +56,11 @@ export async function persistMcpActivationEvent(event: McpActivationEvent) {
       event.executionChannel,
       event.installationOrigin,
       MCP_TELEMETRY_RETENTION_DAYS,
+      event.userId,
+      isStaff,
     ],
   );
   if (event.surface !== "mcp_authenticated") return;
-  const user = event.userId
-    ? await queryOne<{ email: string }>(
-        `select email from public.users where id = $1::uuid limit 1`,
-        [event.userId],
-        { readOnly: true }
-      )
-    : null;
   await persistProductAnalyticsEvent({
     category: "interaction",
     eventName: event.stage,
@@ -74,7 +73,8 @@ export async function persistMcpActivationEvent(event: McpActivationEvent) {
     countryCode: null,
     deviceClass: "unknown",
     isBot: false,
-    isStaff: isPlatformAdminEmail(user?.email),
+    isStaff,
+    mcpSessionId: event.sessionId,
     osFamily: "server",
     organizationId: event.organizationId,
     referringDomain: null,

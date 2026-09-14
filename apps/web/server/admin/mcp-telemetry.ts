@@ -1,4 +1,5 @@
 import { mcpWorkflowCohortSql } from "../../lib/admin/mcp-workflow-cohort";
+import { activityTrafficSql } from "../../lib/admin/activity-provenance";
 import { MCP_TRAFFIC_EXCLUSIONS_SQL } from "../../lib/admin/mcp-traffic-exclusions";
 import { cache } from "react";
 import { withServerTiming } from "../performance/log-server-timing";
@@ -259,7 +260,7 @@ function macMiniMcpTrafficFilter(alias: string, excludeParameter: string, scanId
 
 function internalQaMcpTrafficFilter(alias: string, scanIdsParameter: string, requesterIpParameter: string, clientNameParameter: string) {
   const prefix = alias ? `${alias}.` : "";
-  return `and not (
+  return `and ${activityTrafficSql(alias || "events")} = 'external' and not (
     ${prefix}is_canary
     or lower(coalesce(${prefix}client_name, '')) = any(${clientNameParameter}::text[])
     or coalesce(host(${prefix}requester_ip), '') = any(${requesterIpParameter}::text[])
@@ -295,7 +296,7 @@ async function loadAdminMcpTelemetryDashboardUncached(
   const retentionDaysParameter = `$${dashboardFilterValues.length + 1}`;
   const activationFilter = includeCanary
     ? ""
-    : `and lower(coalesce(activation.client_name, '')) <> all($1::text[])
+    : `and ${activityTrafficSql("activation")} = 'external' and lower(coalesce(activation.client_name, '')) <> all($1::text[])
        and not exists (
          select 1
            from public.mcp_tool_invocation_events linked
@@ -898,7 +899,7 @@ async function loadAdminMcpDiscoveryUncached(
   const result = await queryOne<{ total_count: number; items: McpDiscoveryClient[] }>(
     mcpDiscoverySql({
       invocationVisibility,
-      activationVisibility: "($13::boolean or lower(coalesce(activation.client_name, '')) <> all($10::text[]))",
+      activationVisibility: `($13::boolean or ${activityTrafficSql("activation")} = 'external')`,
     }),
     [MCP_DISCOVERY_PERIODS[period], search, surface, client, 2147483647, 0, source,
       exclusions.qa, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES,
@@ -967,7 +968,7 @@ async function loadMcpFunnelUncached(period: McpDiscoveryPeriod, client: string 
     macMiniMcpTrafficFilter("events", "$9", "$10").replace(/^and /, ""),
   ].join(" and ");
   const result = await queryOne<McpFunnelData>(mcpFunnelSql({ invocationVisibility: visibility,
-    activationVisibility: "($5::boolean or lower(coalesce(activation.client_name, '')) <> all($8::text[]))" }),
+    activationVisibility: `($5::boolean or ${activityTrafficSql("activation")} = 'external')` }),
     [MCP_DISCOVERY_PERIODS[period], client, surface, source, includeInternalQa,
       exclusions.qa, INTERNAL_QA_REQUESTER_IPS, INTERNAL_QA_MCP_CLIENT_NAMES, excludeMacMini,
       exclusions.macmini, followUpMinutes, SCAN_NO_GO_SNAPSHOT_OUTCOMES, MCP_FUNNEL_RESULT_TOOLS], { readOnly: true });

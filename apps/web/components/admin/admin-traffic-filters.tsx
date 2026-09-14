@@ -52,6 +52,7 @@ export function AdminTrafficFilters({
           <option key={value} value={value}>{adminTrafficScopeLabel(value)}</option>
         ))}
       </select>
+      {basePath === "/app/admin/scans" || basePath === "/app/admin/analytics" || basePath === "/app/admin/mcp" ? <span className="ml-2 max-w-72 text-xs text-slate-500">External requires retained provenance. Unknown and historical unclassified activity is available under Include all traffic.</span> : null}
     </form>
   );
 }

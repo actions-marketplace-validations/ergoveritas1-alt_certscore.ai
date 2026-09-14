@@ -227,7 +227,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
     ...(initialization?.params?.clientInfo !== undefined ? { clientInfo: initialization.params.clientInfo } : {}),
     ...(initialization?.params?.capabilities !== undefined ? { capabilities: initialization.params.capabilities } : {}),
     ...(initialization?.params?.protocolVersion !== undefined ? { protocolVersion: initialization.params.protocolVersion } : {}),
-  } });
+  } }, { expanded: process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED === "1" });
   initialInput.fields = initialInput.fields.filter(field => field.path !== "arguments");
   const conversationId = firstHeader(input.headers, "openai-conversation-id");
   const ingestionUrl = new URL("/api/internal/mcp-telemetry", input.baseUrl);
@@ -339,7 +339,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
     const eventRequesterIp = requestContext?.requesterIp ?? input.requesterIp ?? null;
     const parsed = mcpTelemetryEventSchema.safeParse({
       requestDetails: boundMcpRequestDetails({
-        version: 1,
+        version: process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED === "1" ? 2 : 1,
         ...(eventRequesterIp && input.requesterIp ? {requesterChanged: eventRequesterIp !== input.requesterIp} : {}),
         ...(observation.callerInput ? { callerInput: mergeMcpCallerInputs(observation.callerInput, initialInput) } : {}),
         captureBasis: observation.captureBasis ?? "validated_arguments",
@@ -444,7 +444,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
         requestId: input.requestId,
         ...(input.responseSummary ? { response: { bytes: null, truncated: null, summary: input.responseSummary } } : {}),
         captureBasis: "protocol_request",
-        callerInput: captureMcpCallerInput(args, (input.body as { params?: { _meta?: unknown } } | null)?.params?._meta),
+        callerInput: captureMcpCallerInput(args, (input.body as { params?: { _meta?: unknown } } | null)?.params?._meta, { expanded: process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED === "1" }),
         ...(sanitizeMcpTaskContext(args.taskContext) ? { taskContext: sanitizeMcpTaskContext(args.taskContext)! } : {}),
         errorCode: "rate_limited",
         outcome: "rate_limited",

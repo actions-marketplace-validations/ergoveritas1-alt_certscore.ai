@@ -1,7 +1,12 @@
+import { MCP_REQUEST_VALIDATION_CODES } from "./mcp-request-outcome";
+const validationCodesSql = MCP_REQUEST_VALIDATION_CODES.map(code => `'${code}'`).join(",");
 export const MCP_DISCOVERY_PERIODS = { "1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720 } as const;
 export type McpDiscoveryPeriod = keyof typeof MCP_DISCOVERY_PERIODS;
 
 export type McpDiscoveryClient = {
+  validation_errors?: number;
+  execution_errors?: number;
+  missing_session_events?: number;
   client_name: string | null;
   surface: string;
   source: string;
@@ -24,6 +29,13 @@ export type McpDiscoveryClient = {
   methods: string[];
   error_codes: string[];
 };
+
+export function discoveryDiagnostic(row: Pick<McpDiscoveryClient, "tool_calls" | "catalog_reads" | "initializations" | "missing_session_events">) {
+  if ((row.missing_session_events ?? 0) > 0) return "Linkage limited: some events have no session. Check telemetry before interpreting conversion.";
+  if (row.catalog_reads > 0 && row.tool_calls === 0) return "Discovery only: no tool execution recorded. Verify this client's authenticated tools/call path; this is not proof of abandonment.";
+  if (row.initializations > 0 && row.catalog_reads === 0 && row.tool_calls === 0) return "Initialization only. Listing is optional; no tool use was recorded.";
+  return "Tool execution observed. Compare scan completion and same-scan retrieval in the session funnel.";
+}
 
 export function discoveryBehavior(row: Pick<McpDiscoveryClient, "tool_calls" | "catalog_reads">) {
   if (row.tool_calls > 0) return "Tool use observed";
@@ -85,6 +97,9 @@ export function mcpDiscoverySql(input: { invocationVisibility: string; activatio
            count(*) filter (where method = 'tools/list')::int as catalog_reads,
            count(*) filter (where method = 'tools/call')::int as tool_calls,
            count(*) filter (where outcome in ('error', 'rate_limited'))::int as tool_errors,
+           count(*) filter (where outcome = 'error' and error_code in (${validationCodesSql}))::int as validation_errors,
+           count(*) filter (where outcome = 'error' and coalesce(error_code,'') not in (${validationCodesSql}))::int as execution_errors,
+           count(*) filter (where session_id is null)::int as missing_session_events,
            count(*) filter (where tool_name = 'certscore_scan_site')::int as scan_requests,
            count(*) filter (where tool_name = 'certscore_get_scan_bundle' and outcome = 'success')::int as bundles,
            array_agg(distinct method order by method) as methods,

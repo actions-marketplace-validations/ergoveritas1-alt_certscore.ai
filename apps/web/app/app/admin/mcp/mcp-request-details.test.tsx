@@ -3,12 +3,27 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { McpRequestDetails } from "./mcp-request-details";
+import { captureMcpCallerInput } from "@website-signal-risk-scanner/shared";
 
 const event = {
   session_id: "a".repeat(24), actor_id: "b".repeat(24), tool_name: "certscore_get_scan_bundle",
   requested_resource: "scan_123", requested_resource_type: "scan_id" as const,
   quota_outcome: "rate_limited" as const, transport_outcome: "http_429" as const,
 };
+
+test("expanded caller input renders complete retained prompt text and honest JSON/limit labels", () => {
+  const prompt = "Review the site's disclosures. ".repeat(60) + "Final instruction.";
+  const html = renderToStaticMarkup(<McpRequestDetails traffic="external" period="6h" event={{ ...event,
+    request_details: { version: 2, arguments: {}, argumentsOmitted: false, actorBasis: "unavailable", sessionBasis: "unavailable", rateLimit: null,
+      callerInput: captureMcpCallerInput({ prompt }, undefined, { expanded: true }) },
+  }} />);
+  assert.match(html, /Final instruction\./);
+  assert.match(html, /Full retained caller input \(JSON\)/);
+  assert.match(html, /Expanded capture/);
+  assert.match(html, /8,192 characters/);
+  assert.match(html, /not a reconstruction/);
+  assert.doesNotMatch(html, /previews up to 300/);
+});
 
 test("request details render recorded arguments, correlation links, and the enforced limit", () => {
   const html = renderToStaticMarkup(<McpRequestDetails traffic="external" period="6h" event={{ ...event,

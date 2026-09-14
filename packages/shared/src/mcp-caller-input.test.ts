@@ -5,6 +5,50 @@ import { boundMcpRequestDetails, mcpRequestDetailsSchema } from "./mcp-telemetry
 
 const sharedQuestion = { questionSummary: "Check tracking before consent", questionSource: "user_wording", shareForImprovement: true };
 
+test("expanded capture retains long prompt text and nested metadata without legacy preview truncation", () => {
+  const prompt = "Review the site's privacy disclosures carefully.\n".repeat(50);
+  const result = captureMcpCallerInput({ options: Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`flag${i}`, true])), prompt }, { nested: { one: { two: { note: "Supplied context" } } } }, { expanded: true });
+  assert.equal(result.version, 2);
+  assert.equal(result.fields[0]?.value, prompt);
+  assert.ok(result.fields.length > 24);
+  assert.equal(result.fields.find(f => f.path === "request_meta.nested.one.two.note")?.value, "Supplied context");
+  assert.equal(mcpCallerInputSchema.safeParse(result).success, true);
+  assert.equal(mcpCallerInputSchema.safeParse({ ...result, version: 1 }).success, false);
+  const legacy = captureMcpCallerInput({ prompt });
+  assert.equal(legacy.version, 1);
+  assert.equal(String(legacy.fields[0]?.value).length, 300);
+  assert.equal(legacy.fields[0]?.disposition, "truncated");
+  assert.ok(!String(legacy.fields[0]?.value).includes("\n"));
+});
+
+test("expanded capture checks the full text for secrets and explicitly omits oversized values", () => {
+  const prefix = "Please review this site's policies. ".repeat(100);
+  const result = captureMcpCallerInput({ prompt: prefix + " password private-value", notes: "safe words ".repeat(1000), taskContext: { ...sharedQuestion, shareForImprovement: false } }, undefined, { expanded: true });
+  assert.equal(result.fields.find(f => f.path === "arguments.prompt")?.value, "[redacted]");
+  assert.equal(result.fields.find(f => f.path === "arguments.notes")?.reason, "text_limit");
+  assert.equal(result.questionStatus, "sharing_not_confirmed");
+  assert.ok(!JSON.stringify(result).includes("private-value"));
+  assert.ok(!JSON.stringify(result).includes(sharedQuestion.questionSummary));
+  assert.equal(mcpCallerInputSchema.safeParse(result).success, true);
+});
+
+test("expanded envelope preserves shared text, handles multibyte limits, and never mutates input", () => {
+  const question = "Explain the policy disclosures. ".repeat(120);
+  const input = { version: 2 as const, arguments: {}, argumentsOmitted: false, actorBasis: "unavailable" as const, sessionBasis: "unavailable" as const, rateLimit: null,
+    taskContext: { ...sharedQuestion, questionSource: "user_wording" as const, questionSummary: question },
+    callerInput: captureMcpCallerInput({ prompt: "日本語の説明。".repeat(800) }, undefined, { expanded: true }) };
+  const original = JSON.stringify(input);
+  const result = boundMcpRequestDetails(input);
+  assert.equal(result.taskContext?.questionSummary, question);
+  assert.ok(Buffer.byteLength(JSON.stringify(result, null, 1)) <= 16384);
+  assert.equal(mcpRequestDetailsSchema.safeParse(result).success, true);
+  assert.equal(JSON.stringify(input), original);
+  const oversized = boundMcpRequestDetails({ ...input, taskContext: { ...input.taskContext, questionSummary: "日。".repeat(4000) } });
+  assert.equal(oversized.taskContext?.questionSummary, undefined);
+  assert.equal(oversized.callerInput?.questionStatus, "omitted_by_limit");
+  assert.equal(mcpRequestDetailsSchema.safeParse(oversized).success, true);
+});
+
 test("retains supplied extra text and metadata without asserting it is a chat transcript", () => {
   const result = captureMcpCallerInput({ reason: "Vendor renewal review", notes: "Focus on analytics", prompt: "Check consent controls", options: { enabled: true } }, {
     "io.modelcontextprotocol/clientInfo": { name: "Example client", version: "1.2.3" }, progressToken: "do-not-store",

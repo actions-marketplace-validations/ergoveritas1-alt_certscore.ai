@@ -12,7 +12,8 @@ test("session funnel uses mature cohorts, exact identity, ordered same-scan retr
     await db.query(`begin;
       create temp table mcp_activation_events(session_id text,client_name text default 'app',surface text default 'mcp_light',source text default 'unknown',stage text default 'mcp_initialized',occurred_at timestamptz);
       create temp table mcp_tool_invocation_events(event_id text,session_id text,client_name text default 'app',surface text default 'mcp_light',source text default 'unknown',occurred_at timestamptz,
-        tool_name text,outcome text default 'success',quota_outcome text default 'allowed',scan_id text,scan_decision text default 'not_applicable',request_details jsonb,is_canary boolean default false);
+        actor_id text,tool_name text,outcome text default 'success',quota_outcome text default 'allowed',scan_id text,scan_decision text default 'not_applicable',request_details jsonb,is_canary boolean default false);
+      create temp table scans(id uuid primary key,status text,completed_at timestamptz);
       create temp table scan_snapshots(scan_id uuid unique,scan_outcome text);
       insert into mcp_activation_events(session_id,occurred_at) values
         ('success',now()-interval '120 minutes'),('blocked',now()-interval '120 minutes'),('pending',now()-interval '5 minutes'),
@@ -47,6 +48,13 @@ test("session funnel uses mature cohorts, exact identity, ordered same-scan retr
     await call(null,'certscore_get_scan_status',100);
     const sql=mcpFunnelSql({invocationVisibility:'not events.is_canary and $5::boolean and $6::text[] is not null and $7::text[] is not null and $8::text[] is not null and $9::boolean and $10::text[] is not null',activationVisibility:'true'}).replaceAll('public.','pg_temp.');
     const data=(await db.query(sql,[6,null,null,null,true,[],[],[],true,[],30,SCAN_NO_GO_SNAPSHOT_OUTCOMES,MCP_FUNNEL_RESULT_TOOLS])).rows[0]!;
+    assert.equal(data.connected_accounts,0);
+    await db.query("insert into scans values ($1,'completed',now()-interval '118 minutes')",[scan]);
+    const deliveryData=(await db.query(sql,[6,null,null,null,true,[],[],[],true,[],30,SCAN_NO_GO_SNAPSHOT_OUTCOMES,MCP_FUNNEL_RESULT_TOOLS])).rows[0]!;
+    assert.equal(deliveryData.delivery_scans.find((r:any)=>r.session_id==='success').retrieved,true);
+    assert.equal(deliveryData.delivery_scans.find((r:any)=>r.session_id==='late').retrieved,false);
+    assert.equal(deliveryData.delivery_scans.find((r:any)=>r.session_id==='late').mature,true);
+    assert.equal(deliveryData.delivery_scans.find((r:any)=>r.session_id==='pending').mature,false);
     assert.equal(data.total_sessions,8); // Old and excluded sessions omitted; duplicate initialize deduplicated.
     assert.equal(data.outside_cohort_calls,4);
     assert.equal(data.missing_session_calls,1);

@@ -1,4 +1,5 @@
 import "server-only";
+import { activityTrafficSql } from "../../lib/admin/activity-provenance";
 
 import { unstable_cache } from "next/cache";
 import { query, queryOne } from "@website-signal-risk-scanner/db";
@@ -29,6 +30,7 @@ type RouteRow = { normalized_route: string; events: Count; sessions: Count };
 type FeatureRow = { event_name: string; feature: string; events: Count; sessions: Count };
 
 export type ProductAnalyticsRecentEvent = {
+  traffic_class?: string;
   actor_id: string | null;
   consent_state: string;
   country_code: string | null;
@@ -177,12 +179,13 @@ function unifiedEventsCte(
   ), unified_events as (
     select ('web:' || events.event_id::text) as event_id,
            events.occurred_at,
-           'Web'::text as event_route,
+           case when events.event_name ~ '^mcp_' then 'MCP' else 'Web' end::text as event_route,
+           ${activityTrafficSql("events")} as traffic_class,
            events.event_name,
            events.feature,
            events.outcome,
            events.normalized_route,
-           events.session_id::text,
+           coalesce(events.mcp_session_id, events.session_id::text) as session_id,
            events.actor_id::text,
            events.user_id::text,
            events.scan_id,
@@ -208,6 +211,7 @@ function unifiedEventsCte(
     select ('scan-request:' || requests.public_id) as event_id,
            requests.requested_at as occurred_at,
            ${scanRequestRoute} as event_route,
+           ${activityTrafficSql("requests")} as traffic_class,
            'scan_requested'::text as event_name,
            coalesce(nullif(requests.request_type, ''), 'full_scan') as feature,
            case when requests.status in ('rejected', 'failed') then 'failure'
@@ -243,6 +247,7 @@ function unifiedEventsCte(
     select ('api:' || requests.public_id) as event_id,
            requests.requested_at as occurred_at,
            ${pulseRoute} as event_route,
+           ${activityTrafficSql("requests")} as traffic_class,
            'api_request'::text as event_name,
            coalesce(nullif(requests.request_type, ''), 'scan') as feature,
            case when requests.status in ('failed', 'expired', 'rate_limited') then 'failure'
@@ -276,6 +281,7 @@ function unifiedEventsCte(
     select ('mcp:' || events.event_id::text) as event_id,
            events.occurred_at,
            'MCP'::text as event_route,
+           ${activityTrafficSql("events")} as traffic_class,
            'mcp_tool_invoked'::text as event_name,
            events.tool_name as feature,
            case when events.outcome = 'success' then 'success' else 'failure' end as outcome,
@@ -314,6 +320,7 @@ function unifiedEventsCte(
     select ('scan-event:' || events.id::text) as event_id,
            events.created_at as occurred_at,
            ${scanEventRoute} as event_route,
+           ${activityTrafficSql("scans")} as traffic_class,
            events.event_type as event_name,
            'scan_lifecycle'::text as feature,
            case when events.event_type ~* 'failed|error|rejected|expired' then 'failure'
@@ -363,7 +370,7 @@ function unifiedEventQueryValues(interval: string): unknown[] {
 
 function visibilityClauses(includeInternal: boolean, excludeMacMiniScanBot: boolean) {
   const clauses: string[] = [];
-  if (!includeInternal) clauses.push("events.is_staff = false");
+  if (!includeInternal) clauses.push("events.is_staff = false and events.traffic_class = 'external'");
   if (excludeMacMiniScanBot) clauses.push("events.is_mac_mini_scan_bot = false");
   return clauses;
 }
@@ -425,7 +432,7 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
     ),
     query<ProductAnalyticsRecentEvent>(
       `${cte}
-       select events.event_id, events.occurred_at, events.event_route, events.event_name, events.feature, events.outcome,
+       select events.event_id, events.occurred_at, events.event_route, events.traffic_class, events.event_name, events.feature, events.outcome,
               events.normalized_route, events.session_id::text, events.actor_id::text, events.scan_id::text,
               events.consent_state, events.device_class, events.country_code, events.source, users.email,
               events.origin_ip, events.origin_ip_hash, events.freshness, events.duration_ms,

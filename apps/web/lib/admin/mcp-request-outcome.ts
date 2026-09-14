@@ -7,6 +7,7 @@ const requestErrorLabels: Record<string, string> = {
   unknown_tool: "Unknown tool",
 };
 
+export const MCP_REQUEST_VALIDATION_CODES = Object.keys(requestErrorLabels);
 type RequestOutcome = { outcome: string; error_code: string | null; scan_status?: string | null };
 
 export function mcpRequestValidationLabel(event: RequestOutcome): string | null {

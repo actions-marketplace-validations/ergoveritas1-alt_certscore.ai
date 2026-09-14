@@ -1,21 +1,25 @@
 import { z } from "zod";
 import { sanitizeMcpTaskContext } from "./mcp-product-context";
+import { MCP_INPUT_RETENTION } from "./mcp-input-retention";
 
-export const MCP_CALLER_INPUT_MAX_BYTES = 4096;
+export const MCP_CALLER_INPUT_MAX_BYTES = MCP_INPUT_RETENTION.inputBytes;
 const reasons = ["sensitive_field", "sensitive_content", "url_components_removed", "invalid_field_name", "unsupported_type", "depth_limit", "text_limit", "field_limit", "byte_limit", "task_context_separate"] as const;
 const fieldSchema = z.object({
   path: z.string().max(160).regex(/^[a-zA-Z0-9_.\[\]-]+$/),
   type: z.enum(["string", "number", "boolean", "null", "array", "object", "other"]),
-  value: z.union([z.string().max(300), z.number().finite(), z.boolean(), z.null()]).optional(),
+  value: z.union([z.string().max(MCP_INPUT_RETENTION.textCharacters), z.number().finite(), z.boolean(), z.null()]).optional(),
   disposition: z.enum(["retained", "redacted", "omitted", "truncated"]),
   reason: z.enum(reasons).optional(),
 }).strict();
 export const mcpCallerInputSchema = z.object({
-  version: z.literal(1),
-  fields: z.array(fieldSchema).max(24),
+  version: z.union([z.literal(1), z.literal(2)]),
+  fields: z.array(fieldSchema).max(MCP_INPUT_RETENTION.fields),
   limits: z.array(z.enum(["field_limit", "byte_limit"])).max(2),
-  questionStatus: z.enum(["retained", "not_provided", "sharing_not_confirmed", "invalid_context", "filtered"]),
+  questionStatus: z.enum(["retained", "not_provided", "sharing_not_confirmed", "invalid_context", "filtered", "omitted_by_limit"]),
 }).strict().superRefine((input, context) => {
+  if (input.version === 1 && (input.fields.length > 24 || input.fields.some(field => typeof field.value === "string" && field.value.length > 300) || new TextEncoder().encode(JSON.stringify(input)).length > 4096)) {
+    context.addIssue({ code: "custom", message: "Legacy caller input exceeds its original retention limits." });
+  }
   for (const [index, field] of input.fields.entries()) {
     const finalKey = field.path.split(".").at(-1) ?? "";
     if (field.value !== undefined && sensitiveKey.test(finalKey)
@@ -33,7 +37,7 @@ type Field = z.infer<typeof fieldSchema>;
 const sensitiveKey = /password|passwd|secret|token|authorization|cookie|credential|api.?key|private.?key|email|phone|address|account|payment|card|conversation|transcript|chat.?history|messages|(^|_)history|user.?id|session.?id/i;
 const sensitiveText = /\b(?:bearer|password|passwd|secret|token|api[_ -]?key)\b|\b(?:sk|ghp|gho|xoxb|xoxp)[_-][a-z0-9-]+|[a-z0-9_+=/-]{40,}/i;
 
-/** Display-safe bounded previews, never a raw request/header/body archive. */
+/** Retain complete safe text inside the safety ceiling, never raw credentials. */
 function previewText(value: string, key?: string): { value: string; reason?: Field["reason"] } {
   if (key === "protocolVersion" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return { value };
   if (sensitiveText.test(value)) return { value: "[redacted]", reason: "sensitive_content" };
@@ -43,9 +47,8 @@ function previewText(value: string, key?: string): { value: string; reason?: Fie
       try { return new URL(match.startsWith("www.") ? `https://${match}` : match).origin; }
       catch { return "[URL redacted]"; }
     })
-    .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ");
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ");
   const reason = redacted !== value ? "sensitive_content" : undefined;
-  if (redacted.length > 300) return { value: redacted.slice(0, 299) + "…", reason: "text_limit" };
   return { value: redacted, reason };
 }
 
@@ -61,15 +64,18 @@ export function mcpQuestionStatus(args: Record<string, unknown>): McpCallerInput
   return sanitized.questionSummary ? "retained" : "filtered";
 }
 
-export function captureMcpCallerInput(args: Record<string, unknown>, metadata?: unknown): McpCallerInput {
-  const result: McpCallerInput = { version: 1, fields: [], limits: [], questionStatus: mcpQuestionStatus(args) };
+export function captureMcpCallerInput(args: Record<string, unknown>, metadata?: unknown, options: { expanded?: boolean } = {}): McpCallerInput {
+  const expanded = options.expanded === true;
+  const maxFields = expanded ? MCP_INPUT_RETENTION.fields : 24;
+  const maxBytes = expanded ? MCP_CALLER_INPUT_MAX_BYTES : 4096;
+  const result: McpCallerInput = { version: expanded ? 2 : 1, fields: [], limits: [], questionStatus: mcpQuestionStatus(args) };
   let stopped = false;
   const add = (field: Field) => {
     if (stopped) return;
-    if (result.fields.length >= 24) { result.limits.push("field_limit"); stopped = true; return; }
+    if (result.fields.length >= maxFields) { result.limits.push("field_limit"); stopped = true; return; }
     result.fields.push(field);
     // Reserve room for the terminal byte-limit marker.
-    if (new TextEncoder().encode(JSON.stringify(result)).length > MCP_CALLER_INPUT_MAX_BYTES - 32) {
+    if (new TextEncoder().encode(JSON.stringify(result)).length > maxBytes - 32) {
       result.fields.pop(); result.limits.push("byte_limit"); stopped = true;
     }
   };
@@ -81,8 +87,11 @@ export function captureMcpCallerInput(args: Record<string, unknown>, metadata?: 
     if (path === "arguments.taskContext") { add({ path, type, disposition: "omitted", reason: "task_context_separate" }); return; }
     if (typeof value === "string") {
       // Don't inspect unbounded strings, nor retain a prefix that could cut a secret in half.
-      if (value.length > 4096) { add({ path, type, disposition: "omitted", reason: "text_limit" }); return; }
+      if (value.length > (expanded ? MCP_INPUT_RETENTION.textCharacters : 4096)) { add({ path, type, disposition: "omitted", reason: "text_limit" }); return; }
       const preview = previewText(value, key);
+      // Keep default-off output acceptable to older ingestion readers during rollout.
+      if (!expanded && /[\n\r\t]/.test(preview.value)) { preview.value = preview.value.replace(/[\n\r\t]/g, " "); preview.reason = "sensitive_content"; }
+      if (!expanded && preview.value.length > 300) { preview.value = preview.value.slice(0, 300); preview.reason = "text_limit"; }
       if (key === "url" && preview.value !== value && preview.value !== "[redacted]" && /^https?:\/\//i.test(value)) preview.reason = "url_components_removed";
       add({ path, type, value: preview.value, disposition: preview.reason === "text_limit" ? "truncated" : preview.reason ? "redacted" : "retained", ...(preview.reason ? { reason: preview.reason } : {}) });
     } else if (typeof value === "number" && Number.isFinite(value) && Math.abs(value) >= 1_000_000) {
@@ -90,8 +99,11 @@ export function captureMcpCallerInput(args: Record<string, unknown>, metadata?: 
     } else if (value === null || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value)) {
       add({ path, type, value, disposition: "retained" });
     } else if (value && typeof value === "object") {
-      if (depth >= 2) { add({ path, type, disposition: "omitted", reason: "depth_limit" }); return; }
+      if (depth >= (expanded ? MCP_INPUT_RETENTION.depth : 2)) { add({ path, type, disposition: "omitted", reason: "depth_limit" }); return; }
       const keys = Object.keys(value);
+      // Under a finite budget, explicitly supplied prompt/context takes priority
+      // over routine options. This does not infer or request a conversation.
+      if (expanded) keys.sort((a, b) => Number(/^(prompt|question|instructions|context|reason|notes)$/i.test(b)) - Number(/^(prompt|question|instructions|context|reason|notes)$/i.test(a)));
       if (!keys.length) add({ path, type, disposition: "retained", value: Array.isArray(value) ? "[]" : "{}" });
       for (const child of keys) {
         if (child === "io.modelcontextprotocol/clientInfo" && path === "request_meta") {
@@ -113,11 +125,13 @@ export function captureMcpCallerInput(args: Record<string, unknown>, metadata?: 
 
 /** Merge already sanitized sections under one shared byte/field budget. */
 export function mergeMcpCallerInputs(primary: McpCallerInput, secondary: McpCallerInput): McpCallerInput {
-  const merged: McpCallerInput = { ...primary, fields: [...primary.fields], limits: [...primary.limits] };
+  const merged: McpCallerInput = { ...primary, version: primary.version === 2 || secondary.version === 2 ? 2 : 1, fields: [...primary.fields], limits: [...primary.limits] };
+  const maxFields = merged.version === 1 ? 24 : MCP_INPUT_RETENTION.fields;
+  const maxBytes = merged.version === 1 ? 4096 : MCP_CALLER_INPUT_MAX_BYTES;
   for (const field of secondary.fields) {
-    if (merged.fields.length >= 24) { if (!merged.limits.includes("field_limit")) merged.limits.push("field_limit"); break; }
+    if (merged.fields.length >= maxFields) { if (!merged.limits.includes("field_limit")) merged.limits.push("field_limit"); break; }
     merged.fields.push(field);
-    if (new TextEncoder().encode(JSON.stringify(merged)).length > MCP_CALLER_INPUT_MAX_BYTES - 32) {
+    if (new TextEncoder().encode(JSON.stringify(merged)).length > maxBytes - 32) {
       merged.fields.pop(); if (!merged.limits.includes("byte_limit")) merged.limits.push("byte_limit"); break;
     }
   }

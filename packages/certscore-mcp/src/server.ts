@@ -547,7 +547,7 @@ export function createCertScoreMcpServer(options: CertScoreMcpOptions = {}) {
             requestId,
             timing: { startedAt: new Date(startedAt).toISOString(), responseGeneratedAt: new Date().toISOString() },
             captureBasis: "protocol_request",
-            callerInput: captureMcpCallerInput(args, request.params._meta),
+            callerInput: captureMcpCallerInput(args, request.params._meta, { expanded: process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED === "1" }),
             ...(taskContext ? { taskContext } : {}),
             response: {
               summary: captureMcpResponse(result, protocolFailure),

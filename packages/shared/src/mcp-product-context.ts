@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { MCP_INPUT_RETENTION } from "./mcp-input-retention";
 
 export const MCP_TASK_PURPOSES = ["prelaunch_review", "vendor_review", "tracking_check", "consent_gpc_check", "policy_review", "recheck", "other", "unknown"] as const;
 const integrationToken = z.string().max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
 // Question text is optional and explicitly shared, never a transcript or inferred prompt.
 export const mcpTaskContextSchema = z.object({
   purpose: z.enum(MCP_TASK_PURPOSES).optional(),
-  questionSummary: z.string().trim().min(1).max(300).optional(),
+  questionSummary: z.string().trim().min(1).max(MCP_INPUT_RETENTION.textCharacters).optional(),
   questionSource: z.enum(["user_wording", "agent_paraphrase"]).optional(),
   shareForImprovement: z.boolean().optional(),
   integrationId: integrationToken.optional(),

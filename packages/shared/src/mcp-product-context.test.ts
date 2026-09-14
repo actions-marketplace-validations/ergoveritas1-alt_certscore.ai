@@ -8,7 +8,7 @@ test("question sharing is optional, explicit and bounded, and rejects unknown co
   assert.equal(mcpTaskContextSchema.safeParse({ questionSummary: "Check tracking" }).success, false);
   assert.equal(mcpTaskContextSchema.safeParse({ purpose: "invented" }).success, false);
   assert.equal(mcpTaskContextSchema.safeParse({ prompt: "conversation" }).success, false);
-  assert.equal(mcpTaskContextSchema.safeParse({ questionSummary: "x".repeat(301), questionSource: "user_wording", shareForImprovement: true }).success, false);
+  assert.equal(mcpTaskContextSchema.safeParse({ questionSummary: "x".repeat(8193), questionSource: "user_wording", shareForImprovement: true }).success, false);
 });
 
 test("sensitive summaries are withheld while safe declared purpose and versions survive", () => {

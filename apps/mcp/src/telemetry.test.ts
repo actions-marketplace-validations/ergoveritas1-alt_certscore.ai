@@ -2,9 +2,46 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createCertScoreMcpServer } from "@certscore/mcp/server";
 import { classifyHostedMcpClient, createHostedMcpTelemetry } from "./telemetry.js";
 
 const secret = "hosted-mcp-telemetry-test-secret";
+
+test("authenticated Claude discovery reaches tools/call and retains the same opaque journey", async () => {
+  const bodies: Record<string, any>[] = [];
+  const telemetry = createHostedMcpTelemetry({ baseUrl: "https://certscore.ai", secret, headers: {}, surface: "mcp_authenticated",
+    authenticatedUserId: "00000000-0000-4000-8000-000000000001", authenticatedActorBinding: "test-owner", sessionId: () => "private-claude-session",
+    clientInfoBody: { params: { clientInfo: { name: "claude", version: "1" } } },
+    fetch: (async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return new Response(null,{status:202}); }) as typeof fetch });
+  const originalFetch = globalThis.fetch;
+  let credentialObserved = false;
+  globalThis.fetch = (async (_url, init) => {
+    credentialObserved = new Headers(init?.headers).get("authorization") === "Bearer fixture-credential";
+    return new Response(JSON.stringify({ type:"certscore_auth_check", authenticated:true,scopes:["scan:read"],expiresAt:null,
+      diagnostics:{mode:"hosted_oauth",workspaceAccess:"active",createAllowedByScope:false,canRequestScanNow:false,quota:null,nextAction:"Read an existing scan."} }),{status:200,headers:{"content-type":"application/json"}});
+  }) as typeof fetch;
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createCertScoreMcpServer({ resolveApiKey: () => "fixture-credential", onToolInvocation: row => telemetry.observeToolInvocation(row) });
+  const client = new Client({ name:"claude",version:"1" });
+  try {
+    await Promise.all([server.connect(serverTransport),client.connect(clientTransport)]);
+    telemetry.observeActivation("mcp_initialized");
+    assert.ok((await client.listTools()).tools.some(tool => tool.name === "certscore_get_connection_status"));
+    telemetry.observeActivation("mcp_tools_listed");
+    const result = await client.callTool({name:"certscore_get_connection_status",arguments:{}});
+    assert.notEqual(result.isError,true,JSON.stringify(result));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(credentialObserved,true);
+    assert.equal(bodies.filter(row => row.toolName).length,1);
+    assert.equal(new Set(bodies.map(row => row.sessionId)).size,1);
+    assert.match(bodies[0]!.sessionId,/^[a-f0-9]{24}$/);
+    assert.ok(bodies.some(row => row.stage === "mcp_first_tool_invoked"));
+    assert.ok(!JSON.stringify(bodies).includes("private-claude-session"));
+    assert.ok(!JSON.stringify(bodies).includes("fixture-credential"));
+  } finally { globalThis.fetch=originalFetch; await client.close(); await server.close(); }
+});
 
 function requesterIpHashForTest(value: string) {
   return createHmac("sha256", secret)
@@ -473,6 +510,27 @@ test("HTTP rate-limit telemetry preserves sanitized caller input, shared context
   assert.ok(event.requestDetails.callerInput.fields.some((field: any)=>field.path.startsWith("request_meta.client_initialization")));
   assert.ok(!JSON.stringify(bodies).includes("private-value"));
   assert.ok(Buffer.byteLength(JSON.stringify(event.requestDetails,null,1)) <= 4096);
+});
+
+test("expanded HTTP telemetry is opt-in and retains long supplied prompt text", async () => {
+  const previous = process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED;
+  try {
+    process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED = "1";
+    const bodies: Record<string, any>[] = [];
+    const prompt = "Review privacy disclosures. ".repeat(100);
+    const telemetry = createHostedMcpTelemetry({ baseUrl: "https://certscore.ai", secret, headers: {}, surface: "mcp_light", sessionId: () => "session_123",
+      fetch: (async (_url: unknown, init?: RequestInit) => { bodies.push(JSON.parse(String(init?.body))); return new Response(null, { status: 202 }); }) as typeof fetch });
+    telemetry.observeTransportRateLimit({ body: { params: { arguments: { scanId: "scan_123", prompt } } }, toolName: "certscore_get_scan_status", durationMs: 2 });
+    await new Promise(resolve => setImmediate(resolve));
+    const details = bodies.find(body => body.eventType !== "activation")!.requestDetails;
+    assert.equal(details.version, 2);
+    assert.equal(details.callerInput.version, 2);
+    assert.equal(details.callerInput.fields.find((field: any) => field.path === "arguments.prompt").value, prompt);
+    assert.ok(Buffer.byteLength(JSON.stringify(details, null, 1)) <= 16384);
+  } finally {
+    if (previous === undefined) delete process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED;
+    else process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED = previous;
+  }
 });
 
 test('Light marks requester changes without replacing the initialized caller', async () => {

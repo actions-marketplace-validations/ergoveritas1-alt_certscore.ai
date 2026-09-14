@@ -41,6 +41,7 @@ function CreatedViaCell({ scan }: { scan: AdminScanListItem }) {
     ? `Original creation request: ${origin.requestId} · ${formatAdminDateTime(origin.requestedAt)}`
     : "Creation source from retained scan metadata; original request details unavailable. Unknown means attribution could not be verified.";
   return <td className="px-2.5 py-1.5">
+    <p className="text-[9px] text-slate-500">Scan audience: {origin?.trafficClass ?? "unknown"}</p>
     {origin?.requestId ? <details><summary className="cursor-pointer rounded bg-sky-50 px-2 py-1 text-sky-800" title={title}>{label}</summary><p className="mt-1 break-all text-[10px]">{origin.requestId}<br />{formatAdminDateTime(origin.requestedAt)}{origin.requestId.startsWith("pulse_req_") ? <Link className="block text-sky-700 underline" href={`/app/admin/pulse/${encodeURIComponent(origin.requestId)}`}>Open request</Link> : null}</p></details>
       : <span className="inline-flex rounded bg-slate-50 px-2 py-1 text-slate-700" title={title}>{label}</span>}
     {scan.rowKind === "request" ? <p className="mt-1 text-[10px] text-slate-500">Requested via: {SCAN_CREATION_SOURCES[scanCreationSource(scan.requestChannel)]}{scan.requestResolutionMode === "reused_existing_scan" ? " · Reused" : " · No new scan"}</p> : null}

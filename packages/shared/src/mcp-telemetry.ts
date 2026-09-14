@@ -1,5 +1,6 @@
 import { mcpResponseSummarySchema } from "./mcp-response-summary";
 import { mcpCallerInputSchema } from "./mcp-caller-input";
+import { MCP_INPUT_RETENTION } from "./mcp-input-retention";
 import { z } from "zod";
 import { mcpTaskContextSchema, sanitizeMcpTaskContext } from "./mcp-product-context";
 
@@ -118,7 +119,7 @@ export const mcpActivationEventSchema = z.object({
 const telemetryOption = z.string().regex(/^[a-zA-Z0-9_.:-]+$/).max(128);
 const telemetryCount = z.number().int().min(0).max(1_000_000);
 export const mcpRequestDetailsSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   callerInput: mcpCallerInputSchema.optional(),
   captureBasis: z.enum(["protocol_request", "validated_arguments"]).optional(),
   taskContext: mcpTaskContextSchema.refine(value => JSON.stringify(value) === JSON.stringify(sanitizeMcpTaskContext(value)), "Question context must be sanitized before ingestion.").optional(),
@@ -163,32 +164,49 @@ export const mcpRequestDetailsSchema = z.object({
     requested: telemetryCount.optional(), windowSeconds: telemetryCount.optional(),
     retryAfterSeconds: telemetryCount.optional(),
   }).strict().nullable(),
-}).strict();
+}).strict().superRefine((details, context) => {
+  if (details.version === 1 && (details.callerInput?.version === 2 || (details.taskContext?.questionSummary?.length ?? 0) > 300)) {
+    context.addIssue({ code: "custom", message: "Expanded caller input requires request-details version 2." });
+  }
+});
 export type McpRequestDetails = z.infer<typeof mcpRequestDetailsSchema>;
 
-// PostgreSQL enforces 4096 bytes on the entire jsonb value, including its spaces.
+// PostgreSQL enforces a versioned budget on the entire JSONB value.
 // Pretty JSON is a conservative upper bound on that serialization's size.
 export function boundMcpRequestDetails(input: McpRequestDetails): McpRequestDetails {
   const details: McpRequestDetails = { ...input, arguments: { ...input.arguments },
     ...(input.response ? { response: { ...input.response, ...(input.response.summary ? { summary: { ...input.response.summary } } : {}) } } : {}),
     ...(input.callerInput ? { callerInput: { ...input.callerInput, fields: [...input.callerInput.fields], limits: [...input.callerInput.limits] } } : {}) };
   const bytes = () => new TextEncoder().encode(JSON.stringify(details, null, 1)).length;
-  while (bytes() > 4096 && details.callerInput?.fields.length) {
+  const maxBytes = details.version === 2 ? MCP_INPUT_RETENTION.requestDetailsBytes : 4096;
+  // Preserve long, explicitly shared context first. Never keep an unsafe partial
+  // prefix of an oversized question or silently mislabel missing text as retained.
+  if (details.taskContext?.questionSummary && (details.version === 1 && details.taskContext.questionSummary.length > 300 || new TextEncoder().encode(JSON.stringify(details.taskContext)).length > maxBytes - 2048)) {
+    details.taskContext = { ...details.taskContext };
+    delete details.taskContext.questionSummary;
+    delete details.taskContext.questionSource;
+    if (details.callerInput) {
+      details.callerInput.questionStatus = details.version === 1 ? "invalid_context" : "omitted_by_limit";
+      if (!details.callerInput.limits.includes("byte_limit")) details.callerInput.limits.push("byte_limit");
+    }
+    details.argumentsOmitted = true;
+  }
+  while (bytes() > maxBytes && details.callerInput?.fields.length) {
     details.callerInput.fields.pop();
     if (!details.callerInput.limits.includes("byte_limit")) details.callerInput.limits.push("byte_limit");
   }
   // Retain context/reasons even if a legacy argument set consumes the envelope.
   for (const key of Object.keys(details.arguments)) {
-    if (bytes() <= 4096) break;
+    if (bytes() <= maxBytes) break;
     delete (details.arguments as Record<string, unknown>)[key]; details.argumentsOmitted = true;
   }
   for (const key of ["recommendedNextAction", "message", "issues"] as const) {
-    if (bytes() <= 4096 || !details.response?.summary) break;
+    if (bytes() <= maxBytes || !details.response?.summary) break;
     delete details.response.summary[key];
     details.response.summary.summaryTruncated = true;
     details.response.summary.textOmitted = true;
   }
-  if (bytes() > 4096 && details.response) delete details.response.summary;
+  if (bytes() > maxBytes && details.response) delete details.response.summary;
   return details;
 }
 

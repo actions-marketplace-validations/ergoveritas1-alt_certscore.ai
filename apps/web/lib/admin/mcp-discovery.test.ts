@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import pg from "pg";
-import { discoveryBehavior, mcpClientHref, mcpDiscoverySql, type McpDiscoveryClient } from "./mcp-discovery";
+import { discoveryBehavior, discoveryDiagnostic, mcpClientHref, mcpDiscoverySql, type McpDiscoveryClient } from "./mcp-discovery";
+
+test("discovery-only diagnosis distinguishes telemetry gaps from absent execution", () => {
+  assert.match(discoveryDiagnostic({tool_calls:0,catalog_reads:4,initializations:4,missing_session_events:8}),/Linkage limited/);
+  assert.match(discoveryDiagnostic({tool_calls:0,catalog_reads:4,initializations:4,missing_session_events:0}),/not proof of abandonment/);
+  assert.match(discoveryDiagnostic({tool_calls:1,catalog_reads:4,initializations:4}),/Tool execution observed/);
+});
 
 test("discovery behavior distinguishes tool use without guessing a bot identity", () => {
   assert.equal(discoveryBehavior({ tool_calls: 0, catalog_reads: 4 }), "Catalogue only");
