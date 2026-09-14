@@ -67,22 +67,10 @@ const guides: GuideCard[] = [
     href: "/guides/pre-consent-tracking"
   },
   {
-    title: "Detect trackers before cookie consent",
-    description: "How to review tracker behavior during the initial page-load window.",
-    category: "Privacy & Tracking",
-    href: "/guides/detect-trackers-before-cookie-consent"
-  },
-  {
     title: "Detect tracking before consent",
     description: "A practical workflow for finding tracking requests before a consent event.",
     category: "Privacy & Tracking",
     href: "/guides/detect-tracking-before-consent"
-  },
-  {
-    title: "Check website tracking before consent",
-    description: "How teams can inspect public site behavior before any consent choice.",
-    category: "Privacy & Tracking",
-    href: "/guides/check-website-tracking-before-consent"
   },
   {
     title: "Reject consent tracking test",

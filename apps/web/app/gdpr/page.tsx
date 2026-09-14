@@ -7,9 +7,9 @@ import { SiteHeader } from "../../components/layout/site-header";
 import { absoluteUrl, createBreadcrumbSchema, createPageMetadata, createPublicArticleSchema, createPublicWebPageSchema } from "../../lib/seo";
 import { getFindingReferenceItems } from "../../lib/marketing/finding-atlas";
 
-const pageTitle = "GDPR Website Privacy Scanner | Consent, Cookies & Tracking Review Signals | CertScore.ai";
+const pageTitle = "GDPR Website Evidence: Methodology & Review Guide | CertScore.ai";
 const pageDescription =
-  "Evidence-based GDPR review signals for public websites. Detect pre-consent tracking, third-party cookies before consent, consent UX issues, session replay signals, fingerprinting-related activity, and policy/runtime gaps. Automated observations for human and agentic review, not legal advice.";
+  "Interpret GDPR-relevant website evidence: consent states, cookies, tracking, policy comparisons, benchmark limitations, and review methodology.";
 const pagePath = "/gdpr";
 const disclaimer =
   "CertScore.ai findings are automated public-web observations for human and agentic review, not legal advice, certification, or a compliance determination.";
@@ -350,16 +350,16 @@ export default function GdprPage() {
       <section className="border-b border-slate-200 bg-white">
         <div className="mx-auto grid max-w-6xl gap-10 px-6 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div className="space-y-6">
-            <Badge tone="neutral">GDPR privacy scanner</Badge>
+            <Badge tone="neutral">Evidence and methodology</Badge>
             <div className="space-y-4">
               <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                GDPR website privacy signals from real browser behavior
+                How to interpret GDPR website evidence
               </h1>
               <p className="text-lg leading-8 text-slate-600">
-                CertScore.ai scans public websites for GDPR-relevant consent, cookie, tracking, and data-protection review signals - including pre-consent tracking, third-party cookie activity before consent, consent UX friction, session replay signals, fingerprinting-related activity, and policy/runtime gaps.
+                Use this guide to interpret browser observations, understand coverage limits, and distinguish a review signal from a legal conclusion. For a new scan, start with the GDPR website scanner.
               </p>
             </div>
-            <CtaButtons location="gdpr_hero" />
+            <Link className="inline-flex font-semibold text-sky-700 underline underline-offset-4" href="/solutions/gdpr-website-compliance-scanner">Open the GDPR website scanner</Link>
             <div className="flex flex-wrap gap-2">
               {heroChips.map((chip) => (
                 <span key={chip} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">

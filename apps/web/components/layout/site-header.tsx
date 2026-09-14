@@ -19,7 +19,7 @@ const resourceLinks = [
   { href: "/solutions/gdpr-website-compliance-scanner", label: "GDPR website scanner" },
   { href: "/solutions/cookie-consent-scanner", label: "Cookie consent scanner" },
   { href: "/solutions/privacy-policy-risk-scanner", label: "Privacy policy risk scanner" },
-  { href: "/gdpr", label: "GDPR privacy" },
+  { href: "/gdpr", label: "GDPR evidence guide" },
   { href: "/guides", label: "Guides" },
   { href: "/benchmarks", label: "Benchmarks" },
   { href: "/releases", label: "Releases" },

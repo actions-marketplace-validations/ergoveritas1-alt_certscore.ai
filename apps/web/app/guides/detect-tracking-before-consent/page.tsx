@@ -19,6 +19,7 @@ export const metadata: Metadata = {
 export default function DetectTrackingBeforeConsentGuidePage() {
   return (
     <AiVisibilityContent
+      showEvidenceExamples={false}
       badge={guide.badge}
       intro={guide.intro}
       path={guide.path}

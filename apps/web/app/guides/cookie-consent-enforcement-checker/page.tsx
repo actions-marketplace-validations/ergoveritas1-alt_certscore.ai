@@ -16,7 +16,7 @@ const config: GrowthContentPageConfig = {
     { href: "/findings/reject_tracking_persists_after_reject", label: "Reject tracking persists finding" },
     { href: "/findings/pre_consent_tracking_detected", label: "Tracking started before consent finding" },
     { href: "/guides/reject-consent-tracking-test", label: "Reject consent tracking test" },
-    { href: "/guides/pre-consent-tracking-detection", label: "Pre-consent tracking detection" },
+    { href: "/guides/detect-tracking-before-consent", label: "Pre-consent tracking detection" },
     { href: "/compare/cmp-vs-runtime-consent-scanner", label: "CMP vs runtime scanner" }
   ],
   sections: [

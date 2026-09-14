@@ -6,6 +6,8 @@ import {
 } from "../../../components/marketing/solution-page";
 
 const config: SolutionPageConfig = {
+  inlineScan: true,
+  metadataTitle: "GDPR Website Scanner: Cookies & Consent",
   badge: "GDPR & ePrivacy website scanner",
   description:
     "Scan public websites for GDPR-relevant consent, cookie, tracking, policy, and disclosure review signals. CertScore.ai provides evidence-backed observations for human and agentic review, not legal advice.",
@@ -20,6 +22,14 @@ const config: SolutionPageConfig = {
       "Session replay and fingerprinting-related signals"
   ],
   sections: [
+    {
+      title: "What this scan cannot establish",
+      body: "Public-page observation does not cover private account flows, every page, every region, or all future behavior. Bot defenses and unavailable controls can limit coverage. Accept and Reject observations are separate eligible sessions; an unverified decision stays unverified. A clean observation is not a compliance certificate."
+    },
+    {
+      title: "What to give your implementation team",
+      body: "Share the report's target and date, the affected vendor or storage identity, the consent state, and the retained evidence reference. Ask the team to inspect the relevant tag trigger, consent category, or embedded service, then compare a fresh scan after the change."
+    },
     {
       title: "Direct answer",
       body:
@@ -68,7 +78,7 @@ const config: SolutionPageConfig = {
     "CertScore.ai findings are automated observations backed by retained evidence. They are not legal advice, certification, or compliance determinations."
   ],
   relatedLinks: [
-    { href: "/gdpr", label: "GDPR privacy scanner" },
+    { href: "/gdpr", label: "How to interpret GDPR website evidence" },
     { href: "/guides/cmp-verification", label: "CMP verification" },
     { href: "/guides/rtb-cookie-syncing", label: "RTB cookie syncing" },
     { href: "/sample-report", label: "Sample report" }

@@ -29,7 +29,7 @@ const footerSections = [
       { href: "/developers/mcp", label: "MCP docs" },
       { href: "/claude", label: "Claude website scanner" },
       { href: "/regulatory", label: "Regulatory pages" },
-      { href: "/gdpr", label: "GDPR privacy scanner" },
+      { href: "/gdpr", label: "GDPR evidence guide" },
       { href: "/methodology", label: "Methodology" },
       { href: "/compare", label: "Compare" }
     ]

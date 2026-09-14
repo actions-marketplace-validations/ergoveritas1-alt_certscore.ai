@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { DomainScanForm } from "./domain-scan-form";
 import Link from "next/link";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import {
@@ -28,6 +30,8 @@ type SolutionLink = {
 
 export type SolutionPageConfig = {
   aiSummary: string[];
+  inlineScan?: boolean;
+  metadataTitle?: string;
   badge: string;
   description: string;
   faqs: SolutionFaq[];
@@ -47,7 +51,7 @@ export function createSolutionPageMetadata(config: SolutionPageConfig): Metadata
       path: config.path
     }),
     title: {
-      absolute: `${config.title} | CertScore.ai`
+      absolute: `${config.metadataTitle ?? config.title} | CertScore.ai`
     }
   };
 }
@@ -103,7 +107,7 @@ export function SolutionPage({ config }: { config: SolutionPageConfig }) {
               asChild
               className="border-0 bg-[linear-gradient(135deg,#0f8bd7_0%,#1ea7e1_62%,#67c7f0_100%)] text-white shadow-[0_14px_32px_rgba(15,139,215,0.18)] hover:brightness-[1.04]"
             >
-              <Link href="/" data-analytics-cta-type="scan" data-analytics-event="solution_cta_clicked">
+              <Link href={config.inlineScan ? "#scan" : "/"} data-analytics-cta-type="scan" data-analytics-event="solution_cta_clicked">
                 Run a scan
               </Link>
             </Button>
@@ -132,9 +136,32 @@ export function SolutionPage({ config }: { config: SolutionPageConfig }) {
         </Card>
       </div>
 
-      <div className="mt-10">
-        <WebsiteBehaviorScanCta />
-      </div>
+      {config.inlineScan ? (
+        <section id="scan" aria-labelledby="solution-scan-heading" className="mt-10 scroll-mt-24 rounded-2xl border border-sky-200 bg-sky-50 p-6">
+          <h2 id="solution-scan-heading" className="mb-4 text-2xl font-semibold text-slate-950">Scan a public website</h2>
+          <Suspense fallback={<p>Loading scan form…</p>}>
+            <DomainScanForm mode="preview" scanSource="unknown" buttonLabel="Run free scan" inputLabel="Website URL" />
+          </Suspense>
+        </section>
+      ) : <div className="mt-10"><WebsiteBehaviorScanCta /></div>}
+
+      {config.inlineScan && (
+        <section aria-labelledby="report-walkthrough-heading" className="mt-10 rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 id="report-walkthrough-heading" className="text-2xl font-semibold text-slate-950">From a scan to a reviewable decision</h2>
+          <ol className="mt-5 list-decimal space-y-4 pl-6 text-slate-700">
+            <li><strong>Check the context.</strong> Open the report and confirm the target, scan date, region, and coverage. A blocked or incomplete observation is a limitation, not evidence of an absent control.</li>
+            <li><strong>Inspect the observation.</strong> Follow a finding to its retained request, cookie, storage, or policy evidence. Keep pre-consent activity separate from activity after an Accept or Reject click.</li>
+            <li><strong>Verify the interpretation.</strong> A visible Reject button, a completed click, and confirmed refusal are different facts. A cookie remaining in storage does not by itself prove active tracking.</li>
+            <li><strong>Assign and retest.</strong> Give the responsible team the affected vendor, page, consent state, and evidence. After a configuration change, compare a new scan under the same conditions.</li>
+          </ol>
+          <p className="mt-5 text-sm text-slate-600">Use the sample report to explore the report format; it describes its own retained scan, not your website.</p>
+          <div className="mt-4 flex flex-wrap gap-5 font-semibold text-sky-700">
+            <Link href="/sample-report" className="underline underline-offset-4">Explore the sample report</Link>
+            <Link href="/guides/reject-consent-tracking-test" className="underline underline-offset-4">Follow the Reject testing walkthrough</Link>
+            <Link href="/guides/website-consent-audit-checklist" className="underline underline-offset-4">Use the audit checklist</Link>
+          </div>
+        </section>
+      )}
 
       <div className="mt-10 grid gap-5 md:grid-cols-2">
         {config.sections.map((section) => (

@@ -10,7 +10,7 @@ import {
   createPublicWebPageSchema
 } from "../../lib/seo";
 
-const pageTitle = "Regulatory Website Signal Pages | CertScore.ai";
+const pageTitle = "Regulatory Website Signal Pages";
 const pageDescription =
   "Browse CertScore.ai public regulatory signal pages for GDPR/ePrivacy, accessibility, cookie, consent, disclosure, and privacy review workflows.";
 const pagePath = "/regulatory";
@@ -18,7 +18,7 @@ const pagePath = "/regulatory";
 const regulatoryPages = [
   {
     href: "/gdpr",
-    title: "GDPR privacy scanner",
+    title: "GDPR evidence guide",
     description:
       "Runtime consent, cookie, tracking, session replay, fingerprinting, and disclosure-alignment signals for GDPR/ePrivacy review."
   },

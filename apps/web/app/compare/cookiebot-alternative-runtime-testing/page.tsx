@@ -16,7 +16,7 @@ const config: GrowthContentPageConfig = {
     { href: "/compare/cmp-vs-runtime-consent-scanner", label: "CMP vs runtime scanner" },
     { href: "/guides/cmp-verification", label: "CMP verification" },
     { href: "/guides/third-party-cookie-checker", label: "Third-party cookie checker" },
-    { href: "/guides/pre-consent-tracking-detection", label: "Pre-consent tracking detection" }
+    { href: "/guides/detect-tracking-before-consent", label: "Pre-consent tracking detection" }
   ],
   sections: [
     {

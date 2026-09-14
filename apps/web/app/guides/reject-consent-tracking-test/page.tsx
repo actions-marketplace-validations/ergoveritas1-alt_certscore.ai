@@ -19,10 +19,13 @@ export const metadata: Metadata = {
 export default function RejectConsentTrackingTestGuidePage() {
   return (
     <AiVisibilityContent
+      showEvidenceExamples={false}
       badge={guide.badge}
       intro={guide.intro}
       path={guide.path}
       relatedLinks={[
+        { href: "/resources/consent-audit-worksheet.md", label: "Download the consent audit worksheet (Markdown)" },
+        { href: "/sample-report", label: "Explore the sample report" },
         { href: "/guides/consent-enforcement-testing", label: "how Accept and Reject Path confirmation works" },
         { href: "/findings/reject_tracking_persists_after_reject", label: "reject tracking persists finding" },
         { href: "/findings/pre_consent_tracking_detected", label: "tracking started before consent finding" },

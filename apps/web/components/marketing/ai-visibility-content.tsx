@@ -34,6 +34,7 @@ type AiVisibilityContentProps = {
   relatedLinks?: RelatedLink[];
   sampleFindingsJson?: SampleFindingJson[];
   showDisclaimer?: boolean;
+  showEvidenceExamples?: boolean;
 };
 
 export function WebsiteBehaviorScanCta() {
@@ -79,12 +80,13 @@ export function AiVisibilityContent({
   sampleFindingsJson,
   sections,
   schema,
-  showDisclaimer = true
+  showDisclaimer = true,
+  showEvidenceExamples = true
 }: AiVisibilityContentProps) {
   const schemas = Array.isArray(schema) ? schema : [schema];
-  const visibleSampleFindings = sampleFindingsJson ?? getGuideSampleFindings({ path, title });
+  const visibleSampleFindings = showEvidenceExamples ? (sampleFindingsJson ?? getGuideSampleFindings({ path, title })) : [];
   const shouldShowFindingAtlas =
-    visibleSampleFindings.length === 0 && (path?.startsWith("/guides/") || badge.toLowerCase().includes("guide"));
+    showEvidenceExamples && visibleSampleFindings.length === 0 && (path?.startsWith("/guides/") || badge.toLowerCase().includes("guide"));
   const findingAtlasItems = shouldShowFindingAtlas ? getTopFindingAtlasItems() : [];
   const visibleAiSummary =
     aiSummary ??

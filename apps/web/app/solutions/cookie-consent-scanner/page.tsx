@@ -6,6 +6,7 @@ import {
 } from "../../../components/marketing/solution-page";
 
 const config: SolutionPageConfig = {
+  inlineScan: true,
   badge: "Cookie consent scanner",
   description:
     "Review cookie consent timing, third-party cookies before consent, CMP behavior, and what a site does after an Accept or Reject click. Evidence-backed observations for review.",
@@ -20,6 +21,14 @@ const config: SolutionPageConfig = {
     "Vendor and purpose review context"
   ],
   sections: [
+    {
+      title: "What this scan cannot establish",
+      body: "Public-page observation does not cover private account flows, every page, every region, or all future behavior. Bot defenses and unavailable controls can limit coverage. Accept and Reject observations are separate eligible sessions; an unverified decision stays unverified. A clean observation is not a compliance certificate."
+    },
+    {
+      title: "What to give your implementation team",
+      body: "Share the report's target and date, the affected vendor or storage identity, the consent state, and the retained evidence reference. Ask the team to inspect the relevant tag trigger, consent category, or embedded service, then compare a fresh scan after the change."
+    },
     {
       title: "Direct answer",
       body:

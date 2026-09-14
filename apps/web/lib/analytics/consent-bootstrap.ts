@@ -44,7 +44,7 @@ export function buildConsentBootstrapScript(googleTagId: string, umami?: {
       w.certscoreAnalyticsConsent = storedChoice === 'granted' ? 'granted' : 'denied';
 
       function loadGoogleTag(){
-        if (w.certscoreAnalyticsConsent !== 'granted' || w.certscoreGoogleTagLoaded || !googleTagId) {
+        if (w.certscoreAnalyticsConsent !== 'granted' || w.certscoreGoogleTagLoaded || !googleTagId || !['certscore.ai', 'www.certscore.ai'].includes(w.location.hostname)) {
           return;
         }
 
@@ -58,7 +58,13 @@ export function buildConsentBootstrapScript(googleTagId: string, umami?: {
         firstScript.parentNode.insertBefore(script, firstScript);
 
         w.gtag('js', new Date());
-        w.gtag('config', googleTagId);
+        var config = {};
+        try {
+          if (new URL(d.referrer).hostname === 'accounts.google.com') {
+            config.ignore_referrer = true;
+          }
+        } catch (error) { /* Missing or invalid referrer is not an OAuth return. */ }
+        w.gtag('config', googleTagId, config);
       }
 
       function loadUmami(){

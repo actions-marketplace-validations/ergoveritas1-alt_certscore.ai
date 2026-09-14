@@ -92,6 +92,9 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      { source: "/guides/pre-consent-tracking-detection", destination: "/guides/detect-tracking-before-consent", permanent: true },
+      { source: "/guides/detect-trackers-before-cookie-consent", destination: "/guides/detect-tracking-before-consent", permanent: true },
+      { source: "/guides/check-website-tracking-before-consent", destination: "/guides/detect-tracking-before-consent", permanent: true },
       {
         source: "/preview",
         destination: "/",

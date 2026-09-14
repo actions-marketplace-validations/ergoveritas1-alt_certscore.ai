@@ -10,7 +10,7 @@ import { buildConsentBootstrapScript } from "../lib/analytics/consent-bootstrap"
 import { SITE_NAME, SITE_URL } from "../lib/seo";
 import { getCertScoreSocialProfileUrls } from "../lib/social";
 
-const GOOGLE_TAG_ID = "G-B6TQVX35ZB";
+const GOOGLE_TAG_ID = process.env.NODE_ENV === "production" ? "G-B6TQVX35ZB" : "";
 const UMAMI_SCRIPT_URL = "https://cloud.umami.is/script.js";
 const UMAMI_WEBSITE_ID = process.env.NODE_ENV === "production"
   ? "8638201f-1970-4229-9239-95a23a0bdb1c"

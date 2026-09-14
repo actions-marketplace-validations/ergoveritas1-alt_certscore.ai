@@ -81,7 +81,7 @@ Search aliases: CertScore.ai, CertScore API, CertScore MCP, website risk API, pr
 - https://certscore.ai/guides/third-party-cookies-before-consent
 - https://certscore.ai/guides/rtb-cookie-syncing
 - https://certscore.ai/guides/session-replay-risk
-- https://certscore.ai/guides/check-website-tracking-before-consent
+- https://certscore.ai/guides/detect-tracking-before-consent
 - https://certscore.ai/guides/check-third-party-cookies-before-consent
 - https://certscore.ai/guides/website-consent-audit
 - https://certscore.ai/guides/detect-tracking-before-consent

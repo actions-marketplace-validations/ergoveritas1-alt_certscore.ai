@@ -15,7 +15,7 @@ const config: GrowthContentPageConfig = {
   relatedLinks: [
     { href: "/guides/check-third-party-cookies-before-consent", label: "Check third-party cookies before consent" },
     { href: "/guides/third-party-cookies-before-consent", label: "Third-party cookies before consent" },
-    { href: "/guides/pre-consent-tracking-detection", label: "Pre-consent tracking detection" },
+    { href: "/guides/detect-tracking-before-consent", label: "Pre-consent tracking detection" },
     { href: "/methodology", label: "Methodology" }
   ],
   sections: [
