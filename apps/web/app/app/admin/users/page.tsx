@@ -70,14 +70,6 @@ function formatActivityLabel(value: string | null) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function activityAge(value: string) {
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1_000));
-  if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
-  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
-  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`;
-  return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
-}
-
 function SortHeader({
   currentDirection,
   currentSort,
@@ -177,6 +169,8 @@ async function AdminUsersContent({ searchParams }: AdminUsersPageProps) {
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="user" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="lastLogin" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="lastScan" /></th>
+                <th className="whitespace-nowrap pb-2 pr-4">Last activity</th>
+                <th className="whitespace-nowrap pb-2 pr-4">Last activity type</th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="activity" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="access" /></th>
                 <th className="whitespace-nowrap pb-2 pr-4"><SortHeader currentDirection={direction} currentSort={sortKey} sortKey="assign" /></th>
@@ -220,20 +214,22 @@ async function AdminUsersContent({ searchParams }: AdminUsersPageProps) {
                   <td className="whitespace-nowrap py-2.5 pr-4 align-top text-sm text-slate-600">
                     {formatAdminCompactDateTime(user.lastScanAt)}
                   </td>
+                  <td className="whitespace-nowrap py-2.5 pr-4 align-top text-sm text-slate-600">
+                    {formatAdminCompactDateTime(user.lastProductEventAt, { fallback: "No recorded activity" })}
+                  </td>
+                  <td className="max-w-[18rem] py-2.5 pr-4 align-top text-sm text-slate-600">
+                    {user.lastProductEventAt ? (
+                      <Link
+                        className="block truncate font-medium text-sky-700 hover:text-sky-900"
+                        href={`/app/admin/users/${user.id}/activity`}
+                        title={`${formatActivityLabel(user.lastProductEventName)} · ${formatActivityLabel(user.lastProductEventFeature)} · ${formatActivityLabel(user.lastProductEventOutcome)}`}
+                      >
+                        {formatActivityLabel(user.lastProductEventName)}
+                      </Link>
+                    ) : "—"}
+                  </td>
                   <td className="w-[22rem] min-w-[18rem] max-w-[22rem] py-2.5 pr-4 align-top text-sm text-slate-600">
                     <p className="truncate">{user.domainCount} domains <span className="text-slate-300">·</span> {user.totalScans} scans</p>
-                    {user.lastProductEventAt ? (
-                      <p
-                        className="mt-1 truncate text-xs"
-                        title={`${formatActivityLabel(user.lastProductEventName)} · ${formatActivityLabel(user.lastProductEventFeature)} · ${formatActivityLabel(user.lastProductEventOutcome)} · ${formatAdminCompactDateTime(user.lastProductEventAt)}`}
-                      >
-                        <Link className="font-medium text-sky-700 hover:text-sky-900" href={`/app/admin/users/${user.id}/activity`}>
-                          Latest: {formatActivityLabel(user.lastProductEventName)}
-                        </Link>
-                        {user.lastProductEventFeature ? <> <span className="text-slate-300">·</span> {formatActivityLabel(user.lastProductEventFeature)}</> : null}
-                        <span className="text-slate-300"> ·</span> {activityAge(user.lastProductEventAt)}
-                      </p>
-                    ) : null}
                     {oauthAuthorizedAt ? (
                       <p
                         className="mt-0.5 truncate text-xs text-violet-700"

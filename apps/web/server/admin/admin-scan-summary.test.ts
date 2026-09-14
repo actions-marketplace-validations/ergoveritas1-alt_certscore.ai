@@ -565,7 +565,7 @@ test("admin users paginate in SQL instead of loading the complete account histor
   assert.match(pageSource, /within 24h/);
   assert.match(pageSource, /within 1h/);
   assert.match(pageSource, /lastMcpOAuthAuthorizedAt \?\? user\.lastMcpConnectorAt/);
-  assert.match(pageSource, /Latest:/);
+  assert.match(pageSource, /Last activity type/);
   assert.match(pageSource, /sortKey === "activity" \|\| sortKey === "lastLogin" \|\| sortKey === "lastScan" \? "desc" : "asc"/);
   assert.match(pageSource, /active.*connection/);
   assert.match(pageSource, /calls.*\/ 90d/);
