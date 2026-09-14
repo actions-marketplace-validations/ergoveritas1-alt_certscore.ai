@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { decodeCommonHtmlEntities } from "./gdpr-transparency-topic-classifier";
 import { article13DisclosureRejectReason } from "./article13-disclosure-rejection";
 import {
   classifyGdprSupplementLink,
@@ -9,6 +10,19 @@ import {
   SUPPORTED_GDPR_TRANSPARENCY_LOCALES,
   type GdprTransparencyTopic,
 } from "./index.js";
+
+test("policy entity decoding preserves German text and handles malformed code points", () => {
+  assert.equal(decodeCommonHtmlEntities("&Auml; &uuml; &szlig; &sect; &bdquo;Text&ldquo;"), "Ä ü ß § „Text\"");
+  assert.equal(decodeCommonHtmlEntities("&#99999999;"), "&#99999999;");
+});
+
+test("transfer excerpts locate spaced hyphens instead of borrowing the introduction", () => {
+  const text = "Privacy policy. " + "This introduction explains our privacy notice and how to contact us. ".repeat(12) + "We transfer personal data under the EU - US Data Privacy Framework with appropriate safeguards.";
+  const match = classifyGdprTransparencyTopics({ text }).matches.find((match) => match.topic === "international_transfers");
+  assert.ok(match);
+  assert.match(match.evidenceExcerpt, /Data Privacy Framework/);
+  assert.doesNotMatch(match.evidenceExcerpt, /^Privacy policy/);
+});
 
 test("generic privacy-contact navigation does not establish controller/contact disclosure", () => {
   const footer = "privacy contact Facebook Instagram Twitter Shop Parts Keyboard Finder Buying Guides Saved Parts Keyboards & Kits Cases PCBs Plates Stabilizers Switches Keycaps Cables Legal Terms Privacy Contact Us Affiliate Disclosure © 2026 Example. All rights reserved.";

@@ -11,6 +11,29 @@ const completedInputBase = {
   scanCompleted: true
 };
 
+test("canonical no-go limits page conclusions while retaining independent transport probes", () => {
+  const runtimeArtifacts = {
+    scanNoGoAssessment: { decision: "no_go", scanNoGoConfidence: 0.99,
+      supportingSignals: { visualPageState: "access_blocked" },
+      reasonCodes: ["access_denied_or_forbidden_page"], evidenceRefs: ["no-go-proof"] },
+    transportSecuritySummary: { evidenceRetained: true, pageHttpsObserved: false,
+      finalUrl: "http://example.test/", finalScheme: "http", validTlsCertificate: true,
+      httpRedirectsToHttps: true, httpProbeOutcome: "redirected_to_https",
+      mixedContentObserved: false, insecureFormTransportObserved: false },
+  };
+  const outcomes = deriveGdprEprivacyCoveragePolicyOutcomesRaw({ ...completedInputBase, runtimeArtifacts });
+  for (const id of ["transport_security_https_delivery", "transport_security_mixed_content", "transport_security_form_transport"]) {
+    assert.equal(outcomes[id]?.status, "Not testable", id);
+    assert.match(outcomes[id]!.limitation, /normal public page was not reached/);
+  }
+  assert.equal(outcomes.transport_security_tls_certificate?.status, "Observed");
+  assert.equal(outcomes.transport_security_http_redirect?.status, "Observed");
+  assert.equal(outcomes.transport_security_https_delivery?.criticalEvidence.retainedEvidence.finalScheme, "http");
+  const insufficient = deriveGdprEprivacyCoveragePolicyOutcomesRaw({ ...completedInputBase,
+    runtimeArtifacts: { ...runtimeArtifacts, scanNoGoAssessment: { ...runtimeArtifacts.scanNoGoAssessment, scanNoGoConfidence: 0.3 } } });
+  assert.equal(insufficient.transport_security_https_delivery?.status, "Gap observed");
+});
+
 function collectionSurfaceAssessmentFixture(status: "observed" | "limited" | "not_observed" | "not_testable") {
   const hasForm = status === "observed" || status === "limited";
   return {
@@ -1381,6 +1404,28 @@ test("deriveGdprEprivacyCoveragePolicyOutcomes treats guessed-only privacy notic
   assert.equal(outcomes.privacy_notice_availability?.criticalEvidence.retainedEvidence.signalObserved, "partial");
 });
 
+test("failed policy retrieval explains coverage without manufacturing absence", () => {
+  const outcomes = deriveGdprEprivacyCoveragePolicyOutcomesRaw({
+    ...completedInputBase,
+    runtimeArtifacts: {
+      policyDisclosureSummary: { privacyPolicyPresent: false, privacyPolicyEvaluationState: "not_discovered" },
+      policySurfaceInspection: {
+        coverageStatus: "limited", documentRetrievalCoverageStatus: "limited",
+        inspectionCompleted: false, linkDiscoveryCoverageStatus: "limited",
+        limitationKeys: ["policy_surface_inspection_runtime_partial"], observedSurfaceTypes: [],
+        outcome: "indeterminate_limited_coverage", privacyPolicyObserved: false,
+        retrievalDiagnostics: { attemptedDocumentCount: 8, failedDocumentCount: 8,
+          observedLinkFailureCount: 2, failureReasons: ["insufficient_policy_text"] },
+      },
+    },
+  });
+  const row = outcomes.privacy_notice_availability;
+  assert.notEqual(row?.status, "Gap observed");
+  assert.match(row?.limitation ?? "", /8 of 8 attempted documents failed/);
+  assert.match(row?.limitation ?? "", /2 failed documents came from observed links/);
+  assert.match(row?.limitation ?? "", /Inspection did not complete/);
+});
+
 test("deriveGdprEprivacyCoveragePolicyOutcomes projects completed privacy-surface absence as a gap", () => {
   const outcomes = deriveGdprEprivacyCoveragePolicyOutcomes({
     ...completedInputBase,
@@ -1949,7 +1994,7 @@ test("deriveGdprEprivacyCoveragePolicyOutcomes treats retained consent and runti
   });
 
   assert.equal(outcomes.pre_consent_cookies_storage?.status, "Review signal");
-  assert.match(outcomes.pre_consent_cookies_storage?.limitation ?? "", /reconciled to the aggregate count/i);
+  assert.match(outcomes.pre_consent_cookies_storage?.limitation ?? "", /aggregate 4, attributed records 0/i);
   assert.equal(outcomes.reject_all_path_availability?.status, "Insufficient evidence");
   assert.match(outcomes.reject_all_path_availability?.limitation ?? "", /complete reject-all control/i);
   assert.equal(outcomes.post_reject_tracking_reduction?.status, "Not testable");
@@ -3082,7 +3127,7 @@ test("deriveGdprEprivacyCoveragePolicyOutcomes keeps aggregate-only before-conse
     false
   );
   assert.equal(outcome?.criticalEvidence.retainedEvidence.rowLevelEssentialityEvidenceRetained, false);
-  assert.match(outcome?.criticalEvidence.statusBasis ?? "", /reconciled to the aggregate count/i);
+  assert.match(outcome?.criticalEvidence.statusBasis ?? "", /aggregate 3, attributed records 0/i);
 });
 
 test("deriveGdprEprivacyCoveragePolicyOutcomes excludes essential first-party consent cookies from the pre-consent storage row", () => {

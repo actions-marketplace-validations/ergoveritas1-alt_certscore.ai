@@ -850,7 +850,13 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
     inventory,
     inventorySummary,
     resourceInventory,
-    collectionTableRows: forms.map(form => ({ id: form.formRef, form, capturedAt: "", snapshot: { status: "unavailable" as const } })),
+    collectionTableRows: forms.map(form => {
+      const candidates = record(scanRecord.runtimeArtifacts)?.formSnapshots;
+      const snapshot = Array.isArray(candidates) ? candidates.map(record).find(item => item?.formRef === form.formRef && item?.sourceInventoryHash === canonical.collectionSurfaceAssessment?.sourceHash && item?.pageUrl === form.pageUrl) : null;
+      return { id: form.formRef, form, capturedAt: typeof snapshot?.capturedAt === "string" ? snapshot.capturedAt : "", snapshot: snapshot?.status === "available"
+        ? { status: "available" as const, url: `/api/scans/${encodeURIComponent(scanRecord.scan.id)}/form-snapshot?formRef=${encodeURIComponent(form.formRef)}` }
+        : { status: snapshot?.status === "withheld" ? "withheld" as const : "unavailable" as const } };
+    }),
     metrics: {
       domains: vendorSurface.thirdPartyDomains.length,
       fields: countFormFields(forms),

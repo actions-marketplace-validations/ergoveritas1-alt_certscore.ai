@@ -285,5 +285,6 @@ test("form methods retain browser defaults without assuming methods for non-nati
     const forms = result.evidence.collectionSurfaceInventory?.forms ?? [];
     assert.equal(forms.length, 6);
     assert.deepEqual(forms.map(form => form.method), ["get", "get", "post", "dialog", "post", "unknown"]);
+    assert.deepEqual(forms.map(form => form.actionRelationship), ["self", "self", "self", "none", "self", "unknown"]);
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); await rm(outDir, { recursive: true, force: true }); }
 });

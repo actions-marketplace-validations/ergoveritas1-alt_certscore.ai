@@ -1,4 +1,5 @@
 import {
+  AUTOMATED_DECISION_PRACTICES_PATTERN,
   classifyGdprTransparencyTopics,
   hasUnsupportedGenericPrivacyContact,
   normalizeGdprTransparencyText,
@@ -116,6 +117,9 @@ export function hasSubstantiveLegalBasisEvidence(value: string) {
 
 export function hasSubstantiveAutomatedDecisionOrProfilingEvidence(value: string) {
   const text = normalizeArticle13Whitespace(value);
+  // A description of the service's actual decision practices, not a generic
+  // statement that visitors have rights concerning automated decisions.
+  if (AUTOMATED_DECISION_PRACTICES_PATTERN.test(text)) return true;
   const topic = /\b(?:profiling|profiled|automated decision(?:-making| making|s)?|solely automated (?:processing|decision))\b/i;
   if (!topic.test(text)) return false;
   const dataOrEffectContext = /\b(?:personal data|personal information|user data|data about you|your data|your information|legal effects?|significantly affects?|similarly significant effects?|eligibility|credit|insurance|employment|access to (?:a )?service)\b/i;
@@ -132,9 +136,11 @@ export function hasSubstantiveAutomatedDecisionOrProfilingEvidence(value: string
 
   const affirmativeOrNegativeDisclosure = /\b(?:do(?:es)? not|will not|not (?:be )?used|use|uses|used|perform|performs|conduct|conducts|carry out|carried out|engage in|based on|constitutes?)\b/i;
   const firstPartyDisclosure = /\b(?:we|the company|the controller|personal data|personal information|user data)\b/i;
-  return dataOrEffectContext.test(text) &&
-    affirmativeOrNegativeDisclosure.test(text) &&
-    firstPartyDisclosure.test(text);
+  return text.split(/(?<=[.!?])\s+/u).some((sentence) =>
+    topic.test(sentence) && dataOrEffectContext.test(sentence) &&
+    affirmativeOrNegativeDisclosure.test(sentence) &&
+    firstPartyDisclosure.test(sentence)
+  );
 }
 
 export function hasSubstantiveRecipientsEvidence(value: string) {
@@ -145,7 +151,7 @@ export function hasSubstantiveRecipientsEvidence(value: string) {
     return false;
   }
   const meaningfulCategory = /\b(?:service providers?|processors?|subprocessors?|suppliers?|payment processors?|payment (?:and )?delivery service providers?|hosting providers?|cloud providers?|analytics providers?|analytics partners?|advertising partners?|advertising networks?|social media providers?|delivery providers?|professional advisers?|affiliates?|group companies|law enforcement|regulators?|authorities)\b/i;
-  const disclosureAction = /\b(?:share|disclose|provide|transfer|send|make available|receive|access|process|handle)\b/i;
+  const disclosureAction = /\b(?:share[ds]?|disclos(?:e[ds]?|ing)|provid(?:e[ds]?|ing)|transfer(?:red)?|send|sent|(?:make|made) available|receive[ds]?|access|process(?:ed)?|handle[ds]?)\b/i;
   const dataContext = /\b(?:personal data|personal information|your data|your information|information|data)\b/i;
   const namedRecipient = /\b(?:google|microsoft|amazon|aws|stripe|salesforce|meta|facebook|oracle|adobe|hubspot|mailchimp|[A-Z][A-Za-z0-9&.'’-]+\s+(?:Ltd|Limited|LLC|Inc|GmbH|AG|S\.A\.|SAS|BV))\b/;
   return dataContext.test(text) && disclosureAction.test(text) && (meaningfulCategory.test(text) || namedRecipient.test(text));
@@ -162,9 +168,12 @@ export function hasSubstantiveRetentionEvidence(value: string) {
   const dataContext = /\b(?:personal data|personal information|your data|your information|account (?:data|information)|profile information|technical data|transaction data|records?|recordings?|comments?|metadata|server logs?|ip addresses?|cookies?)\b/i;
   const lifecycleAction = /\b(?:retain(?:ed|ing)?|keep|kept|store(?:d)?|delete(?:d)?|erase(?:d)?|anonymi[sz](?:e|ed|ation))\b/i;
   const periodOrCriterion = /\b(?:for \d+\s*(?:days?|weeks?|months?|years?)|for (?:one|two|three|four|five|six|seven|eight|nine|ten) (?:days?|weeks?|months?|years?)|indefinitely|as long as (?:necessary|required|you (?:use|maintain)|the account)|until (?:the account|you|closure|termination)|account (?:lifetime|closure|termination)|no longer (?:than )?(?:necessary|required)|purposes? for which (?:it|they|the data|the information) (?:was|were) (?:collected|processed)|legal obligations?|resolve disputes?|enforce (?:our )?agreements?)\b/i;
+  // Retention tables state the lifecycle in their header, not in every cell.
+  const retentionTableRow = /\b(?:retention|storage period)\s*:\s*(?:normally\s+)?(?:up to\s+)?\d+\s*(?:days?|weeks?|months?|years?)\b/i.test(text) &&
+    /\b(?:data|records?|consent choice|correspondence|logs?|responses?|identifiers?)\b/i.test(text);
   return (
     dataContext.test(text) && lifecycleAction.test(text) && periodOrCriterion.test(text)
-  ) ||
+  ) || retentionTableRow ||
     /\b(?:do not|does not|don['’]t|will not|won['’]t) keep (?:your )?(?:personal )?(?:data|information) (?:any )?longer than (?:is )?(?:necessary|required)\b/i.test(text) ||
     /\bkeep information for as long as we need (?:it )?to (?:fulfil|fulfill) the purpose\b/i.test(text);
 }
@@ -561,6 +570,7 @@ function hasScanCoreRowSpecificArticle13Terms(
     case "dpo_contact":
       return /\b(?:data protection officer|data privacy officer|office of the data privacy officer|\bdpo\b|data protection contact|privacy contact point|privacy counsel.{0,180}(?:contact|email|mail|address|@)|(?:contact|email|mail|address|@).{0,180}privacy counsel)\b/i.test(text);
     case "supervisory_authority":
+      if (hasComplaintToAuthorityDisclosure(text)) return true;
       return /\b(?:(?:lodge|file|submit|make)\s+a\s+complaint.{0,160}(?:supervisory|data protection|regulator|authority|information commissioner)|complaints?.{0,200}(?:data protection authorit(?:y|ies)|supervisory authorit(?:y|ies)|regulator|information commissioner)|complain to (?:(?:a|your|the|our|local)\s+)?(?:(?:data protection|supervisory)\s+)?(?:regulator|authority|information commissioner)|(?:supervisory authority|data protection authority|local data protection authorit(?:y|ies)|information commissioner['’]s office).{0,160}complaint|compliance (?:and|&) cooperation with regulators.{0,320}(?:complaints?|regulatory authorities|local data protection authorities|resolve)|formal written complaints?.{0,180}(?:regulatory authorities|local data protection authorities|regulators?)|unresolved complaints?.{0,180}(?:regulatory authorities|local data protection authorities|regulators?)|regulators?.{0,120}(?:complaints?|authorities|resolve))\b/i.test(text);
     case "automated_decision_making_or_profiling":
       return hasSubstantiveAutomatedDecisionOrProfilingEvidence(text);
@@ -593,6 +603,7 @@ function hasRetainedReportRowSpecificArticle13Terms(
     case "dpo_contact":
       return /\b(?:data protection officer|data privacy officer|office of the data privacy officer|\bdpo\b|data protection contact|privacy contact point|privacy counsel.{0,180}(?:contact|email|mail|address|@)|(?:contact|email|mail|address|@).{0,180}privacy counsel)\b/i.test(text);
     case "supervisory_authority":
+      if (hasComplaintToAuthorityDisclosure(text)) return true;
       return /\b(?:(?:lodge|file|submit|make)\s+a\s+complaint.{0,160}(?:supervisory|data protection|regulator|authority|information commissioner)|complaints?.{0,200}(?:data protection authorit(?:y|ies)|supervisory authorit(?:y|ies)|regulator|information commissioner)|complain to (?:(?:a|your|the|our|local)\s+)?(?:(?:data protection|supervisory)\s+)?(?:regulator|authority|information commissioner)|(?:supervisory authority|data protection authority|local data protection authorit(?:y|ies)|information commissioner['’]s office).{0,160}complaint|compliance (?:and|&) cooperation with regulators.{0,320}(?:complaints?|regulatory authorities|local data protection authorities|resolve)|formal written complaints?.{0,180}(?:regulatory authorities|local data protection authorities|regulators?)|unresolved complaints?.{0,180}(?:regulatory authorities|local data protection authorities|regulators?)|regulators?.{0,120}(?:complaints?|authorities|resolve))\b/i.test(text);
     case "automated_decision_making_or_profiling":
       return hasSubstantiveAutomatedDecisionOrProfilingEvidence(text);
@@ -601,11 +612,18 @@ function hasRetainedReportRowSpecificArticle13Terms(
   }
 }
 
+function hasComplaintToAuthorityDisclosure(text: string) {
+  return /\b(?:you may|you can|right to) complain\b.{0,220}\b(?:supervisory authority|data protection authority|information commissioner)\b/i.test(text);
+}
+
 function hasLocalizedArticle13EvidenceContext(
   value: string,
   disclosureType: Article13DisclosureType | string | undefined,
 ) {
   const normalized = normalizeArticle13Whitespace(value);
+  if (disclosureType === "data_retention" && hasSubstantiveRetentionEvidence(normalized)) {
+    return true;
+  }
   // This validator receives already-retained section evidence. Preserve that
   // scope when rechecking the canonical classifier so substantive semantic
   // clauses do not lose their match merely because the bounded excerpt omits

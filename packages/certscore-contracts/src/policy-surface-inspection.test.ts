@@ -24,6 +24,9 @@ test("policy inspection requires verified negative-search coverage before projec
   assert.equal(unverified.linkDiscoveryCoverageStatus, "limited");
   assert.equal(unverified.documentRetrievalCoverageStatus, "limited");
   assert.equal(unverified.inspectionCompleted, true);
+  assert.deepEqual(unverified.retrievalDiagnostics, {
+    attemptedDocumentCount: 0, failedDocumentCount: 0, observedLinkFailureCount: 0, failureReasons: [],
+  });
   assert.deepEqual(unverified.limitationKeys, [
     "privacy_policy_negative_search_coverage_not_verified",
   ]);
@@ -256,6 +259,7 @@ test("a directly observed privacy link remains observed when document retrieval 
       status: "failed",
       linkObservationState: "observed",
       documentFetchState: "failed",
+      fetchFailureReason: "insufficient_policy_text",
       documentEvaluationState: "not_attempted",
       evidenceRefs: [],
       artifactRefs: [],
@@ -283,6 +287,10 @@ test("a directly observed privacy link remains observed when document retrieval 
   assert.equal(outcome.documentRetrievalCoverageStatus, "insufficient");
   assert.equal(outcome.privacyPolicyObserved, true);
   assert.deepEqual(outcome.observedSurfaceTypes, ["privacy_policy"]);
+  assert.deepEqual(outcome.retrievalDiagnostics, {
+    attemptedDocumentCount: 1, failedDocumentCount: 1, observedLinkFailureCount: 1,
+    failureReasons: ["insufficient_policy_text"],
+  });
   assert.deepEqual(outcome.limitationKeys, [
     "privacy_policy_link_observed_document_not_retained",
   ]);

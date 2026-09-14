@@ -818,6 +818,7 @@ export const collectionSurfaceSemanticCategorySchema = z.enum([
   "free_text",
   "selection",
   "boolean_choice",
+  "website_url",
   "unknown",
 ]);
 
@@ -1889,6 +1890,10 @@ export const gdprTransparencyTopicCoverageDiagnosticSchema = z.object({
   ]),
   evaluationState: z.enum(["observed", "unknown"]),
   coverageState: z.enum(["complete", "limited"]),
+  // Independent diagnostic axes. Optional for historical v1 records; neither
+  // field grants absence credit or changes the conservative coverageState.
+  documentRetentionState: z.enum(["complete", "truncated", "unavailable"]).optional(),
+  sectionExtractionState: z.enum(["complete", "partial", "truncated", "malformed"]).optional(),
   evidenceSectionSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   sourceDocumentSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   sectionExtractionMethod: z.enum([
@@ -2604,6 +2609,13 @@ export const policySurfaceInspectionOutcomeSchema = z.object({
   coverageStatus: z.enum(["complete", "limited"]),
   linkDiscoveryCoverageStatus: z.enum(["complete", "limited"]).default("limited"),
   documentRetrievalCoverageStatus: z.enum(["usable", "insufficient", "limited"]).default("limited"),
+  // Diagnostics describe attempted retrieval, never policy absence or eligibility.
+  retrievalDiagnostics: z.object({
+    attemptedDocumentCount: z.number().int().nonnegative(),
+    failedDocumentCount: z.number().int().nonnegative(),
+    observedLinkFailureCount: z.number().int().nonnegative(),
+    failureReasons: z.array(z.string().max(120)).max(8),
+  }).optional(),
   inspectionCompleted: z.boolean(),
   privacyPolicyObserved: z.boolean(),
   observedSurfaceTypes: z.array(policySurfaceObservationSchema.shape.surfaceType).max(16).default([]),
@@ -2711,6 +2723,19 @@ export function derivePolicySurfaceInspectionOutcome(input: {
     coverageStatus,
     linkDiscoveryCoverageStatus,
     documentRetrievalCoverageStatus,
+    retrievalDiagnostics: {
+      attemptedDocumentCount: observations.filter((observation) =>
+        observation.status === "fetched" || observation.status === "failed"
+      ).length,
+      failedDocumentCount: observations.filter((observation) => observation.status === "failed").length,
+      observedLinkFailureCount: observations.filter((observation) =>
+        observation.status === "failed" && observation.linkObservationState === "observed"
+      ).length,
+      failureReasons: [...new Set(observations.flatMap((observation) =>
+        observation.status === "failed" && observation.fetchFailureReason
+          ? [observation.fetchFailureReason] : []
+      ))].slice(0, 8),
+    },
     inspectionCompleted,
     privacyPolicyObserved,
     observedSurfaceTypes: [...new Set(retainedObservations.map((observation) => observation.surfaceType))],

@@ -1,6 +1,6 @@
 import "server-only";
-import { createHash } from "node:crypto";
-import { collectionSurfaceInventorySchema, collectionSurfaceSnapshotSchema } from "@certscore/contracts";
+import { collectionSurfaceInventorySchema } from "@certscore/contracts";
+import { verifiedFormSnapshots } from "./form-snapshot-evidence";
 import { loadFullSiteCrawl, loadFullSitePages, query, readFullSiteArtifact } from "@website-signal-risk-scanner/db";
 import { crawlObservationSchema } from "@website-signal-risk-scanner/shared";
 
@@ -37,15 +37,5 @@ export async function loadFullSiteFormSnapshot(scanId: string, pageId: string, f
   if (observation.executionProfile === "homepage_baseline" && raw.scanId !== scanId) return null;
   const inventory = collectionSurfaceInventorySchema.safeParse(raw.collectionSurfaceInventory);
   if (!inventory.success || JSON.stringify(inventory.data) !== JSON.stringify(collection.inventory)) return null;
-  const inventoryHash = createHash("sha256").update(JSON.stringify(inventory.data)).digest("hex");
-  for (const candidate of raw.collectionSurfaceSnapshots ?? []) {
-    const parsedSnapshot = collectionSurfaceSnapshotSchema.safeParse(candidate);
-    if (!parsedSnapshot.success) continue;
-    const snapshot = parsedSnapshot.data;
-    if (snapshot.formRef !== formRef || snapshot.status !== "available" || snapshot.sourceInventoryHash !== inventoryHash || snapshot.pageUrl !== inventory.data.pageUrl || !snapshot.data || snapshot.sha256 !== metadata.sha256) continue;
-    const bytes = Buffer.from(snapshot.data, "base64");
-    if (bytes.length !== snapshot.sizeBytes || createHash("sha256").update(bytes).digest("hex") !== snapshot.sha256 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
-    return bytes;
-  }
-  return null;
+  return verifiedFormSnapshots(raw).find(({ snapshot }) => snapshot.formRef === formRef && snapshot.status === "available" && snapshot.sha256 === metadata.sha256)?.bytes ?? null;
 }

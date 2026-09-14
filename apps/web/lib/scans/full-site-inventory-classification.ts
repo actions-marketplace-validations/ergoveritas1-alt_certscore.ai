@@ -7,6 +7,8 @@ import {
 
 /** Inventory classification only: never a concern, finding, or score input. */
 export function classifyCrawlInventoryResource(row: CrawlOccurrence) {
+  if (row.kind === "request" && row.relationship === "first_party" && ["stylesheet", "font", "image"].includes(row.resourceType) && /^(unknown|unknown purpose)$/i.test(row.purpose)) return "Contextual";
+  if (row.kind === "storage") return "Contextual";
   // Compact cookie/storage observations do not retain necessity or write proof.
   // Do not infer that proof from a vendor name or a purpose label.
   const priority = row.kind === "request"

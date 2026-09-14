@@ -160,6 +160,7 @@ export type StaticFixturePage =
   | "policy-gold-privacy-duplicates"
   | "policy-external-choice-platform"
   | "policy-footer-privacy"
+  | "policy-german-datenschutzhinweise"
   | "policy-google-script-noise"
   | "policy-google-script-only"
   | "policy-google-like-late-sections"
@@ -409,6 +410,7 @@ const fixtureSlugs: Record<StaticFixturePage, string> = {
   "policy-gold-privacy-duplicates": "policy-gold-privacy-duplicates",
   "policy-external-choice-platform": "policy-external-choice",
   "policy-footer-privacy": "policy-footer-privacy",
+  "policy-german-datenschutzhinweise": "policy-german-datenschutzhinweise",
   "policy-google-script-noise": "policy-google-script-noise",
   "policy-google-script-only": "policy-google-script-only",
   "policy-google-like-late-sections": "policy-google-like-late-sections",
@@ -2982,6 +2984,7 @@ function policyHomeMarkup(caseName: StaticFixturePage): string {
     "policy-client-challenge": `<a href="/policies/client-challenge">Privacy Policy</a>`,
     "policy-french-captcha-challenge": `<a href="/policies/french-captcha-challenge">Politique de confidentialité</a>`,
     "policy-footer-privacy": `<a href="/policies/privacy">Privacy Policy</a>`,
+    "policy-german-datenschutzhinweise": `<footer><a href="/datenschutzhinweise" aria-label="Datenschutzhinweise auf psh-con.de (öffnet in neuem Tab)">Datenschutzhinweise <span aria-hidden="true">↗</span></a></footer>`,
     "policy-google-script-noise": `<a href="/policies/google-script-noise">Privacy Policy</a>`,
     "policy-google-script-only": `<a href="/policies/google-script-only">Privacy Policy</a>`,
     "policy-google-like-late-sections": `<a href="/policies/google-like-late-sections">Privacy Policy</a>`,
@@ -3604,6 +3607,10 @@ function policyDocumentHtml(pathname: string): string | undefined {
     "/datenschutz": {
       title: "Datenschutzerklärung",
       body: "Datenschutzerklärung. Wir beschreiben die Verarbeitung personenbezogener Daten, Zwecke, Rechtsgrundlagen, Empfänger, Speicherdauer und Datenschutzrechte.",
+    },
+    "/datenschutzhinweise": {
+      title: "Datenschutzhinweise",
+      body: "Datenschutzhinweise. Verantwortlicher für die Datenverarbeitung ist die Fixture GmbH. Wir verarbeiten personenbezogene Daten zur Bereitstellung des Angebots und zur Analyse. Die Rechtsgrundlagen umfassen Vertragserfüllung, Einwilligung und berechtigte Interessen. Empfänger sind beauftragte Dienstleister. Wir speichern personenbezogene Daten nur so lange, wie es für den jeweiligen Zweck erforderlich ist. Betroffene Personen haben Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung, Widerspruch und Beschwerde bei einer Aufsichtsbehörde. Datenschutzanfragen beantwortet datenschutz@example.test.",
     },
     "/politique-de-confidentialite": {
       title: "Politique de confidentialité",

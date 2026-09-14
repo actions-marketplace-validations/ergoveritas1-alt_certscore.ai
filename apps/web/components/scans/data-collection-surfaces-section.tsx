@@ -42,6 +42,7 @@ const SEMANTIC_CATEGORY_LABELS: Record<CollectionSurfaceAssessment["forms"][numb
   selection: "Selection",
   social_security_number: "Social security number",
   unknown: "Unclassified",
+  website_url: "Website URL",
 };
 
 function countLabel(count: number, singular: string, plural: string) {

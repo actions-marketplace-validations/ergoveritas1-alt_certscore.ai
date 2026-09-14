@@ -35,5 +35,10 @@ test("form crops retain binding, mask inputs, resize, and fail closed on unsafe 
     assert.equal(failed[0]?.status, "unavailable"); assert.equal(failed[0]?.data, undefined);
     const mismatch = await captureCollectionSurfaceSnapshots(page, { ...inventory, pageUrl: "https://different.test" }, async () => { throw new Error("Must not review mismatched document"); });
     assert.equal(mismatch[0]?.status, "unavailable");
+    await page.setContent('<section><label>Email<input type="email" style="width:200px;height:40px"></label></section>');
+    const standalone = { ...inventory, forms: inventory.forms.map(form => ({ ...form, structure: "unassociated_controls" as const })) };
+    assert.equal((await captureCollectionSurfaceSnapshots(page, standalone, async () => ({ safeForDisplay: true })))[0]?.status, "available");
+    await page.setContent('<form id="contact"><p>Contact</p></form><label>Email<input form="contact" type="email" style="width:200px;height:40px"></label>');
+    assert.equal((await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true })))[0]?.status, "available");
   } finally { await browser.close(); }
 });

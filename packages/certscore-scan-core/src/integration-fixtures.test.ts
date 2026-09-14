@@ -3774,6 +3774,7 @@ test("scan-core treats a substantive branded login page as scannable", async () 
       profile: "tiny",
       outDir: path.join(tempRoot, "out"),
       preConsentScreenshotMode: "always",
+      formSnapshotReviewer: async () => ({ safeForDisplay: true }),
     });
 
     assert.equal(bundle.scan_no_go_assessment, undefined);
@@ -3781,6 +3782,8 @@ test("scan-core treats a substantive branded login page as scannable", async () 
     assert.notEqual(bundle.runtimeCoverage?.coverageStatus, "limited_none");
     assert.equal(bundle.collectionSurfaceInventory?.coverage.status, "complete");
     assert.equal(bundle.collectionSurfaceInventory?.forms.length, 1);
+    assert.equal(bundle.collectionSurfaceSnapshots?.[0]?.status, "available");
+    assert.ok(bundle.collectionSurfaceSnapshots?.[0]?.data);
     assert.equal(bundle.collectionSurfaceInventory?.forms[0]?.surfaceType, "account");
     assert.deepEqual(
       bundle.collectionSurfaceInventory?.forms[0]?.fields.map((field) => field.semanticCategory),

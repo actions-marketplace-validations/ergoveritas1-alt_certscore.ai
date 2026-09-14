@@ -105,6 +105,8 @@ test("separates verified GPC delivery from an incomplete baseline comparison", (
   assert.equal(presentation.headline, "Signal verified · Comparison incomplete");
   assert.match(presentation.coverageSummary, /baseline lane did not reach the required 250 ms quiet period/i);
   assert.doesNotMatch(presentation.coverageSummary, /baseline_settle_not_completed/);
+  assessment.comparison.limitationKeys = ["baseline_settle_not_completed", "gpc_settle_not_completed"];
+  assert.match(describeCanonicalGpcResponse(assessment).coverageSummary, /Neither passive lane reached the required 250 ms quiet period/);
 });
 
 test("fails closed for non-surfaced packets and malformed score effects", () => {

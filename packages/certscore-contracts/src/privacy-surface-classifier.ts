@@ -60,7 +60,11 @@ const it = (terms: PhraseInput[]) => terms.map((term): PrivacySurfacePhrase => (
 const nl = (terms: PhraseInput[]) => terms.map((term): PrivacySurfacePhrase => ({ locale: "nl", ...term }));
 const pl = (terms: PhraseInput[]) => terms.map((term): PrivacySurfacePhrase => ({ locale: "pl", ...term }));
 
-export const PRIVACY_SURFACE_PHRASE_REGISTRY: PrivacySurfacePhrase[] = [
+function privacySurfacePhraseKey(phrase: Pick<PrivacySurfacePhrase, "locale" | "phrase" | "surfaceType">) {
+  return `${phrase.locale}:${phrase.surfaceType}:${phrase.phrase.normalize("NFKC").toLowerCase()}`;
+}
+
+const CORE_PRIVACY_SURFACE_PHRASE_OVERRIDES: PrivacySurfacePhrase[] = [
   ...en([
     direct("privacy_policy", "general privacy policy", "general_scope"),
     direct("privacy_policy", "general privacy notice", "general_scope"),
@@ -212,23 +216,27 @@ export const PRIVACY_SURFACE_PHRASE_REGISTRY: PrivacySurfacePhrase[] = [
     direct("terms", "regulamin"),
     direct("terms", "warunki korzystania"),
   ]),
-  ...PRIVACY_EVIDENCE_LOCALE_REGISTRY
-    .filter((entry) => !new Set<SupportedPrivacyEvidenceLocale>(["en", "de", "fr", "es", "it", "nl", "pl"]).has(entry.locale))
-    .flatMap((entry): PrivacySurfacePhrase[] => [
-      ...entry.privacyPolicyLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct" as const, surfaceType: "privacy_policy" as const })),
-      ...entry.cookiePolicyLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct" as const, surfaceType: "cookie_policy" as const })),
-      ...entry.cookieSettingsLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct" as const, surfaceType: "cookie_settings" as const })),
-      ...entry.termsLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct" as const, surfaceType: "terms" as const })),
-    ]),
-  ...PRIVACY_EVIDENCE_LOCALE_REGISTRY.flatMap((entry): PrivacySurfacePhrase[] =>
-    (entry.combinedPrivacyCookieLabels ?? []).map((phrase) => ({
-      locale: entry.locale,
-      phrase,
-      strength: "direct" as const,
-      surfaceType: "cookie_policy" as const,
-      variant: "combined_privacy_cookie_surface",
-    })),
-  ),
+];
+
+const corePhraseKeys = new Set(CORE_PRIVACY_SURFACE_PHRASE_OVERRIDES.map(privacySurfacePhraseKey));
+const canonicalLocalePhrases = PRIVACY_EVIDENCE_LOCALE_REGISTRY.flatMap((entry): PrivacySurfacePhrase[] => [
+  ...entry.privacyPolicyLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct", surfaceType: "privacy_policy" } as const)),
+  ...entry.cookiePolicyLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct", surfaceType: "cookie_policy" } as const)),
+  ...entry.cookieSettingsLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct", surfaceType: "cookie_settings" } as const)),
+  ...entry.termsLabels.map((phrase) => ({ locale: entry.locale, phrase, strength: "direct", surfaceType: "terms" } as const)),
+  ...(entry.combinedPrivacyCookieLabels ?? []).map((phrase) => ({
+    locale: entry.locale,
+    phrase,
+    strength: "direct",
+    surfaceType: "cookie_policy",
+    variant: "combined_privacy_cookie_surface",
+  } as const)),
+]);
+
+/** Canonical locale vocabulary with explicit core-locale overrides for guarded terms. */
+export const PRIVACY_SURFACE_PHRASE_REGISTRY: PrivacySurfacePhrase[] = [
+  ...CORE_PRIVACY_SURFACE_PHRASE_OVERRIDES,
+  ...canonicalLocalePhrases.filter((phrase) => !corePhraseKeys.has(privacySurfacePhraseKey(phrase))),
 ];
 
 const URL_SURFACE_PATTERNS: Array<{
@@ -293,6 +301,8 @@ export function classifyPrivacySurface(
   if (!haystack) {
     return unknown(["empty_surface_evidence"]);
   }
+  const nonPolicyRole = nonPolicyDocumentReason(input);
+  if (nonPolicyRole) return unknown([nonPolicyRole]);
   if ((editorialOrReferencePath || editorialOrReferenceLabel) && !policyDocumentLabelContextSatisfied) {
     return unknown(["editorial_or_reference_resource_not_policy_document"]);
   }
@@ -382,6 +392,16 @@ export function classifyPrivacySurface(
     surfaceType: urlMatch.surfaceType,
     variant: urlMatch.variant,
   };
+}
+
+/** Explicit product/request identities cannot establish a governing disclosure. */
+export function nonPolicyDocumentReason(input: PrivacySurfaceClassifierInput): string | undefined {
+  const label = normalizePrivacySurfaceText(input.title || input.linkText);
+  let path = "";
+  try { path = decodeURIComponent(new URL(input.url ?? "").pathname).toLowerCase().replace(/\/$/, ""); } catch {}
+  if (/\/(?:privacy|data-subject|dsar)[-_]requests?$/.test(path) || /^(?:submit (?:a |your )?)?(?:privacy|data subject|data access) request$/.test(label)) return "privacy_request_surface_not_policy_document";
+  if (/\/(?:solutions|products)\//.test(path) && /(?:privacy[- ]policy|cookie[- ]consent).*(?:scanner|checker|tool)/.test(`${path} ${label}`)) return "product_surface_not_policy_document";
+  return undefined;
 }
 
 function canonicalLocaleUrlMatch(

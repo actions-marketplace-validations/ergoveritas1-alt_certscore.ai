@@ -73,8 +73,42 @@ type GdprTransparencySemanticRule = {
 const MAX_EXCERPT_CHARS = 360;
 const DEFAULT_MAX_MATCHES = 24;
 
+// Shared with the retained-evidence validator: an explicit service-practice
+// statement is distinct from a visitor's generic Article 22 rights.
+export const AUTOMATED_DECISION_PRACTICES_PATTERN = /\b(?:we|[\p{L}][\p{L}\d'-]*) (?:do not|does not|is not intended to) make decisions about (?:natural persons|individuals|people) based solely on automated processing that produce legal or similarly significant effects\b/iu;
+
 /** Canonical precision-first clause rules for wording too variable to list as literal headings. */
 const GDPR_TRANSPARENCY_SEMANTIC_RULES: readonly GdprTransparencySemanticRule[] = [
+  {
+    locale: "de",
+    matchedTerm: "konkrete speicherdauer personenbezogener daten",
+    pattern: /\b(?:speichern|aufbewahren)\b.{0,100}\bpersonenbezogen(?:e|en|er|es) daten\b.{0,80}\b(?:ein|zwei|drei|vier|funf|sechs|sieben|acht|neun|zehn|\d+)\s+(?:tage?|wochen?|monate?|jahre?)\b/i,
+    topic: "data_retention",
+  },
+  {
+    locale: "de",
+    matchedTerm: "verantwortliche stelle mit kontaktangabe",
+    pattern: /\b(?:die )?verantwortliche stelle fur die datenverarbeitung\b.{0,80}\bist\b.{0,260}(?:@|telefon|e-mail)/i,
+    topic: "controller_contact",
+  },
+  {
+    locale: "de",
+    matchedTerm: "zweckgebundene speicherdauer",
+    pattern: /\bverbleiben ihre personenbezogenen daten bei uns\b.{0,100}\bbis der zweck fur die datenverarbeitung entfallt\b/i,
+    topic: "data_retention",
+  },
+  {
+    locale: "de",
+    matchedTerm: "beschwerderecht bei einer aufsichtsbehorde",
+    pattern: /\b(?:steht (?:den betroffenen|ihnen) ein beschwerderecht|haben sie (?:das|ein) beschwerderecht)\b.{0,100}\bbei (?:einer|der zustandigen) aufsichtsbehorde\b/i,
+    topic: "supervisory_authority",
+  },
+  {
+    locale: "en",
+    matchedTerm: "explicit automated decision practices",
+    pattern: AUTOMATED_DECISION_PRACTICES_PATTERN,
+    topic: "automated_decision_making_or_profiling",
+  },
   {
     locale: "en",
     matchedTerm: "automated decision-making or profiling disclosure",
@@ -2007,10 +2041,12 @@ export function classifyGdprTransparencyTopics(
     if (selected.has(selectionKey)) {
       continue;
     }
+    const evidenceExcerpt = boundedEvidenceExcerptFromIndex(evidenceSourceText, evidenceSearchIndex, term.phrase);
+    if (!evidenceExcerpt) continue;
     selected.set(selectionKey, {
       classifierProvenance: "gdpr_transparency_topic_classifier.v1",
       confidence: confidenceFor(term),
-      evidenceExcerpt: boundedEvidenceExcerptFromIndex(evidenceSourceText, evidenceSearchIndex, term.phrase),
+      evidenceExcerpt,
       matchedLocale: term.locale,
       matchedTerm: term.phrase,
       matchStrength: term.strength,
@@ -2032,16 +2068,14 @@ export function classifyGdprTransparencyTopics(
       ? `${rule.topic}:${rule.locale}`
       : rule.topic;
     if (selected.has(selectionKey)) continue;
+    const evidenceExcerpt = rule.sectionOnly && input.section
+      ? boundedSectionSemanticEvidenceExcerpt(input.section, rule)
+      : boundedEvidenceExcerptFromIndex(evidenceSourceText, evidenceSearchIndex, semanticRuleAnchor(normalizedText, rule));
+    if (!evidenceExcerpt) continue;
     selected.set(selectionKey, {
       classifierProvenance: "gdpr_transparency_topic_classifier.v1",
       confidence: rule.confidence ?? (rule.sectionOnly ? 0.88 : 0.86),
-      evidenceExcerpt: rule.sectionOnly && input.section
-        ? boundedSectionSemanticEvidenceExcerpt(input.section, rule)
-        : boundedEvidenceExcerptFromIndex(
-          evidenceSourceText,
-          evidenceSearchIndex,
-          semanticRuleAnchor(normalizedText, rule),
-        ),
+      evidenceExcerpt,
       matchedLocale: rule.locale,
       matchedTerm: rule.matchedTerm,
       matchStrength: "equivalent",
@@ -2122,22 +2156,28 @@ export function normalizeGdprTransparencyText(value: string | null | undefined):
     .toLowerCase();
 }
 
-function decodeCommonHtmlEntities(value: string): string {
+export function decodeCommonHtmlEntities(value: string): string {
   return value
     .replace(/&#(\d+);/g, (_match, codepoint: string) => {
       const parsed = Number(codepoint);
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : "";
+      return Number.isInteger(parsed) && parsed >= 0 && parsed <= 0x10ffff ? String.fromCodePoint(parsed) : _match;
     })
     .replace(/&#x([0-9a-f]+);/gi, (_match, codepoint: string) => {
       const parsed = Number.parseInt(codepoint, 16);
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : "";
+      return Number.isInteger(parsed) && parsed >= 0 && parsed <= 0x10ffff ? String.fromCodePoint(parsed) : _match;
     })
-    .replace(/&([a-z][a-z0-9]+);/gi, (match, entity: string) =>
-      COMMON_HTML_ENTITY_REPLACEMENTS[entity.toLowerCase()] ?? match
-    );
+    .replace(/&([a-z][a-z0-9]+);/gi, (match, entity: string) => {
+      const replacement = COMMON_HTML_ENTITY_REPLACEMENTS[entity.toLowerCase()];
+      return replacement === undefined ? match : /^[A-Z]/.test(entity) ? replacement.toUpperCase() : replacement;
+    });
 }
 
 const COMMON_HTML_ENTITY_REPLACEMENTS: Record<string, string> = {
+  szlig: "ß",
+  sect: "§",
+  bdquo: "„",
+  lt: "<",
+  gt: ">",
   amp: "&",
   apos: "'",
   agrave: "à",
@@ -2480,7 +2520,8 @@ function boundedEvidenceExcerptFromIndex(
     ? paddedIndexesOf(searchIndex.normalized, normalizedPhrase)
     : [];
   if (matchIndexes.length === 0) {
-    return sourceText.slice(0, maximumChars);
+    // Never attach a document introduction to an unlocated topic match.
+    return "";
   }
   return matchIndexes
     .map((matchIndex, occurrenceIndex) => {
@@ -2650,7 +2691,14 @@ function buildEvidenceSearchIndex(sourceText: string) {
     sourceIndexes.pop();
   }
 
-  return { normalized: normalizedChunks.join(""), sourceIndexes };
+  const keptIndexes = normalizedChunks.map((_, index) => index).filter((index) =>
+    normalizedChunks[index] !== " " ||
+    (normalizedChunks[index - 1] !== "-" && normalizedChunks[index + 1] !== "-")
+  );
+  return {
+    normalized: keptIndexes.map((index) => normalizedChunks[index]).join(""),
+    sourceIndexes: keptIndexes.map((index) => sourceIndexes[index]!),
+  };
 }
 
 function paddedIndexesOf(normalizedValue: string, phrase: string): number[] {

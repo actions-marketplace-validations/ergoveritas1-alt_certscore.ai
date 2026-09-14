@@ -1,6 +1,7 @@
 import {
   type ArtifactRef,
   extractPolicyUpdateDateText,
+  decodeCommonHtmlEntities,
   article13DisclosureRejectReason as sharedArticle13DisclosureRejectReason,
   assessArticle13PolicyTextQuality,
   canonicalPolicyDocumentBrandRelationship,
@@ -9,6 +10,7 @@ import {
   classifyGdprTransparencyTopics,
   type GdprTransparencyTopicMatch,
   classifyPrivacySurface,
+  nonPolicyDocumentReason,
   hasSubstantiveProcessingPurposesEvidence,
   type DirectVsInferred,
   type EvidenceRef,
@@ -5638,6 +5640,8 @@ export function assessPolicyDocumentRoleForChildSelection(
   if (candidate.deterministicSurfaceType !== "privacy_policy") {
     return { role: "unknown", reasonCodes: ["non_privacy_surface_document_role_unknown"] };
   }
+  const nonPolicyRole = nonPolicyDocumentReason({ url: candidate.normalizedUrl, linkText: candidate.linkText });
+  if (nonPolicyRole) return { role: "unknown", reasonCodes: [nonPolicyRole] };
   const retainedChildren = [...selection.fetchCandidates, ...selection.observedChildCandidates];
   const directPrivacyClassification = candidate.deterministicClassifierReasonCodes
     .includes("matched_privacy_policy");
@@ -6396,6 +6400,8 @@ export function buildGdprTransparencyTopicCoverageDiagnostics(input: {
       topic,
       evaluationState: evidenceBoundObserved ? "observed" as const : "unknown" as const,
       coverageState: documentCoverageComplete ? "complete" as const : "limited" as const,
+      documentRetentionState: input.documentTextCoverage?.status ?? "unavailable" as const,
+      sectionExtractionState: input.contentCoverage.status,
       evidenceSectionSha256: evidenceBoundObserved ? evidence?.evidenceTextSha256 : undefined,
       sourceDocumentSha256: evidenceBoundObserved ? evidence?.sourceDocumentTextSha256 : undefined,
       sectionExtractionMethod: evidenceBoundObserved ? evidence?.sectionExtractionMethod : undefined,
@@ -6815,7 +6821,7 @@ function withSectionArticle13Evidence(
     return [{
       disclosureType: evidence.coverageArea,
       status: evidence.signalObserved,
-      evidenceText: evidence.selectedPolicySectionExcerpt.slice(0, 320),
+      evidenceText: completePolicyExcerpt(evidence.selectedPolicySectionExcerpt, 640),
       confidence: confidenceForArticle13DisclosureSignal(
         evidence.coverageArea,
         evidence.signalObserved === "observed" ? "observed" : "partial",
@@ -6960,9 +6966,9 @@ function article13SignalsFromText(text: string): Pick<PolicyFacts, "article13Dis
     if (!rawStatus) {
       continue;
     }
-    const evidenceText = boundedExcerptForPatterns(normalizedText, rawStatus === "partial" && rule.partialPattern
+    const evidenceText = completePolicyExcerpt(boundedExcerptForPatterns(normalizedText, rawStatus === "partial" && rule.partialPattern
       ? [rule.partialPattern, ...rule.excerptPatterns]
-      : rule.excerptPatterns).slice(0, rule.maxEvidenceChars ?? 320);
+      : rule.excerptPatterns), rule.maxEvidenceChars ?? 320);
     const rejectReason = article13DisclosureRejectReason(evidenceText, rule.disclosureType);
     const confidence = confidenceForArticle13DisclosureSignal(rule.disclosureType, rawStatus, evidenceText);
     const status = rawStatus === "observed" && confidence < 0.74
@@ -7071,7 +7077,10 @@ function mergeArticle13DisclosureSignals(
   const byType = new Map<string, PolicySurfaceObservation["article13DisclosureSignals"][number]>();
   const discardedArticle13DisclosureSignals = [...deterministic.discardedArticle13DisclosureSignals];
   for (const signal of [...deterministic.article13DisclosureSignals, ...(assisted?.article13DisclosureSignals ?? [])]) {
-    const rejectReason = article13DisclosureRejectReason(signal.evidenceText ?? "", signal.disclosureType);
+    const rejectReason = article13DisclosureRejectReason(
+      signal.selectedPolicySectionExcerpt ?? signal.evidenceText ?? "",
+      signal.disclosureType,
+    );
     if (rejectReason) {
       discardedArticle13DisclosureSignals.push({
         disclosureType: signal.disclosureType,
@@ -8402,8 +8411,12 @@ function boundedExcerptForPatterns(text: string, patterns: RegExp[]): string {
       return normalized.search(pattern);
     })
     .find((index) => index >= 0);
-  const index = matchIndex === undefined ? 0 : Math.max(0, matchIndex - 180);
-  return normalized.slice(index, index + MAX_EXCERPT_CHARS);
+  let index = matchIndex === undefined ? 0 : Math.max(0, matchIndex - 180);
+  if (index > 0) {
+    const boundary = normalized.slice(index, matchIndex).search(/\s/);
+    if (boundary >= 0) index += boundary + 1;
+  }
+  return completePolicyExcerpt(normalized.slice(index), MAX_EXCERPT_CHARS);
 }
 
 function bestPolicyDocumentText(html: string, fallbackVisibleText: string): string {
@@ -8544,27 +8557,27 @@ export function extractPolicySections(input: {
   const sanitizedHtml = stripPageChromeHtml(input.html);
   const normalizedVisibleTextSha256 = sha256Text(normalizedVisibleText);
   const sanitizedHtmlSha256 = sha256Text(sanitizedHtml);
-  return sections
+  const boundedSections = sections
     .map((section) => {
       const normalizedText = normalizeWhitespace(section.textExcerpt);
       const sourceOffsetBasis = section.sourceOffsetBasis ?? "normalized_visible_text";
       return {
         ...section,
         heading: normalizeWhitespace(section.heading).slice(0, 160) || "Policy section",
-        textExcerpt: normalizedText.slice(0, 1_200),
+        textExcerpt: completePolicyExcerpt(normalizedText, 1_200),
         sourceOffsetBasis,
         documentTextSha256: sourceOffsetBasis === "sanitized_html"
           ? sanitizedHtmlSha256
           : normalizedVisibleTextSha256,
-        evidenceTextSha256: sha256Text(normalizedText.slice(0, 1_200)),
+        evidenceTextSha256: sha256Text(completePolicyExcerpt(normalizedText, 1_200)),
         sourceTextChars: sourceOffsetBasis === "sanitized_html"
           ? sanitizedHtml.length
           : normalizedVisibleText.length,
         extractionState: normalizedText.length > 1_200 ? "truncated" as const : "complete" as const,
       };
     })
-    .filter((section) => section.textExcerpt.length >= 80)
-    .slice(0, 80);
+    .filter((section) => section.textExcerpt.length >= 80);
+  return retainedPolicySectionsForObservation(boundedSections, 80, true);
 }
 
 function extractBoundedUnstructuredPolicyBodySections(
@@ -9107,29 +9120,36 @@ function policySectionQuality(text: string): RetainedPolicySection["quality"] {
   return normalized.length >= 120 ? "partial" : "limited";
 }
 
-function retainedPolicySectionsForObservation(sections: RetainedPolicySection[]): RetainedPolicySection[] {
-  return sections
+export function retainedPolicySectionsForObservation(
+  sections: RetainedPolicySection[],
+  limit = 24,
+  includeLimited = false,
+): RetainedPolicySection[] {
+  // Reserve evidence for each distinct disclosure before filling the bounded
+  // inventory. Repeated multi-topic sections must not crowd out a rare topic.
+  const eligible = sections.filter((section) => includeLimited || section.quality !== "limited");
+  if (eligible.length <= limit) return eligible;
+  const matches = new Map(eligible.map((section) => [section, canonicalSectionTopicMatches(section)]));
+  const reserved = new Set(ARTICLE13_SECTION_PROFILES.flatMap((profile) => {
+    const section = bestSectionForProfile(eligible, profile, matches);
+    return section ? [section] : [];
+  }));
+  const ranked = eligible
     .map((section, sourceIndex) => ({
       section,
       sourceIndex,
-      topicMatchCount: classifyGdprTransparencyTopics({
-        section: {
-          body: section.textExcerpt,
-          heading: section.heading,
-        },
-      }).matches.length,
+      topicMatchCount: matches.get(section)?.length ?? 0,
     }))
-    .filter(({ section }) => section.quality !== "limited")
     .sort((left, right) =>
       right.topicMatchCount - left.topicMatchCount ||
       (right.section.quality === "strong" ? 1 : 0) - (left.section.quality === "strong" ? 1 : 0) ||
       left.sourceIndex - right.sourceIndex
     )
-    .map((section) => ({
-      ...section.section,
-      textExcerpt: section.section.textExcerpt.slice(0, 1_200),
-    }))
-    .slice(0, 24);
+    .map(({ section }) => section);
+  const selected = new Set([...reserved, ...ranked].slice(0, limit));
+  // Preserve document order and original source hashes/offsets. Selection is
+  // evidence retention only; the existing topic/ownership gates still apply.
+  return eligible.filter((section) => selected.has(section));
 }
 
 export function retainedArticle13SectionEvidenceFromSections(
@@ -9197,6 +9217,7 @@ function bestSectionForProfile(
     section: RetainedPolicySection;
     score: number;
     substantiveHeadingMatch: boolean;
+    observed: boolean;
   } | undefined;
   const controllerSpecificSections = profile.disclosureType === "controller_contact"
     ? sections.filter((section) => !/(?:third parties?|service providers?).{0,100}(?:independent )?(?:data )?controllers?/i.test(section.textExcerpt))
@@ -9243,14 +9264,16 @@ function bestSectionForProfile(
     }
     if (section.quality === "strong") score += 1;
     const selectedExcerpt = bestSectionExcerptForProfile(section, profile, canonicalMatches);
+    const observed = sectionEvidenceStatus(profile, selectedExcerpt, haystack, canonicalMatches) === "observed";
     const substantiveHeadingMatch = headingMatched &&
       sectionEvidenceStatus(profile, selectedExcerpt, haystack, canonicalMatches) !== "not_confirmed";
     if (
       !best ||
-      (substantiveHeadingMatch && !best.substantiveHeadingMatch) ||
-      (substantiveHeadingMatch === best.substantiveHeadingMatch && score > best.score)
+      (observed && !best.observed) ||
+      (observed === best.observed && substantiveHeadingMatch && !best.substantiveHeadingMatch) ||
+      (observed === best.observed && substantiveHeadingMatch === best.substantiveHeadingMatch && score > best.score)
     ) {
-      best = { section, score, substantiveHeadingMatch };
+      best = { section, score, substantiveHeadingMatch, observed };
     }
   }
   return best && best.score >= 3 ? best.section : undefined;
@@ -9287,6 +9310,9 @@ function bestSectionExcerptForProfile(
   canonicalMatches: GdprTransparencyTopicMatch[],
 ): string {
   const text = normalizeWhitespace(section.textExcerpt);
+  // Preserve complete, bounded structural evidence before considering a short
+  // classifier window. Headers keep table values attached to their meaning.
+  const structuralExcerpt = normalizeWhitespace(`${section.heading}. ${text}`);
   const preferredPatterns: Partial<Record<Article13DisclosureType, RegExp[]>> = {
     controller_contact: [
       /information on (?:the )?controller.{0,360}(?:e-?mail|email|tel(?:ephone)?|address|@[a-z0-9.-]+\.[a-z]{2,})/i,
@@ -9298,7 +9324,7 @@ function bestSectionExcerptForProfile(
       /we (?:collect|use|process|store).{0,220}(?:to|for) /i,
       /(?:your details|contact details|application data|application documents|(?:the )?data).{0,180}(?:used|processed|collected|stored).{0,180}(?:to|for(?: the purpose of)?).{0,240}/i,
     ],
-    legal_basis: [/(?:our )?(?:legal|lawful) bases? (?:are|include).{0,260}(?:contract|legitimate interests?|legal obligations?|consent|public task|vital interests?)/i],
+    legal_basis: [/(?:our )?(?:legal|lawful) bases? (?:are|include).{0,260}(?:contract|legitimate interests?|legal obligations?|consent|public task|vital interests?)/i, /we rely on.{0,220}(?:consent|contract|legal obligation|legitimate interests).{0,160}(?:lawful bases|legal bases|processing)/i],
     data_retention: [
       /we retain.{0,260}(?:as long as|period|criteria|delete|anonymi[sz]e)/i,
       /we (?:only )?keep (?:your )?(?:personal )?(?:data|information).{0,180}(?:for as long as|until|while).{0,180}(?:need|required|purpose|law)/i,
@@ -9326,6 +9352,16 @@ function bestSectionExcerptForProfile(
       return normalizeWhitespace(`${section.heading}. ${sentenceExcerpt}`).slice(0, 1_200);
     }
   }
+  if (
+    // A structural witness must also survive the compact signal's 640-char
+    // limit. Otherwise select the topic anchor below, not the introduction.
+    structuralExcerpt.length <= 640 &&
+    section.extractionMethod !== "unstructured_body_window" &&
+    section.extractionMethod !== "canonical_topic_window" &&
+    (((profile.observedPattern.test(structuralExcerpt) || ["recipients_or_vendor_categories", "data_retention", "automated_decision_making_or_profiling"].includes(profile.disclosureType)) && isArticle13DisclosureEvidenceUsable(structuralExcerpt, profile.disclosureType)) ||
+      canonicalMatches.some((match) => match.topic === profile.disclosureType && match.matchedLocale !== "en") &&
+      sharedArticle13DisclosureRejectReason(structuralExcerpt, profile.disclosureType, { mode: "multilingual_classifier" }) === null)
+  ) return structuralExcerpt;
   const canonicalTopicMatch = canonicalTopicMatchForDisclosure(canonicalMatches, profile.disclosureType);
   if (canonicalTopicMatch) {
     return normalizeWhitespace(`${section.heading}. ${canonicalTopicMatch.evidenceExcerpt}`).slice(0, 1_200);
@@ -9359,8 +9395,7 @@ function sectionEvidenceStatus(
       : "not_confirmed";
   }
   if (
-    profile.disclosureType === "processing_purposes" &&
-    hasSubstantiveProcessingPurposesEvidence(excerpt) &&
+    ["processing_purposes", "recipients_or_vendor_categories", "data_retention", "automated_decision_making_or_profiling"].includes(profile.disclosureType) &&
     isArticle13DisclosureEvidenceUsable(excerpt, profile.disclosureType)
   ) {
     return "observed";
@@ -9381,6 +9416,19 @@ function sectionEvidenceStatus(
   return "not_confirmed";
 }
 
+// Keep existing retention budgets; avoid cutting legal citations or words when
+// producing the compact signal alongside its full retained section evidence.
+function completePolicyExcerpt(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const prefix = text.slice(0, limit);
+  const boundaries = Array.from(prefix.matchAll(/[.!?。！？؟](?:\s+|$)/gu))
+    .filter((match) => !/\b(?:Art|No|Mr|Ms|Dr)\.$/i.test(prefix.slice(0, (match.index ?? 0) + 1)));
+  const end = boundaries.at(-1)?.index;
+  return end !== undefined && end >= limit / 2
+    ? prefix.slice(0, end + 1).trim()
+    : prefix.replace(/\s+\S*$/u, "").trim();
+}
+
 function canonicalTopicMatchForDisclosure(
   matches: GdprTransparencyTopicMatch[],
   disclosureType: Article13DisclosureType,
@@ -9388,6 +9436,11 @@ function canonicalTopicMatchForDisclosure(
   const topicMatches = matches.filter((match) => match.topic === disclosureType);
   return topicMatches.find((match) => match.matchedLocale !== "en") ?? topicMatches[0] ?? null;
 }
+
+const sectionTopicMatchesCache = new WeakMap<
+  Pick<RetainedPolicySection, "heading" | "textExcerpt">,
+  { heading: string; textExcerpt: string; matches: GdprTransparencyTopicMatch[] }
+>();
 
 function canonicalSectionTopicMatches(
   section: Pick<RetainedPolicySection, "heading" | "textExcerpt"> | string,
@@ -9399,7 +9452,9 @@ function canonicalSectionTopicMatches(
       text: section,
     }).matches;
   }
-  return classifyGdprTransparencyTopics({
+  const cached = sectionTopicMatchesCache.get(section);
+  if (cached?.heading === section.heading && cached.textExcerpt === section.textExcerpt) return cached.matches;
+  const matches = classifyGdprTransparencyTopics({
     maxMatches: 80,
     retainLocaleAlternatives: true,
     section: {
@@ -9407,6 +9462,8 @@ function canonicalSectionTopicMatches(
       heading: section.heading,
     },
   }).matches;
+  sectionTopicMatchesCache.set(section, { heading: section.heading, textExcerpt: section.textExcerpt, matches });
+  return matches;
 }
 
 function dataSubjectRightsKeywordCount(value: string): number {
@@ -9911,22 +9968,7 @@ function htmlToVisibleText(html: string): string {
 }
 
 function decodeBasicHtmlEntities(value: string): string {
-  return value
-    .replace(/&#(\d+);/g, (match, codepoint: string) => decodeHtmlCodePoint(match, codepoint, 10))
-    .replace(/&#x([0-9a-f]+);/gi, (match, codepoint: string) => decodeHtmlCodePoint(match, codepoint, 16))
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&apos;|&lsquo;|&rsquo;|&#39;|&#x27;|&#8216;|&#8217;|&#x2018;|&#x2019;/gi, "'")
-    .replace(/&quot;|&#34;|&#x22;/gi, "\"")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-}
-
-function decodeHtmlCodePoint(match: string, value: string, radix: 10 | 16): string {
-  const codepoint = Number.parseInt(value, radix);
-  return Number.isInteger(codepoint) && codepoint >= 0 && codepoint <= 0x10ffff
-    ? String.fromCodePoint(codepoint)
-    : match;
+  return decodeCommonHtmlEntities(value);
 }
 
 function decodeEmbeddedHtml(html: string): string {

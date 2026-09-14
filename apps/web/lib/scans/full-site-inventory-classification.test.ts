@@ -18,7 +18,16 @@ test("embeds remain contextual and compact cookies/storage lack necessity proof"
   assert.equal(classifyCrawlInventoryResource({ ...base, kind: "embed", purpose: "advertising" }), "Contextual");
   for (const kind of ["cookie", "storage"] as const) {
     for (const purpose of ["advertising", "necessary", "unknown"]) {
-      assert.equal(classifyCrawlInventoryResource({ ...base, kind, purpose }), "Review");
+      assert.equal(classifyCrawlInventoryResource({ ...base, kind, purpose }), kind === "storage" ? "Contextual" : "Review");
     }
   }
+});
+
+test("first-party static assets are contextual while scripts and known tracking retain review classification", () => {
+  for (const resourceType of ["stylesheet", "font", "image"]) {
+    assert.equal(classifyCrawlInventoryResource({ ...base, resourceType }), "Contextual");
+    assert.equal(classifyCrawlInventoryResource({ ...base, resourceType, purpose: "analytics" }), "Non-essential");
+    assert.equal(classifyCrawlInventoryResource({ ...base, resourceType, relationship: "third_party" }), "Review");
+  }
+  assert.equal(classifyCrawlInventoryResource({ ...base, resourceType: "script" }), "Review");
 });

@@ -405,7 +405,7 @@ function ControlStatusGrid({ compact = false, report }: { compact?: boolean; rep
 function SignalSnapshot({ report, siteOverview = false }: { report: ShadowReportData; siteOverview?: boolean }) {
   const consentControlSummary = getConsentControlSummaryLabel(report.controls);
   const consentCoverageLimited = Object.values(report.controls).some((value) => value === "Unknown");
-  const consentVendor = report.consentVendor ?? (consentCoverageLimited ? "Not determined" : "Not identified");
+  const consentVendor = report.consentVendor ?? (Object.values(report.controls).some(value => value === "Observed") ? "Mechanism observed; provider unidentified" : consentCoverageLimited ? "Not determined" : "Not identified");
   const consentPlatformDetail = report.consentVendor
     ? "Consent-platform identity retained in the canonical runtime and consent projection."
     : consentCoverageLimited
@@ -424,7 +424,8 @@ function SignalSnapshot({ report, siteOverview = false }: { report: ShadowReport
   const signalSummaryClass = "flex cursor-pointer list-none items-center justify-between gap-3 text-xs leading-4 [&::-webkit-details-marker]:hidden";
   return (
     <div className="border-t border-zinc-950" data-testid="executive-signal-snapshot">
-      <p className="py-2 text-xs font-semibold uppercase text-zinc-500">Signal Snapshot{siteOverview ? <span className="ml-2 text-[10px] font-normal normal-case text-zinc-400">Homepage</span> : null}</p>
+      <p className="py-2 text-xs font-semibold uppercase text-zinc-500">Signal Snapshot{siteOverview ? <span className="ml-2 text-[10px] font-normal normal-case text-zinc-400">Starting page</span> : null}</p>
+      {siteOverview ? <p className="mb-2 break-all text-xs text-zinc-500"><a href={report.scan.url} className="text-sky-700 underline">{report.scan.url}</a> · These signals cover the starting page, not every crawled page.</p> : null}
       <div className="border-t border-zinc-200">
         <details className={signalRowClass}>
           <summary className={signalSummaryClass}>
@@ -1464,7 +1465,7 @@ function GpcEvidenceIndexCard({ projection, homepage = false }: { projection: Gp
     <details className="group/gpc border-b border-r border-zinc-200 p-5" id="gpc-evidence" data-testid="gpc-evidence-index-card">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase text-zinc-500">GPC observation and comparison{homepage ? " · Homepage" : ""}</p>
+          <p className="text-xs font-semibold uppercase text-zinc-500">GPC observation and comparison{homepage ? " · Starting page" : ""}</p>
           <h3 className="mt-1 whitespace-nowrap text-lg font-semibold text-zinc-950">{projection.assessment.contractVersion === "certscore.gpc-response-assessment.v3" ? `Observation ${projection.assessment.observation.status}` : projection.assessment.findingTitle}</h3>
         </div>
         <span className="flex shrink-0 items-center">
@@ -1569,7 +1570,7 @@ export function EvidenceDirectory({ report, compact = false }: { report: ShadowR
           <div className="border-l border-t border-zinc-200">
             <details className="group/consent border-b border-r border-zinc-200 p-5">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                <div><p className="text-xs font-semibold uppercase text-zinc-500">Consent surface{compact ? " · Homepage" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>Controls and CMP context</h3></div>
+                <div><p className="text-xs font-semibold uppercase text-zinc-500">Consent surface{compact ? " · Starting page" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>Controls and CMP context</h3></div>
                 <DisclosureChevron className="text-zinc-400 group-open/consent:rotate-180" />
               </summary>
               <div className="mt-5"><ControlStatusGrid report={report} /></div>
@@ -1587,14 +1588,14 @@ export function EvidenceDirectory({ report, compact = false }: { report: ShadowR
             </details>
             {compact ? <SitewideEvidenceCard group="tracking"><EvidenceIndexRows rows={report.trackingExternalRows} /></SitewideEvidenceCard> : <details className="group/tracking border-b border-r border-zinc-200 p-5">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                <div><p className="text-xs font-semibold uppercase text-zinc-500">Tracking &amp; external services{compact ? " · Homepage" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{trackingExternalReviewCount} requiring review · {report.trackingExternalRows.length} checks</h3></div>
+                <div><p className="text-xs font-semibold uppercase text-zinc-500">Tracking &amp; external services{compact ? " · Starting page" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{trackingExternalReviewCount} requiring review · {report.trackingExternalRows.length} checks</h3></div>
                 <DisclosureChevron className="text-zinc-400 group-open/tracking:rotate-180" />
               </summary>
               <EvidenceIndexRows rows={report.trackingExternalRows} />
             </details>}
             <details className="group/policy border-b border-r border-zinc-200 p-5">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                <div><p className="text-xs font-semibold uppercase text-zinc-500">Policy and transparency{compact ? " · Homepage" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{observedGdprTransparencyRows} observed · {report.gdprTransparencyRows.length} checks</h3></div>
+                <div><p className="text-xs font-semibold uppercase text-zinc-500">Policy and transparency{compact ? " · Starting page" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{observedGdprTransparencyRows} observed · {report.gdprTransparencyRows.length} checks</h3></div>
                 <DisclosureChevron className="text-zinc-400 group-open/policy:rotate-180" />
               </summary>
               <div className="mt-5 divide-y divide-zinc-200 border-t border-zinc-200">
@@ -1634,7 +1635,7 @@ export function EvidenceDirectory({ report, compact = false }: { report: ShadowR
           <div className="border-l border-t border-zinc-200">
             {compact ? <SitewideEvidenceCard group="runtime"><EvidenceIndexRows rows={report.preConsentRuntimeRows} stackedTools /></SitewideEvidenceCard> : <details className="group/runtime border-b border-r border-zinc-200 p-5">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                <div><p className="text-xs font-semibold uppercase text-zinc-500">Pre-consent runtime{compact ? " · Homepage" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{preConsentRuntimeReviewCount} requiring review · {report.preConsentRuntimeRows.length} checks</h3></div>
+                <div><p className="text-xs font-semibold uppercase text-zinc-500">Pre-consent runtime{compact ? " · Starting page" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{preConsentRuntimeReviewCount} requiring review · {report.preConsentRuntimeRows.length} checks</h3></div>
                 <DisclosureChevron className="text-zinc-400 group-open/runtime:rotate-180" />
               </summary>
               <EvidenceIndexRows rows={report.preConsentRuntimeRows} stackedTools />
@@ -1642,7 +1643,7 @@ export function EvidenceDirectory({ report, compact = false }: { report: ShadowR
             {report.gpcResponse ? <GpcEvidenceIndexCard projection={report.gpcResponse} homepage={compact} /> : null}
             <details className="group/transport border-b border-r border-zinc-200 p-5">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                <div><p className="text-xs font-semibold uppercase text-zinc-500">Transport security{compact ? " · Homepage" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{report.transportRows.filter((row) => row.status === "Observed").length} positive · {report.transportRows.length} checks</h3></div>
+                <div><p className="text-xs font-semibold uppercase text-zinc-500">Transport security{compact ? " · Starting page" : ""}</p><h3 className={`mt-1 ${reportCardTitle}`}>{report.transportRows.filter((row) => row.status === "Observed").length} positive · {report.transportRows.length} checks</h3></div>
                 <DisclosureChevron className="text-zinc-400 group-open/transport:rotate-180" />
               </summary>
               <div className="mt-5 divide-y divide-zinc-200 border-t border-zinc-200">

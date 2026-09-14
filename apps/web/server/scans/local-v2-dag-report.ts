@@ -8,6 +8,7 @@ import { projectRuntimeEvidenceGraphs } from "./runtime-evidence-graph-projectio
 import { GetObjectCommand, S3Client, type GetObjectCommandOutput } from "@aws-sdk/client-s3";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import { verifiedFormSnapshots } from "./form-snapshot-evidence";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -6007,6 +6008,7 @@ function buildMaterializedLocalV2Detail(
     : withoutStaleLocalV2NoGoArtifacts(scanRecord.runtimeArtifacts);
   const runtimeArtifacts = {
     ...inheritedRuntimeArtifacts,
+    formSnapshots: verifiedFormSnapshots(bundle).map(({ snapshot: { data: _data, ...metadata } }) => metadata),
     siteMetadata: projectSiteMetadata(bundle, options.policyTextEvidenceContext?.sourceBundle, canonicalDocumentUrl),
     runtimeEvidenceGraphProjection: projectRuntimeEvidenceGraphs({
       bundle, scanId: scanRecord.scan.id, source: options.policyTextEvidenceContext?.sourceBundle,
@@ -6700,6 +6702,18 @@ export async function materializeLocalV2DagScanDetail(
     cacheKey,
     () => materializeLocalV2DagScanDetailUncached(scanRecord, options)
   );
+}
+
+export async function loadSinglePageFormSnapshot(scanRecord: ScanDetailResponse, formRef: string) {
+  if (!/^collection_form_\d+$/.test(formRef) || scanRecord.scan.status !== "completed") return null;
+  const input = getLocalV2DagReportInput(scanRecord);
+  if (!input?.scanArtifactSha256 || !input.scanArtifactSizeBytes) return null;
+  const verification = { expectedSha256: input.scanArtifactSha256, expectedSizeBytes: input.scanArtifactSizeBytes };
+  const bundle = shouldReadLocalV2DagReportOutDir(input) && input.outDir
+    ? await readLocalV2DagBundle(input.outDir, verification)
+    : input.scanArtifactUri ? await readLocalV2DagBundleFromS3({ ...verification, uri: input.scanArtifactUri }) : null;
+  if (!bundle || bundle.scanId !== scanRecord.scan.id) return null;
+  return verifiedFormSnapshots(bundle).find(item => item.snapshot.formRef === formRef)?.bytes ?? null;
 }
 
 export const localV2DagReportPerformanceTestHelpers = {

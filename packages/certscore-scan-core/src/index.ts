@@ -563,7 +563,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
         screenshotMode: effectivePreConsentScreenshotMode,
         screenshotTimeoutMs: input.preConsentScreenshotTimeoutMs,
         onScreenshotCaptured: input.onPreConsentScreenshotCaptured,
-        formSnapshotReviewer: input.resourceInventoryCrawl && evidenceLane === "runtime_evidence" ? input.formSnapshotReviewer : undefined,
+        formSnapshotReviewer: evidenceLane === "runtime_evidence" || evidenceLane === "combined" ? input.formSnapshotReviewer : undefined,
         onPassiveRuntimeCheckpoint: evidenceLane === "runtime_evidence"
           ? notifyPreConsentRuntimePreview
           : undefined,
@@ -680,7 +680,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
         screenshotMode: effectivePreConsentScreenshotMode,
         screenshotTimeoutMs: input.preConsentScreenshotTimeoutMs,
         onScreenshotCaptured: input.onPreConsentScreenshotCaptured,
-        formSnapshotReviewer: input.resourceInventoryCrawl && evidenceLane === "runtime_evidence" ? input.formSnapshotReviewer : undefined,
+        formSnapshotReviewer: evidenceLane === "runtime_evidence" || evidenceLane === "combined" ? input.formSnapshotReviewer : undefined,
         consentGateAuditHoldout: input.consentGateAuditHoldout,
         waitMode: leanPreConsent ? "fast" : "full",
         retainRenderedPolicyRecoverySession: evidenceLane === "combined" && policySurfaceEnabled,
@@ -1488,7 +1488,9 @@ export function compactCanonicalEvidenceBundleForRetention(
       const { runtimeEvidenceGraph: _graph, runtimeEvidenceGraphDiagnostics: _diagnostic, ...facts } = packet;
       return facts;
     };
-    return serializedBytes({ ...core, postAcceptEvidence: withoutGraph(core.postAcceptEvidence), postRefusalEvidence: withoutGraph(core.postRefusalEvidence) });
+    // Form JPEGs have their own per-image and form-count bounds. They must not
+    // consume the runtime evidence budget and evict network/cookie observations.
+    return serializedBytes({ ...core, collectionSurfaceSnapshots: core.collectionSurfaceSnapshots?.map(({ data: _data, ...metadata }) => metadata), postAcceptEvidence: withoutGraph(core.postAcceptEvidence), postRefusalEvidence: withoutGraph(core.postRefusalEvidence) });
   };
   const typedEventIds = new Set([
     ...bundle.networkEvents,

@@ -117,8 +117,8 @@ export function CollectionSurfacesTable({ rows, loading = false, scanning = fals
   pagesWithoutInventory?: number;
   limitedPages?: number;
 }) {
-  const rowLimit = useTableRowLimit(3);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const rowLimit = useTableRowLimit(3, expanded.size > 0 && rows.length < 4 ? 4 : 0);
   const prefix = useId();
   const [snapshot, setSnapshot] = useState<{ title: string; url: string } | null>(null);
   const [sort, setSort] = useState<{ key: FormSortKey; direction: "asc" | "desc" }>({ key: "page", direction: "asc" });
@@ -152,6 +152,8 @@ export function CollectionSurfacesTable({ rows, loading = false, scanning = fals
             <tbody>
               {sortedRows.map((row) => {
                 const { form } = row;
+                const samePageRows = rows.filter(item => item.form.pageUrl === form.pageUrl);
+                const occurrence = samePageRows.findIndex(item => item.id === row.id) + 1;
                 const open = expanded.has(row.id);
                 const title = form.title ?? `${label(form.surfaceType)} ${Number(form.formRef.replace("collection_form_", "")) + 1}`;
                 const detailId = `${prefix}-fields-${row.id}`;
@@ -160,17 +162,19 @@ export function CollectionSurfacesTable({ rows, loading = false, scanning = fals
                     <th scope="row" className="w-10 px-3 py-2 font-medium"><InspectButton open={open} controls={detailId} name={title} onClick={() => setExpanded(current => {
                       const next = new Set(current); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next;
                     })} /></th>
-                    <td className="px-3 py-2 capitalize">{label(form.surfaceType)}</td>
+                    <td className="px-3 py-2 capitalize">{label(form.surfaceType)}{samePageRows.length > 1 ? <span className="block text-zinc-500 normal-case">Page observation {occurrence} of {samePageRows.length}</span> : null}</td>
                     <td className="px-3 py-2 tabular-nums">{form.retainedFieldCount}{form.fieldsTruncated ? ` of ${form.candidateFieldCount}` : ""}</td>
                     <td className="px-3 py-2">{controlsSummary(form.fields)}{form.fields.some(f=>f.review?.preselectedMarketing) ? <span role="img" aria-label="Preselected marketing opt-in — review" title="Expand to review preselected marketing controls" className="ml-1 text-amber-700">⚠</span> : null}{form.fieldsTruncated ? <span className="block text-zinc-500">Partial inventory</span> : null}</td>
                     <td className="px-3 py-2">{form.fields.length ? <FieldReview field={[...form.fields].sort((a,b)=>reviewRank(b)-reviewRank(a))[0]!}/> : "—"}</td>
                     <td className="px-3 py-2 uppercase">{form.method}</td>
-                    <td className="px-3 py-2"><span className="block max-w-52 truncate" title={form.actionHostname}>{form.actionHostname ?? label(form.actionRelationship)}</span>{form.actionHostname ? <span className="block text-zinc-500">{label(form.actionRelationship)}</span> : null}</td>
+                    <td className="px-3 py-2"><span className="block max-w-52 truncate" title={form.actionHostname}>{form.actionHostname ?? (form.method === "dialog" ? "No submission (dialog)" : "Destination not observed")}</span>{form.actionHostname ? <span className="block text-zinc-500">{label(form.actionRelationship)}</span> : null}</td>
                     <td className="px-3 py-2"><a className="block max-w-64 truncate text-sky-800 hover:underline" href={pageHref(form.pageUrl)} title={form.pageUrl} target="_blank" rel="noopener noreferrer">{form.pageUrl}</a></td>
                     <td className="whitespace-nowrap px-3 py-2">{row.snapshot.status === "available" && row.snapshot.url.startsWith("/api/scans/") ? <button type="button" onClick={() => { if (row.snapshot.status === "available") setSnapshot({ title, url: row.snapshot.url }); }} aria-label={`View form: ${title}`} className="inline-block rounded-lg border border-zinc-200 px-3 py-1.5 text-sky-800 hover:border-sky-500">View form</button> : <span className="text-zinc-500">{row.snapshot.status === "pending" ? "Snapshot pending" : row.snapshot.status === "withheld" ? "Snapshot withheld" : "Snapshot unavailable"}</span>}</td>
                   </tr>
                   <tr data-expanded-details id={detailId} hidden={!open} className="border-b border-zinc-200 bg-slate-50/60"><td colSpan={columns.length} className="p-4">
                     <h3 className="mb-2 font-semibold">{title}</h3>
+                    {samePageRows.length > 1 ? <p className="mb-2 text-zinc-600">Observation {occurrence} of {samePageRows.length} on this page. Separate captures are retained; they may show the same form.</p> : null}
+                    <p className="mb-2 text-zinc-500">Observation reference: {row.id}</p>
                     <p className="mb-3 text-zinc-500">{label(form.structure)} · Captured {row.capturedAt}</p>
                     <dl className="mb-3 grid gap-2 text-xs sm:grid-cols-2">
                       <div><dt className="text-zinc-500">Form confidence</dt><dd>{Math.round(form.confidence * 100)}% · {form.directVsInferred}</dd></div>

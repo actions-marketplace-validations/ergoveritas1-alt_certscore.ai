@@ -35,10 +35,18 @@ export async function captureCollectionSurfaceSnapshots(page: Page, inventory: C
           return explicit ?? bounded(el.closest("label")?.textContent) ?? bounded(el.getAttribute("aria-label")) ?? bounded(el.getAttribute("placeholder")) ?? bounded(el.getAttribute("name"));
         };
         if (controls.some((el, i) => labelFor(el!) !== fields[i]!.label || ((el as HTMLInputElement).required === true || el!.getAttribute("aria-required") === "true") !== fields[i]!.required)) return null;
-        const group = (el: Element) => structure === "native_form" ? el.closest("form") : structure === "role_form" ? el.closest('[role="form"]') : null;
+        const group = (el: Element) => structure === "native_form" ? (el as HTMLInputElement).form ?? el.closest("form") : structure === "role_form" ? el.closest('[role="form"]') : null;
+        if (structure === "unassociated_controls") {
+          if (controls.some(el => (el as HTMLInputElement).form || el!.closest('form, [role="form"]'))) return null;
+          let common = controls[0]!.parentElement;
+          while (common && controls.some(el => !common!.contains(el))) common = common.parentElement;
+          return common;
+        }
         const root = group(controls[0]!);
         if (!root || controls.some(el => group(el!) !== root)) return null;
-        return root;
+        let cropRoot: Element | null = root;
+        while (cropRoot && controls.some(el => !cropRoot!.contains(el))) cropRoot = cropRoot.parentElement;
+        return cropRoot;
       }, { fields: form.fields, structure: form.structure, url: inventory.pageUrl });
       const element = target.asElement();
       if (!element) { results.push(unavailable()); continue; }

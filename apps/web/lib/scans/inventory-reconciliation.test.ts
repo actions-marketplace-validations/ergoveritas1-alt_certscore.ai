@@ -13,11 +13,11 @@ const projection = {
 test("retained storage preserves type/key distinction and reconciles summary, resources, services and export data", () => {
   const rows = buildBrowserStorageInventoryRows(projection, "scan");
   assert.equal(rows.length, 3);
-  assert.ok(rows.every(row => row.type === "storage" && classifyInventoryEvidence(row) === "Review"));
+  assert.ok(rows.every(row => row.type === "storage" && classifyInventoryEvidence(row) === "Contextual"));
   assert.ok(rows.every(row => row.cookieDetails.length === 0 && row.storageDetails?.origin === null));
   const summary = buildReportInventorySummary(rows);
   assert.equal(summary[0]!.value, 3);
-  assert.equal(summary[0]!.counts?.review, 3);
+  assert.equal(summary[0]!.counts?.contextual, 3);
   const inventory = buildSinglePageResourceInventory("scan", rows, []);
   assert.equal(new Set(inventory.resources.map(row => row.key)).size, 3);
   assert.equal(inventory.services.flatMap(service => service.resources).length, 3);
@@ -76,7 +76,9 @@ test("origin-bound storage identities reconcile across report, resources and API
     captureContext: { contractVersion: "storage-capture-context.v1", origin, localStorageReadComplete: true, sessionStorageReadComplete: true },
   }));
   const packet = projectOriginBoundBrowserStorage({ snapshots, scanId: "scan", sourceHash: "b".repeat(64) });
-  const rows = buildBrowserStorageInventoryRows(packet, "scan");
+  const rows = buildBrowserStorageInventoryRows(packet, "scan", "example.com");
+  assert.ok(rows.every(row => row.party === "first_party" && row.siteRelationship === "same_site"));
+  assert.ok(buildBrowserStorageInventoryRows(packet, "scan", "other.test").every(row => row.party === "third_party"));
   assert.equal(rows.length, 6);
   assert.equal(buildReportInventorySummary(rows)[0]?.value, 6);
   const resources = buildSinglePageResourceInventory("scan", rows, []).resources;

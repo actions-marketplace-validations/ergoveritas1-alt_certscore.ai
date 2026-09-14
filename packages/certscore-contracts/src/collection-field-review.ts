@@ -27,5 +27,6 @@ export function classifyCollectionFieldReview(field:{label?:string;surfaceType?:
  return {version:COLLECTION_FIELD_REVIEW_VERSION,category,preselectedMarketing};
 }
 export function legacyCollectionFieldCategory(category?:string):FieldReviewCategory {
+ if(category==='website_url')return 'operational';
  return ({health:'special_category',password:'credentials',payment_card:'financial_payment',bank_account:'financial_payment',government_id:'government_identifier',social_security_number:'government_identifier',date_of_birth:'identity_profile',name:'identity_profile',email:'personal_contact',phone:'personal_contact',address:'location',geolocation:'location',file_upload:'file_upload',free_text:'free_text',search:'operational'} as Record<string,FieldReviewCategory>)[category??'']??'unknown';
 }

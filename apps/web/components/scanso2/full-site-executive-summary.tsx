@@ -5,7 +5,7 @@ import type { FullSiteReportResponse } from "../../server/scans/full-site-report
 import { getGdprEprivacyPostureTone } from "../../lib/scans/regulatory-coverage-score";
 import { ScanLiveValue } from "./scan-live-value";
 
-export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusLabel, actions, snapshot, homepageVerdict, inventorySummary }: {
+export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusLabel, actions, snapshot, homepageVerdict, inventorySummary, inventoryReviewCount }: {
   score?: FullSiteReportResponse["score"];
   pending: boolean;
   statusLabel?: string;
@@ -14,6 +14,7 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
   snapshot?: ReactNode;
   inventorySummary?: ReactNode;
   homepageVerdict?: string;
+  inventoryReviewCount?: number;
 }) {
   const layoutRef = useRef<HTMLDivElement>(null);
   const [collapsedHeight, setCollapsedHeight] = useState<number>();
@@ -77,17 +78,20 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
         {score?.limitedPages ? <p className="mt-1 text-xs text-amber-800">{score.limitedPages} {score.limitedPages === 1 ? "page has" : "pages have"} limited scoring coverage.</p> : null}
         </div>
         <div data-overview-block className="mt-auto">
-          {snapshot ?? <p className="py-3 text-sm text-zinc-500">The signal snapshot will appear when the homepage assessment is ready.</p>}
+          {snapshot ?? <p className="py-3 text-sm text-zinc-500">The signal snapshot will appear when the starting-page assessment is ready.</p>}
         </div>
       </div>
       <div className="flex min-w-0 flex-col gap-5" style={{ minHeight: collapsedHeight }}>
         <div data-overview-block>
         <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{singlePage ? "Single page assessment" : "Site assessment"}</p>
         {singlePage ? <p className="mt-2 text-sm leading-6 text-zinc-600">{homepageVerdict ?? "The single page assessment will appear when ready."}</p>
-          : priorities ? <p className="mt-2 text-sm leading-6 text-zinc-700">{priorities.length ? `Across ${scannedPages ?? score?.scoredPages ?? 0} scanned pages, the assessment identifies ${priorities.length} priority issues. Review centers on ${priorities.slice(0, 3).map(finding => finding.title.toLowerCase()).join("; ")}. These findings combine the homepage audit with eligible evidence from additional pages; repeated evidence is counted once. Consent controls, policy transparency, and action-path checks reflect the homepage audit, while the wider scan captures resources and collection surfaces across the site.` : "No priority issues were identified in the assessed evidence."}</p>
+          : priorities ? <p className="mt-2 text-sm leading-6 text-zinc-700">{priorities.length ? `Across ${scannedPages ?? score?.scoredPages ?? 0} scanned pages, the assessment identifies ${priorities.length} priority issues. Review centers on ${priorities.slice(0, 3).map(finding => finding.title.toLowerCase()).join("; ")}. These findings combine the starting-page audit with eligible evidence from additional pages; repeated evidence is counted once. Consent controls, policy transparency, and action-path checks reflect the starting-page audit, while the wider scan captures resources and collection surfaces across the site.` : "No priority issues were identified in the assessed evidence."}</p>
           : <p className="mt-2 text-sm leading-6 text-zinc-500">{pending ? "Page evidence is still being assessed. The site-scan assessment will appear when ready." : "Site assessment is unavailable."}</p>}
         </div>
-        <div data-overview-block className="mt-auto">{inventorySummary}</div>
+        <div data-overview-block className="mt-auto">
+          {!pending && !singlePage && score ? <p className="mb-3 text-xs leading-5 text-zinc-600">Scope: {scannedPages ?? score.scoredPages} scanned pages. Consent controls, policy transparency and action-path checks cover the starting page; resource and form inventories cover the scanned pages. Completing a scan does not mean every policy topic was confirmed. {inventoryReviewCount !== undefined ? `${inventoryReviewCount} network requests need classification review; this count is separate from priority issues.` : ""}</p> : null}
+          {inventorySummary}
+        </div>
       </div>
     </div>
   </section>;

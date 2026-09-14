@@ -219,6 +219,11 @@ unchanged. See `docs/certscore-v2/structured-consent-evidence-policy.md`.
 
 ### Finding-domain classification
 
+Consent-control visibility counts (such as “3 of 3 observed”) describe observed
+control types. Do not flag that wording as a report defect solely because action
+registration is unconfirmed; registration is a separate assessment. Preserve
+the established visibility wording unless the underlying count is incorrect.
+
 Classify changes by the finding type they produce:
 
 - **Consent:** CMP or consent mechanism, Accept/Reject/Options (A/R/O), refusal or opt-out path, consent state, or control behavior.

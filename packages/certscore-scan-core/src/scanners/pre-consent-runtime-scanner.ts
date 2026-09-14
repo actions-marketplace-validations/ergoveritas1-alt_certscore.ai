@@ -5191,7 +5191,7 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
     const groupRefs = new WeakMap<Element, string>();
     let nextGroupRef = 0;
     const groupRefFor = (element: Element) => {
-      const nativeForm = element.closest("form");
+      const nativeForm = (element as HTMLInputElement).form ?? element.closest("form");
       const roleForm = nativeForm ? null : element.closest('[role="form"]');
       const group = nativeForm ?? roleForm;
       if (!group) return "unassociated_controls";
@@ -5202,6 +5202,7 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
       return value;
     };
     const isVisible = (element: Element) => {
+      if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || "1") > 0 && rect.width > 0 && rect.height > 0;
@@ -5253,11 +5254,14 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
       if ((["hidden", "submit", "button", "reset", "image"].includes(type) && !["checkbox", "switch"].includes(element.getAttribute("role") ?? "")) || !isVisible(element) || isCmpOwned(element)) {
         return [];
       }
-      const nativeForm = element.closest("form");
+      const nativeForm = (element as HTMLInputElement).form ?? element.closest("form");
       const roleForm = nativeForm ? null : element.closest('[role="form"]');
       const group = nativeForm ?? roleForm;
       const action = nativeForm?.getAttribute("action")?.trim();
       let actionHostname: string | undefined;
+      // Native omitted/empty actions resolve to the current document. A
+      // JavaScript action URL remains unresolved rather than implying no send.
+      if (nativeForm && !action && Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, "method")?.get?.call(nativeForm) !== "dialog") actionHostname = window.location.hostname || undefined;
       if (action) {
         try {
           actionHostname = new URL(action, window.location.href).hostname || undefined;

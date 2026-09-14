@@ -1229,9 +1229,15 @@ export function projectPreConsentStorageMetric(
   if (assessment.status === "partially_classified") {
     return {
       available: false,
-      explanation: assessment.unclassifiedCount > 0
-        ? `Pre-consent storage was retained, but ${assessment.unclassifiedCount} record${assessment.unclassifiedCount === 1 ? " remains" : "s remain"} unclassified.`
-        : "Pre-consent storage was retained, but the aggregate count could not be reconciled to attributed storage rows.",
+      explanation: [
+        "Pre-consent storage was retained.",
+        assessment.unclassifiedCount > 0
+          ? `${assessment.unclassifiedCount} record${assessment.unclassifiedCount === 1 ? " remains" : "s remain"} unclassified.` : null,
+        assessment.reconciliationStatus !== "reconciled"
+          ? `Inventory reconciliation is unresolved (${assessment.reconciliationStatus}): aggregate ${assessment.aggregateObservedCount ?? "unavailable"}, attributed records ${assessment.attributedPreConsentRecordCount}.` : null,
+        assessment.evidenceRows.some((row) => row.timingEvidence === "unknown")
+          ? "Pre-consent timing is unresolved for one or more records." : null,
+      ].filter(Boolean).join(" "),
       label: "Pre-consent storage",
       scope: "nonessential_only",
       status: "partially_classified",

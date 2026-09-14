@@ -410,8 +410,13 @@ each additional-page inventory worker. The existing main-document inventory
 limits remain 10 forms, 20 fields per form, 60 fields per page, and 250 inspected
 controls. Omitted candidates remain explicitly limited. Hidden controls,
 iframe contents, and controls revealed only by interaction are not covered.
-Snapshots cover native/ARIA form containers; unassociated controls have no
-verified form container and retain an unavailable image state.
+Snapshots are enabled for single-page and full-site runtime evidence. They cover
+native/ARIA form containers and the shared container of verified standalone
+collection controls. Capture, safety-review or binding failures remain unavailable.
+Single-page report metadata omits image bytes; its scan-access-controlled form
+image endpoint verifies the retained bundle checksum, inventory binding and image
+checksum before serving a private, no-store JPEG. The same previously approved
+$20–$100 per million snapshot estimate and retention policy apply.
 
 The full-site report shows **Collection surfaces (forms)** below Resource
 details: one row per retained form on each page, metadata, captured-page URL,

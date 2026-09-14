@@ -14,6 +14,7 @@ import {
   hasSubstantiveProcessingPurposesEvidence,
   MIN_GDPR_TRANSPARENCY_POLICY_TEXT_CHARS,
   policyTextEvidenceProjectionSchema,
+  policySurfaceInspectionOutcomeSchema,
   postRefusalReportProjectionSchema,
 } from "@certscore/contracts";
 import type {
@@ -26,6 +27,7 @@ import {
   isFunctionalCookieExcludedFromTrackingEvidence,
   isNonEssentialCookieCategory,
   isPreConsentStorageAssessment,
+  projectPreConsentStorageMetric,
   type PreConsentStorageAssessment
 } from "./runtime-cookie-evidence";
 
@@ -2650,7 +2652,7 @@ function derivePreConsentCookieStorageOutcome(input: GdprEprivacyCoveragePolicyI
     return makeOutcome(
       "pre_consent_cookies_storage",
       "Review signal",
-      "Pre-consent storage was observed, but one or more records could not be classified as essential or non-essential or could not be reconciled to the aggregate count. Review the retained storage inventory before drawing a conclusion.",
+      `${projectPreConsentStorageMetric(assessment).explanation} Review the retained storage inventory before drawing a conclusion.`,
       evidenceRefs,
       { retainedEvidence }
     );
@@ -9102,10 +9104,15 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
       );
     }
     const discoveryLimitation = privacyPolicyDiscoveryLimitation(summary, config.label);
+    const inspection = policySurfaceInspectionOutcomeSchema.safeParse(policySurfaceInspection);
+    const diagnostics = inspection.success ? inspection.data.retrievalDiagnostics : undefined;
+    const retrievalExplanation = diagnostics
+      ? ` Policy retrieval: ${diagnostics.failedDocumentCount} of ${diagnostics.attemptedDocumentCount} attempted documents failed; ${diagnostics.observedLinkFailureCount} failed documents came from observed links. ${inspection.success && !inspection.data.inspectionCompleted ? "Inspection did not complete. " : ""}Unsuccessful retrieval does not establish policy absence.`
+      : "";
     return makeOutcome(
       config.rowId,
       "Not testable",
-      discoveryLimitation.explanation,
+      discoveryLimitation.explanation + retrievalExplanation,
       [discoveryLimitation.evidence],
       {
         missingOrIncompleteSourceSignals: [
@@ -9117,6 +9124,7 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
           )
         ],
         retainedEvidence: {
+          policySurfaceInspection: inspection.success ? inspection.data : undefined,
           policySurfaceSummary: summary,
           privacyPolicyEvaluationState: getPrivacyPolicyEvaluationState(summary),
         }
@@ -11694,6 +11702,41 @@ export function deriveGdprEprivacyCoveragePolicyOutcomes(input: GdprEprivacyCove
       .filter((outcome): outcome is GdprEprivacyCoverageOutcome => Boolean(outcome))
       .map((outcome) => [outcome.rowId, outcome])
   );
+  const concerns = input.normalizedConcerns ?? buildNormalizedConcerns({
+    reviewFindingCandidates: [], runtimeArtifacts: input.runtimeArtifacts, validationFindings: []
+  });
+  const noGo = concerns.find((concern) =>
+    concern.originKey === "scan_quality.scan_no_go_assessment.no_go" &&
+    concern.promotionEligibility === "eligible" &&
+    concern.externalSurfacingEligibility === "eligible"
+  );
+  if (noGo) {
+    // Apply the already-policy-approved coverage concern here, not in a report
+    // component. Independent TLS/HTTP probes and positive runtime facts survive.
+    const pageDependent = new Set([
+      "transport_security_https_delivery", "transport_security_mixed_content",
+      "transport_security_form_transport",
+    ]);
+    const runtimeAbsence = new Set([
+      "cmp_framework_signal_observed", "pre_consent_cookies_storage",
+      "pre_consent_third_party_tracking", "advertising_retargeting_vendor_signal_observed",
+      "retargeting_behavioral_advertising_signal_observed", "analytics_vendor_observed",
+      "third_party_iframe_pre_consent", "social_media_embed_pre_consent",
+      "embedded_content_pre_consent", "session_replay_fingerprinting_review",
+      "device_identification_fingerprinting_signal_observed", "public_collection_surfaces",
+      "preference_withdrawal_control", "cross_border_endpoint_review",
+    ]);
+    for (const [rowId, outcome] of Object.entries(byRow)) {
+      if (!pageDependent.has(rowId) && !(runtimeAbsence.has(rowId) && outcome.status === "Not observed")) continue;
+      byRow[rowId] = makeOutcome(rowId, "Not testable",
+        "The normal public page was not reached. Retained blocked-page observations do not establish this check for the intended page; independent transport probes remain separately reported.",
+        outcome.evidenceRefs, {
+          retainedEvidence: { ...outcome.criticalEvidence.retainedEvidence,
+            coverageConcernKey: noGo.originKey, observedContextStatus: outcome.status },
+          missingOrIncompleteSourceSignals: outcome.criticalEvidence.missingOrIncompleteSourceSignals,
+        });
+    }
+  }
   const weakPolicyLimitation = getWeakPolicyEvidenceLimitation(policyCoverageContext);
   if (!weakPolicyLimitation || !input.coverageLimited) {
     return byRow;

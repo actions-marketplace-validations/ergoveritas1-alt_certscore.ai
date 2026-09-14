@@ -70,6 +70,7 @@ export type PreConsentDataFlow = {
 };
 
 export type SanitizedRequestEvidenceRow = {
+  resourceType?: string | null;
   resourceRole?: "video_ad_sdk";
   cookieNamesSent: string[];
   essentiality: "non_essential" | "unknown";
@@ -296,6 +297,7 @@ export function buildSanitizedRequestEvidenceRows(
     const resourceRole = resolveCanonicalResourceRole({ type: "request", url: getOptionalString(row, "requestUrl") ?? undefined });
     return {
     ...(resourceRole ? { resourceRole } : {}),
+    ...(getOptionalString(row, "resourceType") ? { resourceType: getOptionalString(row, "resourceType") } : {}),
     cookieNamesSent: getRecordStringArray(row, "cookieNamesSent").slice(0, 24),
     essentiality: row.essentiality === "non_essential" ? "non_essential" : "unknown",
     hostname: normalizeInventoryHostname(getOptionalString(row, "hostname") ?? getOptionalString(row, "requestUrl")),
@@ -1000,11 +1002,11 @@ export function deriveInventoryMacroCategory(input: {
 
 export function classifyInventoryEvidence(
   row: Pick<InventoryGroupRow, "macroCategory" | "priority" | "purpose" | "purposes"> &
-    Partial<Pick<InventoryGroupRow, "cookieDetails" | "requestCount" | "requestDetails" | "type">>
+    Partial<Pick<InventoryGroupRow, "cookieDetails" | "requestCount" | "requestDetails" | "type" | "party">>
 ): InventoryEvidenceClassification {
   // An observed frame is not proof of tracking, storage, or necessity.
   if (row.type === "embed") return "Contextual";
-  if (row.type === "storage") return "Review";
+  if (row.type === "storage") return "Contextual";
   const cookieEssentiality = new Set(
     (row.cookieDetails ?? []).map((cookie) => cookie.essentiality ?? "unknown")
   );
@@ -1031,6 +1033,10 @@ export function classifyInventoryEvidence(
     return "Non-essential";
   }
   if (row.priority === "review_needed" || row.macroCategory === "Review") {
+    // Retained first-party static resource types establish rendering context,
+    // not necessity. Scripts and incomplete request evidence remain reviewable.
+    if (row.party === "first_party" && row.requestDetails?.length && row.requestDetails.length >= (row.requestCount ?? 0) && row.requestDetails.every(request =>
+      ["stylesheet", "font", "image"].includes(request.resourceType ?? "") && request.essentiality !== "non_essential" && !request.identifierParameterNames.length && !request.responseStorageAttempted && !request.cookieNamesSent.length && !request.responseCookieNamesSet.length)) return "Contextual";
     return "Review";
   }
 
@@ -1690,7 +1696,7 @@ export function buildIframeInventoryRows(hybridRuntimeEvidence: unknown, firstPa
 /** Consume only the persisted typed storage projection. V1 retains names but no
  * origin: preserve that limitation rather than manufacture an exact origin or
  * infer a storage write/necessity finding from a snapshot. */
-export function buildBrowserStorageInventoryRows(projection: unknown, scanId: string): InventoryGroupRow[] {
+export function buildBrowserStorageInventoryRows(projection: unknown, scanId: string, firstPartyDomain?: string | null): InventoryGroupRow[] {
   const parsed = preConsentBrowserStorageProjectionSchema.safeParse(projection);
   if (!parsed.success || parsed.data.scanId !== scanId || parsed.data.assessmentStatus !== "observed") return [];
   const data = parsed.data;
@@ -1700,8 +1706,8 @@ export function buildBrowserStorageInventoryRows(projection: unknown, scanId: st
       type: "storage" as const, vendor: "Unattributed browser storage", canonicalEntity: null,
       attributionSignatures: [], confidence: "low" as const, cookieDetails: [], cookieNames: [],
       dataFlows: [], domains: origin ? [new URL(origin).hostname] : [], firstSeenMs: capturedAtMs,
-      macroCategory: "Review" as const, observedRecordCount: 1, party: "unknown" as const,
-      siteRelationship: "unknown" as const, entityRelationship: "unknown" as const,
+      macroCategory: "Review" as const, observedRecordCount: 1, party: legacyPartyFromSiteRelationship(siteRelationshipForDomains(origin ? [new URL(origin).hostname] : [], firstPartyDomain)),
+      siteRelationship: siteRelationshipForDomains(origin ? [new URL(origin).hostname] : [], firstPartyDomain), entityRelationship: "unknown" as const,
       preConsent: true, priority: "review_needed" as const, purpose: "Unknown purpose", purposes: ["Unknown purpose"],
       rawProducts: [key], regulatoryRelevance: [], requestCount: null, setByThirdPartyScript: false,
       storageDetails: { storageType, key, origin, identityBasis: origin ? "origin_type_key" as const : "retained_scan_type_key" as const,
@@ -1743,7 +1749,7 @@ export function buildRuntimeInventoryProjectionFromScan(scanRecord: ScanDetailRe
   const requestRows = buildSanitizedRequestEvidenceRows(hybridRuntimeEvidence);
   const embedRows = buildIframeInventoryRows(hybridRuntimeEvidence, scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost);
 
-  const storageRows = buildBrowserStorageInventoryRows(getPersistedCanonicalReportProjection(scanRecord)?.preConsentBrowserStorageProjection, scanRecord.scan.id);
+  const storageRows = buildBrowserStorageInventoryRows(getPersistedCanonicalReportProjection(scanRecord)?.preConsentBrowserStorageProjection, scanRecord.scan.id, scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost);
   const ungroupedRows = [...buildRuntimeInventoryUngroupedRows({
     cookieRows, dataFlows,
     firstPartyDomain: scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost,

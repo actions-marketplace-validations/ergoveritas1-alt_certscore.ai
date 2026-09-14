@@ -21,6 +21,7 @@ export function InventoryEvidenceIcon({ evidence, legend = false, description: d
 
 export function InventoryEvidenceLegend() {
   return <span aria-label="Evidence classification legend" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-normal text-slate-600">
+    <span>Inventory context is separate from priority findings. Needs review includes unresolved purposes; contextual does not mean essential.</span>
     {Object.keys(statuses).map(label => <span key={label} className="inline-flex items-center gap-1.5"><InventoryEvidenceIcon evidence={label} legend />{label}</span>)}
   </span>;
 }

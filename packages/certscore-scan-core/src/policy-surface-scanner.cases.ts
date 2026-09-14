@@ -1694,6 +1694,16 @@ test("complete substantive policy bodies outrank supplemental child counts witho
   );
 });
 
+test("product and request pages stay ineligible even when assisted extraction reports disclosure signals", () => {
+  for (const normalizedUrl of ["https://example.test/privacy-request", "https://example.test/solutions/privacy-policy-risk-scanner"]) {
+    const result = assessPolicyDocumentRoleForChildSelection({
+      normalizedUrl, linkText: "Privacy policy", deterministicSurfaceType: "privacy_policy",
+      deterministicClassifierReasonCodes: ["matched_privacy_policy"],
+    } as never, { fetchCandidates: [], observedChildCandidates: [] }, { substantiveDisclosureSignalCount: 5, evidenceBoundObservedTopicCount: 5, contentCoverageStatus: "complete" });
+    assert.equal(result.role, "unknown", normalizedUrl);
+  }
+});
+
 test("English and German section evidence produce the same typed topic-coverage diagnostics", () => {
   const cases = [
     {
@@ -4670,6 +4680,31 @@ test("policySurfaceScanner fetches an observed privacy link before unverified co
   });
 });
 
+test("policySurfaceScanner canonically retains a German Datenschutzhinweise footer policy", async () => {
+  await withPolicyScan("policy-german-datenschutzhinweise", async ({ result, baseUrl }) => {
+    const privacy = result.policySurfaceObservations.find((observation) =>
+      observation.surfaceType === "privacy_policy" &&
+      observation.normalizedUrl === `${baseUrl}/datenschutzhinweise`
+    );
+    assert.equal(privacy?.status, "fetched");
+    assert.equal(privacy?.linkObservationState, "observed");
+    assert.equal(privacy?.discoveryMethod, "footer_link");
+    assert.equal(privacy?.matchedLocale, "de");
+
+    const diagnostics = await readPolicyCaptureDiagnostics(result);
+    assert.equal(diagnostics.corePolicySurfaceRetained, true);
+    assert.equal(diagnostics.commonPathFallbackUsed, false);
+    assert.ok(diagnostics.funnel.observedLinkCount > 0);
+  }, {
+    discoveryMode: "fast",
+    nanoAssistProvider: {
+      async classifyLinks() {
+        throw new Error("Canonical Datenschutzhinweise discovery must not require model ranking.");
+      },
+    },
+  });
+});
+
 test("policySurfaceScanner uses common-path fallback when homepage fetch fails", async () => {
   const server = await startStaticFixtureServer();
   const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-policy-scan-"));
@@ -5941,6 +5976,7 @@ test("policySurfaceScanner gives Nano enough bounded text for distant Article 13
     assert.match(
       privacy?.article13DisclosureSignals.find((signal) => signal.disclosureType === "legal_basis")?.evidenceText ?? "",
       /lawful bases|legitimate interests/i,
+      JSON.stringify(privacy?.retainedArticle13SectionEvidence?.filter((row) => row.coverageArea === "legal_basis")),
     );
     assert.match(
       privacy?.article13DisclosureSignals.find((signal) => signal.disclosureType === "data_retention")?.evidenceText ?? "",

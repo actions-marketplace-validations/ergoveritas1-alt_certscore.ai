@@ -379,7 +379,7 @@ export function FullSiteWorkspace({
                   ["Start interval", `${state?.effective.waitSeconds ?? requested.waitSeconds}s`],
                 ] },
                 { title: "Timing", rows: [
-                  ["Homepage audit", duration(state?.homepageDurationMs)],
+                  ["Starting-page audit", duration(state?.homepageDurationMs)],
                   ["Resource crawl", duration(data?.timing.crawlStartedAt && timingEnd !== null
                     ? Math.max(0, Math.floor((timingEnd - Date.parse(data.timing.crawlStartedAt)) / 1000) * 1000) : null)],
                   ["Median page", duration(s?.timing.medianPageMs)],
@@ -503,7 +503,7 @@ export function FullSiteWorkspace({
           <p className="text-sm text-sky-800">
             Effective shared restrictions: at most {state.effective.concurrency}{" "}
             active page workers; at least {state.effective.waitSeconds}s between
-            starts. Backoff and homepage audits may pause dispatch.
+            starts. Backoff and starting-page audits may pause dispatch.
           </p>
         ) : null}
 
@@ -568,10 +568,10 @@ export function FullSiteWorkspace({
       {tab !== "homepage" ? (
         <>
           {tab === "resources" ? <>
-          <FullSiteExecutiveSummary actions={completed ? executiveActions : null} statusLabel={reportStatus} inventorySummary={inventorySummary} score={data?.score} pending={!data || valuesUpdating} scannedPages={scannedPages} snapshot={executiveSnapshot} homepageVerdict={homepageVerdict} />
+          <FullSiteExecutiveSummary actions={completed ? executiveActions : null} statusLabel={reportStatus} inventorySummary={inventorySummary} inventoryReviewCount={data?.priorityTotals?.requests?.review} score={data?.score} pending={!data || valuesUpdating} scannedPages={scannedPages} snapshot={executiveSnapshot} homepageVerdict={homepageVerdict} />
           <SitePriorityReview findings={data?.score?.priorityReview ?? homepageFindings.map(finding => ({ ...finding, pages: homepageUrl ? [{ id: scanId, url: homepageUrl, homepage: true }] : [] }))} pending={!data || valuesUpdating} sitewideAvailable={Boolean(data?.score)} />
-          {homepageTimeline ? <section aria-label="Homepage event timeline" className="my-3 border-y border-zinc-200 bg-white py-2">
-            <h2 className="text-xl font-semibold">Homepage event timeline</h2>
+          {homepageTimeline ? <section aria-label="Starting-page event timeline" className="my-3 border-y border-zinc-200 bg-white py-2">
+            <h2 className="text-xl font-semibold">Starting-page event timeline</h2>
             <div className="mt-1">{homepageTimeline}</div>
           </section> : null}
           </> : null}
@@ -581,7 +581,7 @@ export function FullSiteWorkspace({
             {activeFilters.length ? <button className="mb-2 text-xs text-sky-800 underline" onClick={() => { setFilters(initialFilters); setOffset(0); }}>Show all {units[filters.kind as keyof typeof units]?.toLowerCase()}</button> : null}
 
             <div className="my-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><span className="shrink-0"><ScanLiveValue key={inventoryView} active={valuesUpdating} value={data ? `${tab === "pages" ? data.pages.total : inventoryView === "services" ? data.services.length : data.resources.total} ${tab === "pages" ? "pages" : inventoryView}` : "Loading inventory…"} /></span><span className="text-slate-500">{tab === "pages" ? "· Homepage audit and additional-page capture outcomes." : inventoryView === "services" ? "· Organized by root integration; expand for linked services and resources." : "· Distinct resources across scanned pages; expand to see parent/child links."}</span></div>
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><span className="shrink-0"><ScanLiveValue key={inventoryView} active={valuesUpdating} value={data ? `${tab === "pages" ? data.pages.total : inventoryView === "services" ? data.services.length : data.resources.total} ${tab === "pages" ? "pages" : inventoryView}` : "Loading inventory…"} /></span><span className="text-slate-500">{tab === "pages" ? "· Starting page audit and additional-page capture outcomes." : inventoryView === "services" ? "· Organized by root integration; expand for linked services and resources." : "· Distinct resources across scanned pages; expand to see parent/child links."}</span></div>
               <div className={tab === "pages" ? "hidden" : "flex flex-wrap items-center gap-3"}><button type="button" onClick={() => setCollapseVersion(value => value + 1)} className="rounded-md px-2 py-1.5 text-sky-700 hover:bg-sky-50">Collapse all</button>{data ? <CopyJsonButton className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sky-700 hover:bg-sky-50" label="Copy entire inventory table with all service and resource details as JSON" payload={JSON.stringify({ services: data.services, pages: data.pageChoices }, null, 2)} /> : null}</div>
             </div>
             <div ref={inventoryRowLimit.ref} style={inventoryRowLimit.style} className="max-h-[376px] overflow-auto rounded-lg border border-zinc-200" tabIndex={0} aria-busy={isFetching} aria-label={tab === "pages" ? "Scrollable page observations" : `Scrollable ${inventoryView}`}

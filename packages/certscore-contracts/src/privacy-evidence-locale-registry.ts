@@ -60,7 +60,7 @@ const BASE_PRIVACY_EVIDENCE_LOCALE_REGISTRY: readonly PrivacyEvidenceLocaleRegis
     consentControls: { accept: ["aceptar todo", "aceptar todas"], reject: ["rechazar todo", "rechazar todas", "denegar todas", "denegar todo"], options: ["configuración de cookies", "gestionar preferencias"], necessaryOnly: ["solo las necesarias", "solo cookies necesarias"] },
   }),
   locale("de", {
-    privacyPolicyLabels: ["datenschutzerklärung", "datenschutzinformation", "datenschutz"], privacyPolicyPathSlugs: ["datenschutz", "datenschutzerklaerung"], cookiePolicyLabels: ["cookie-richtlinie", "cookie-hinweis"], cookiePolicyPathSlugs: ["cookie-richtlinie"],
+    privacyPolicyLabels: ["datenschutzerklärung", "datenschutzinformation", "datenschutzhinweis", "datenschutzhinweise", "datenschutz"], privacyPolicyPathSlugs: ["datenschutz", "datenschutzerklaerung", "datenschutzhinweis", "datenschutzhinweise"], cookiePolicyLabels: ["cookie-richtlinie", "cookie-hinweis"], cookiePolicyPathSlugs: ["cookie-richtlinie"],
     policyIndexLabels: ["rechtliches"],
     cookieSettingsLabels: ["cookie-einstellungen", "datenschutzeinstellungen"], termsLabels: ["nutzungsbedingungen", "allgemeine geschäftsbedingungen"], termsPathSlugs: ["nutzungsbedingungen", "agb"], contextHints: ["datenschutz", "personenbezogene daten", "cookies", "einwilligung"], tldHints: [".de", ".at"],
     consentControls: { accept: ["alle akzeptieren", "alles akzeptieren", "alle auswählen"], reject: ["alle ablehnen", "alles ablehnen"], options: ["cookie-einstellungen", "einstellungen verwalten", "einwilligungs-einstellungen"], necessaryOnly: ["nur notwendige cookies", "nur erforderliche cookies", "nur notwendige funktionscookies akzeptieren"] },
