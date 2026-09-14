@@ -21,7 +21,7 @@ test("published releases include choice-path testing and MCP Light", () => {
   assert.ok(choicePathRelease);
   assert.equal(release.headline, "CertScore.ai MCP Light is now available");
   assert.equal(release.primaryCta.href, "/mcp/light");
-  assert.deepEqual(getPublishedReleases().map((item) => item.slug), ["accept-and-reject-path-testing", "mcp-light"]);
+  assert.deepEqual(getPublishedReleases().map((item) => item.slug), ["mcp-hosted-oauth", "accept-and-reject-path-testing", "mcp-light"]);
   assert.equal(getPublishedRelease("mcp-light-reject-path"), null);
 
   const copy = JSON.stringify(release);
@@ -168,4 +168,22 @@ test("social profiles expose the confirmed LinkedIn and X URLs and validate opti
       process.env.NEXT_PUBLIC_CERTSCORE_LINKEDIN_URL = previousLinkedInUrl;
     }
   }
+});
+
+ test("Hosted OAuth release has complete discovery, metadata and a valid share asset", async () => {
+  const item = getPublishedRelease("mcp-hosted-oauth");
+  assert.ok(item);
+  assert.equal(item.primaryCta.href, "/developers/mcp#hosted-oauth-start");
+  assert.ok(item.metaDescription.length <= 160);
+  const metadata = JSON.parse(JSON.stringify(createReleaseMetadata(item)));
+  assert.equal(metadata.alternates.canonical, "https://certscore.ai/releases/mcp-hosted-oauth");
+  assert.equal(metadata.twitter.card, "summary_large_image");
+  assert.equal(createReleaseArticleSchema(item).headline, item.headline);
+  assert.ok(sitemap().some(row => row.url === "https://certscore.ai/releases/mcp-hosted-oauth"));
+  assert.match(await getReleaseFeed().text(), /releases\/mcp-hosted-oauth/);
+  const png = readFileSync("apps/web/public" + item.socialImage.path);
+  assert.equal(png.subarray(0,8).toString("hex"), "89504e470d0a1a0a");
+  assert.equal(png.readUInt32BE(16), 1200);
+  assert.equal(png.readUInt32BE(20), 630);
+  assert.doesNotMatch(JSON.stringify(item), /authorize once|frictionless|14 tools|pagination/i);
 });

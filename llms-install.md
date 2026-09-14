@@ -72,11 +72,12 @@ The repository includes a validated plugin at `integrations/claude-code/certscor
 
 ## Verify the connection
 
-The connected server must expose exactly these three tools:
+The connected server must expose the following tools:
 
 1. `certscore_scan_site`
 2. `certscore_get_scan_status`
 3. `certscore_get_scan_bundle`
+4. `certscore_get_report_evidence_page` — paginated public report evidence; the core workflow remains scan → status → bundle.
 
 Known-good prompt:
 

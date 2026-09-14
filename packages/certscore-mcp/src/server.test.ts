@@ -457,8 +457,9 @@ test("Light registry metadata and distribution copy stay aligned", () => {
 
   for (const source of [submissions, packets]) {
     assert.match(source, /Official MCP Registry/);
-    assert.match(source, /version `0\.2\.21` is (?:the )?active (?:and )?latest/i);
-    assert.match(source, /Version `0\.2\.19` (?:remains historical|is a historical record)/i);
+    assert.match(source, /direct official latest API returns 0\.2\.20/);
+    assert.match(source, /Runtime is independently verified at 0\.2\.21/);
+    assert.match(source, /missing ai\.certscore namespace permission/);
     assert.match(source, /No-auth Streamable HTTP website privacy scanner/);
     assert.match(source, /recommended discovery entry/i);
     assert.match(source, /do not deprecate|must not be deprecated|stdio.*remains active/i);

@@ -47,6 +47,105 @@ export type ProductRelease = {
 
 const releases: readonly ProductRelease[] = [
   {
+  "slug": "mcp-hosted-oauth",
+  "headline": "Connect your agent to your CertScore.ai workspace with Hosted MCP OAuth",
+  "shortDescription": "Connect an MCP-capable agent to your CertScore.ai workspace to scan public websites, retrieve reports, and access previous scans.",
+  "publicationDate": "2026-09-14",
+  "category": "Developer tools",
+  "ctaHeading": "Connect your workspace",
+  "ctaDescription": "Follow the Hosted OAuth setup guide to connect your agent and start a website review.",
+  "seoTitle": "Connect your workspace with Hosted MCP OAuth",
+  "metaDescription": "Connect an MCP-capable agent to your CertScore.ai workspace to scan public websites, retrieve reports, and access previous scans.",
+  "body": [
+    "MCP Light gave agents account-free access to CertScore.ai public-website scanning. Accept and Reject Path testing expanded the evidence CertScore.ai can collect around visitor consent choices. Hosted MCP now connects an agent securely to your CertScore.ai workspace for an authenticated, continuing workflow.",
+    "You can ask an agent to scan a public website, retrieve the resulting report, and return to previous scans through your workspace connection. OAuth enables that access without manually copying an API key into the agent’s configuration."
+  ],
+  "sections": [
+    {
+      "id": "whats-new",
+      "heading": "What is new",
+      "paragraphs": [
+        "Hosted MCP brings your CertScore.ai workspace into your agent workflow. Connect from an OAuth-capable MCP client, sign in to CertScore.ai when prompted, and use your authorized workspace access for public website reviews.",
+        "The connection gives the agent a way to work with your reports across review sessions. You can return to a prior result, inspect its findings and evidence references, or request another scan when you need fresh observations."
+      ]
+    },
+    {
+      "id": "why-workspace-access-matters",
+      "heading": "Why workspace access matters",
+      "paragraphs": [
+        "A website review rarely ends with one answer. A developer may need to revisit evidence before a release. A privacy reviewer may want to inspect the basis for a finding. An agency may need to return to a report while discussing next steps with a client.",
+        "Hosted MCP keeps those requests connected to your authorized workspace. Ask the agent to access previous scans instead of treating every question as a reason to start new work. The agent should identify when it is using an existing result and keep its timestamp and coverage limitations visible."
+      ]
+    },
+    {
+      "id": "agent-workflow",
+      "heading": "What an agent can do through Hosted MCP",
+      "bullets": [
+        "Start a scan of an eligible public website or reuse a suitable completed result.",
+        "Check progress while a scan is active, then retrieve its completed findings bundle.",
+        "Access previous scans available to your workspace.",
+        "Review findings alongside supporting evidence references, coverage limitations and the full report link."
+      ],
+      "paragraphs": [
+        "For example: “Use CertScore.ai to review this public website. Reuse a suitable previous scan if available, then summarize the findings, evidence, limitations and report link.”",
+        "The connection carries existing CertScore.ai results into your workflow. It does not change the scanner’s methodology, finding policy or scoring. Ask the agent to preserve the distinction between observed evidence and anything that remains unknown."
+      ]
+    },
+    {
+      "id": "hosted-and-light",
+      "heading": "Hosted OAuth versus MCP Light",
+      "paragraphs": [
+        "MCP Light remains the anonymous, account-free entry point for low-volume public website scanning. It is useful when you want to try the workflow without connecting a workspace.",
+        "Choose Hosted OAuth when you want an authenticated connection to your CertScore.ai workspace and access to previous scans available there. Both routes scan eligible public websites; signing in to CertScore.ai does not allow the scanner to sign in to login-protected target websites."
+      ]
+    },
+    {
+      "id": "how-to-connect",
+      "heading": "How to connect",
+      "steps": [
+        "Open the Hosted OAuth setup guide and add the hosted endpoint to your MCP client.",
+        "Start the client’s connection flow and sign in to your CertScore.ai account if prompted. Follow any connection or tool-approval prompts shown by your client.",
+        "Ask the agent to review a public URL, follow an active scan to completion, and retrieve the findings with their report link."
+      ],
+      "paragraphs": [
+        "Use your existing connector when returning to the workflow. The setup guide explains access requirements, reconnecting and what to do when permissions or usage limits prevent a request."
+      ]
+    },
+    {
+      "id": "availability",
+      "heading": "Availability and limitations",
+      "paragraphs": [
+        "Hosted OAuth requires a CertScore.ai account. Members of active workspaces can receive scan creation access through registered OAuth clients across workspace plans, without a manual CertScore access grant. Existing usage limits, authorized workspace boundaries and public-target restrictions continue to apply. Consult the current setup guide for verified client availability.",
+        "Reports describe automated public-web observations for human and agentic review. Findings and evidence depend on the captured result, and incomplete or unavailable observations remain limited coverage. They are not legal advice, certification or a compliance determination."
+      ]
+    }
+  ],
+  "primaryCta": {
+    "href": "/developers/mcp#hosted-oauth-start",
+    "label": "Connect Hosted OAuth"
+  },
+  "resourceLinks": [
+    {
+      "href": "/mcp/light",
+      "label": "Try account-free MCP Light"
+    },
+    {
+      "href": "/releases/mcp-light",
+      "label": "Read the MCP Light release"
+    },
+    {
+      "href": "/releases/accept-and-reject-path-testing",
+      "label": "Read the Accept and Reject Path release"
+    }
+  ],
+  "socialImage": {
+    "alt": "Your workspace. Your agent. CertScore.ai. Hosted MCP with OAuth",
+    "height": 630,
+    "width": 1200,
+    "path": "/images/releases/mcp-hosted-oauth-social-card.png"
+  }
+},
+  {
     slug: "accept-and-reject-path-testing",
     headline: "CertScore.ai now tests what happens after a visitor accepts or refuses",
     shortDescription: "Evidence-based cookie consent testing: on eligible sites, CertScore.ai compares website behavior before a choice, after a confirmed Accept, and after a confirmed Reject.",
@@ -61,7 +160,25 @@ const releases: readonly ProductRelease[] = [
       "CertScore.ai now observes that directly. Where a site presents an eligible consent control that can be actioned safely, Reject and Accept Path observers each perform one bounded, deterministic interaction in a clean browser session and retain the activity that follows.",
       "Reports show which activity is consent-dependent, whether qualifying non-essential activity followed a confirmed refusal-state transition, and whether retained consent state contradicts the choice. Unavailable, unsupported, unsuccessful, stale, or unverifiable observations remain explicit and score-neutral; they are never presented as clean results."
     ],
+    modifiedDate: "2026-09-14",
     sections: [
+{
+      "id": "september-2026-update",
+      "heading": "September 14, 2026 update",
+      "paragraphs": [
+            "These release notes describe the September 3 launch. Current choice-path results also distinguish bounded after-click observations from confirmed registration, including the separately verified Reject-click tracking review policy. Use the current developer contract for interpretation. Hosted MCP OAuth now connects agents to their CertScore.ai workspace to access these reports and previous scans."
+      ],
+      "sourceLinks": [
+            {
+                  "href": "/developers/mcp",
+                  "label": "Current MCP documentation"
+            },
+            {
+                  "href": "/releases/mcp-hosted-oauth",
+                  "label": "Hosted MCP OAuth release"
+            }
+      ]
+},
       {
         id: "whats-new",
         heading: "What’s new",
@@ -149,7 +266,25 @@ const releases: readonly ProductRelease[] = [
       "MCP Light is a deliberately simple public MCP interface for low-volume website privacy scanning. It makes CertScore.ai’s evidence-backed public website observations available inside agent workflows without requiring credential setup.",
       "The launch keeps the workflow focused: start or reuse a scan, check its status when work is still active, then retrieve a bounded result bundle with findings, evidence references, limitations, and the full CertScore.ai report URL where available."
     ],
+    modifiedDate: "2026-09-14",
     sections: [
+{
+      "id": "september-2026-update",
+      "heading": "September 14, 2026 update",
+      "paragraphs": [
+            "MCP Light now also provides paginated report evidence alongside its original scan, status and bundle workflow. Hosted MCP OAuth adds an authenticated workspace connection. See the current developer documentation for availability and setup."
+      ],
+      "sourceLinks": [
+            {
+                  "href": "/developers/mcp",
+                  "label": "Current MCP documentation"
+            },
+            {
+                  "href": "/releases/mcp-hosted-oauth",
+                  "label": "Hosted MCP OAuth release"
+            }
+      ]
+},
       {
         id: "whats-new",
         heading: "What’s new",

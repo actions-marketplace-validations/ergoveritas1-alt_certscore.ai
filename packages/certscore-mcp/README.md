@@ -67,7 +67,7 @@ Verification prompt:
 
 > List the available CertScore tools and confirm that certscore_scan_site, certscore_get_scan_status, and certscore_get_scan_bundle are available. Then scan https://ergoveritas.com/.well-known/certscore-canary/sentinels/broad-baseline.html and report whether the result was new or reused.
 
-Success means the tool list contains exactly the three Light tools, no authorization page appears, and `certscore_scan_site` returns a stable `scanId` plus an explicit new-or-reused decision. An eligible reused result reports that quota was not consumed.
+Success means the tool list contains the four Light tools (scan, status, bundle and report evidence), no authorization page appears, and `certscore_scan_site` returns a stable `scanId` plus an explicit new-or-reused decision. An eligible reused result reports that quota was not consumed.
 
 CertScore results are automated observations from a public-web scan. No-go, not-observed, and limited-coverage results are not proof of compliance, absence of risk, or legal status. Review the retained evidence and applicable context before relying on a finding.
 
@@ -170,7 +170,7 @@ https://mcp.certscore.ai/.well-known/oauth-protected-resource/mcp
 https://certscore.ai/.well-known/oauth-authorization-server
 ```
 
-The full hosted service uses OAuth authorization code with PKCE. Default read access requests `scan:read mcp`. Active Trial workspaces connecting through Claude receive `scan:create` automatically, bounded to 20 genuinely new scans per hour and 100 per day per workspace; eligible recent-result reuse does not consume that allowance. Other clients continue to require an explicit scan-creation grant. The same tool implementation and output contracts power stdio and hosted transports.
+The full hosted service uses OAuth authorization code with PKCE. Members of active workspaces can connect through registered OAuth clients across plans with scan:read, scan:create and mcp. Existing limits apply. Canonical eligibility, authorization and reconnect behavior: https://certscore.ai/developers/mcp#hosted-oauth-start. Local scoped API-key policy is separate.
 
 For low-volume agent discovery without account or OAuth setup, use the unauthenticated endpoint:
 
@@ -237,7 +237,7 @@ CERTSCORE_REQUEST_TIMEOUT_MS=300000
 
 ## Local MCP — scoped API key access
 
-Stdio API keys use `pulse:read` and `mcp`; creating scans additionally requires `pulse:scan`. Hosted OAuth uses `scan:read` and `mcp`. Active Trial workspaces connecting through Claude receive bounded `scan:create` automatically; other clients can request scan-creation access by emailing `support@certscore.ai` with the organization, MCP client, expected workflow, expected request volume, and contact email.
+Stdio API keys use `pulse:read` and `mcp`; creating scans additionally requires `pulse:scan`. Hosted OAuth uses `scan:read scan:create mcp` under the registered-client active-workspace policy. See https://certscore.ai/developers/mcp#hosted-oauth-start for current eligibility and verified client availability.
 
 ## Verify Install
 

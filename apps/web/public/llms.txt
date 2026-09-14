@@ -65,6 +65,7 @@ Search aliases: CertScore.ai, CertScore API, CertScore MCP, website risk API, pr
 - https://certscore.ai/releases
 - https://certscore.ai/releases/accept-and-reject-path-testing
 - https://certscore.ai/releases/mcp-light
+- Hosted MCP OAuth: https://certscore.ai/releases/mcp-hosted-oauth
 - https://certscore.ai/releases/feed.xml
 - https://certscore.ai/how-it-works
 - https://certscore.ai/methodology
@@ -201,7 +202,7 @@ API key setup:
 - Read-only + MCP keys are self-serve for signed-in verified users.
 - Sign in, verify email, then POST https://certscore.ai/api/v2/keys/request from the signed-in browser session.
 - Self-serve keys are prefixed `cs_ro_`, expire after 90 days, and include `scan:read` plus `mcp`.
-- Active Trial workspaces connecting through Claude receive hosted OAuth `scan:create` automatically, limited to 20 genuinely new scans per hour and 100 per day per workspace; eligible recent-result reuse does not consume that allowance.
+Hosted OAuth: members of active workspaces connect through registered OAuth clients across plans. Existing limits apply. Canonical eligibility, authorization and reconnect guidance: https://certscore.ai/developers/mcp#hosted-oauth-start
 - Other clients remain developer-preview and can request `scan:create` by emailing support@certscore.ai.
 - Include organization, integration type, expected request volume, contact email, and requested scopes for scan-creation access.
 - REST API read-only usually needs `scan:read`.

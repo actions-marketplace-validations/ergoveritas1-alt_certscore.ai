@@ -13,7 +13,7 @@ The recording should help a qualified viewer understand installation, connection
 - Use the live `Add to Cursor` button on `https://certscore.ai/mcp/light`.
 - Use a clean Cursor profile or first remove any existing CertScore.ai MCP entry.
 - Confirm that the installed server name is `CertScore.ai` and the endpoint is `https://mcp.certscore.ai/mcp/light`.
-- Confirm that Cursor discovers exactly these three tools:
+- Confirm that Cursor discovers the core workflow tools below plus `certscore_get_report_evidence_page`:
   - `certscore_scan_site`
   - `certscore_get_scan_status`
   - `certscore_get_scan_bundle`

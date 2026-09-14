@@ -1,0 +1,49 @@
+{
+  "at": "2026-09-14T18:05:42.154Z",
+  "endpoint": "https://mcp.certscore.ai/mcp/light",
+  "calls": [
+    {
+      "name": "certscore_scan_site",
+      "scanId": "283c66a7-3b56-49d6-974e-2595815680e9",
+      "status": "completed",
+      "provenance": {
+        "mode": "existing_completed_scan_reused",
+        "retrievalMode": "creation_response",
+        "creationDecision": "reused_scan",
+        "scanAgeSeconds": 9591,
+        "executionMode": "reused_scan",
+        "reused": true,
+        "freshnessDecision": "reused_existing_scan"
+      },
+      "quotaConsumed": false
+    },
+    {
+      "name": "certscore_get_scan_status",
+      "scanId": "283c66a7-3b56-49d6-974e-2595815680e9",
+      "status": "completed",
+      "provenance": {
+        "mode": "existing_scan_retrieved",
+        "retrievalMode": "scan_id_lookup",
+        "creationDecision": "unknown",
+        "scanAgeSeconds": 9591,
+        "executionMode": null,
+        "reused": null,
+        "freshnessDecision": null
+      }
+    },
+    {
+      "name": "certscore_get_scan_bundle",
+      "scanId": "283c66a7-3b56-49d6-974e-2595815680e9",
+      "status": "completed",
+      "provenance": {
+        "mode": "existing_scan_retrieved",
+        "retrievalMode": "scan_id_lookup",
+        "creationDecision": "unknown",
+        "scanAgeSeconds": 9592,
+        "executionMode": null,
+        "reused": null,
+        "freshnessDecision": null
+      }
+    }
+  ]
+}

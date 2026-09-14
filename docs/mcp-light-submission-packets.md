@@ -1,5 +1,7 @@
 # CertScore.ai MCP Light submission packets
 
+September 14 update: production Light also exposes `certscore_get_report_evidence_page`. Earlier dated verification records below are historical, not current catalog assertions. Current catalog: https://certscore.ai/developers/mcp.
+
 These packets are the canonical copy and status reference for external directory submissions. Each platform section records whether publication is complete or still requires owner action.
 
 ## Shared listing fields
@@ -13,7 +15,7 @@ These packets are the canonical copy and status reference for external directory
 | Endpoint | `https://mcp.certscore.ai/mcp/light` |
 | Transport | Streamable HTTP |
 | Authentication | None |
-| Tools | Only `certscore_scan_site`, `certscore_get_scan_status`, `certscore_get_scan_bundle` |
+| Core workflow | `certscore_scan_site`, `certscore_get_scan_status`, `certscore_get_scan_bundle` |
 | Quota | 50 new scans/UTC day Light; reuse free |
 | Website | `https://certscore.ai/mcp/light` |
 | Repository | `https://github.com/ergoveritas1-alt/certscore.ai` |
@@ -31,7 +33,7 @@ Short description:
 
 Long description:
 
-> CertScore.ai MCP Light is a free, no-auth website privacy scanner delivered over Streamable HTTP at `https://mcp.certscore.ai/mcp/light`. Its only tools are `certscore_scan_site`, `certscore_get_scan_status`, and `certscore_get_scan_bundle`. It summarizes persisted privacy evidence covering cookies and trackers, consent controls, jurisdiction-neutral GPC response comparisons, privacy-policy signals, GDPR/ePrivacy and CCPA/CPRA context, and HTTPS/TLS. On eligible sites, it can also observe Accept and Reject in separate browser sessions. Accept is a score-neutral behavior baseline. Reject can support a finding only after a confirmed refusal and qualifying retained post-refusal evidence; non-confirmed outcomes remain limited coverage.
+> CertScore.ai MCP Light is a free, no-auth website privacy scanner delivered over Streamable HTTP at `https://mcp.certscore.ai/mcp/light`. Its core workflow tools are `certscore_scan_site`, `certscore_get_scan_status`, and `certscore_get_scan_bundle`. It summarizes persisted privacy evidence covering cookies and trackers, consent controls, jurisdiction-neutral GPC response comparisons, privacy-policy signals, GDPR/ePrivacy and CCPA/CPRA context, and HTTPS/TLS. On eligible sites, it can also observe Accept and Reject in separate browser sessions. Accept is a score-neutral behavior baseline. Reject can support a finding only after a confirmed refusal and qualifying retained post-refusal evidence; non-confirmed outcomes remain limited coverage.
 >
 > Give CertScore.ai a public website to collect structured, evidence-backed privacy findings for launch review, vendor review, audit triage, or human compliance review. Results include a CertScore score and supporting evidence for human and agentic review; they are not legal advice, certification, or a compliance determination.
 
@@ -55,7 +57,7 @@ Paste-ready fields:
 | Transport | Streamable HTTP |
 | Server URL | `https://mcp.certscore.ai/mcp/light` |
 | Authentication | None |
-| Tools | `certscore_scan_site`, `certscore_get_scan_status`, `certscore_get_scan_bundle` |
+| Core workflow | `certscore_scan_site`, `certscore_get_scan_status`, `certscore_get_scan_bundle` |
 | Quota | 50 new scans/UTC day Light; reuse free |
 | Website | `https://certscore.ai/mcp/light` |
 | Repository | `https://github.com/ergoveritas1-alt/certscore.ai` |
@@ -80,7 +82,7 @@ Authentication: none. No account, API key, OAuth, or local executable is require
 
 ## Tools
 
-Only three tools:
+Core scan/status/bundle workflow (the catalog also includes certscore_get_report_evidence_page):
 - `certscore_scan_site` — Start a website scan.
 - `certscore_get_scan_status` — Check scan status.
 - `certscore_get_scan_bundle` — Retrieve scan results and retained evidence links.
@@ -118,7 +120,7 @@ After the external edit, verify the rendered name, endpoint, no-auth setting, th
 
 Submission artifact: `packages/certscore-mcp/server-light.json`.
 
-Registry status verified September 9, 2026: version `0.2.21` is active and latest for `ai.certscore/mcp-light`, and `packages/certscore-mcp/server-light.json` matches its published identity, description, endpoint, transport, repository, icons, and version. Version `0.2.19` is a historical record and is not latest.
+Official MCP Registry — September 14, 2026 registry correction: the direct official latest API returns 0.2.20, and 0.2.21 returns 404. Earlier 0.2.21 publication claims are not supported by current registry evidence. Runtime is independently verified at 0.2.21. Publishing the existing manifest is blocked by missing ai.certscore namespace permission; see docs/gtm/mcp-hosted-oauth-acceptance-2026-09-14.md.
 
 - Registry listing: https://registry.modelcontextprotocol.io/?q=ai.certscore%2Fmcp-light
 - Registry API lookup: https://registry.modelcontextprotocol.io/v0.1/servers?search=ai.certscore%2Fmcp-light
@@ -400,3 +402,5 @@ Product-owner decision required: either keep Docker out of scope, or separately 
 - Use the exact Light endpoint; do not substitute the authenticated or anonymous legacy endpoint.
 - Do not claim legal advice, certification, compliance determination, unlimited use, or a Docker image.
 - Record any directory-assigned listing URL in `docs/mcp-light-directory-submissions.md` after publication.
+
+Registry reference: https://registry.modelcontextprotocol.io/?q=ai.certscore%2Fmcp-light. The intended next-version description remains “No-auth Streamable HTTP website privacy scanner”; the separate stdio distribution remains active and must not be deprecated.

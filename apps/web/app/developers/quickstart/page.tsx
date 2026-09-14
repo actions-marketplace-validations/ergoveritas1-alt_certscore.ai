@@ -1,3 +1,4 @@
+import { MCP_OAUTH_ELIGIBILITY } from "../../../lib/mcp-public-copy";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createPageMetadata } from "../../../lib/seo";
@@ -66,8 +67,7 @@ curl -X POST https://certscore.ai/api/v2/keys/request \\
             Self-serve keys are prefixed <code className="rounded bg-white px-1">cs_ro_</code>, expire after 90 days, and are limited
             to read-only report/API access plus MCP. For <code className="rounded bg-white px-1">scan:create</code>, include your
             organization, integration type, expected volume, callback or contact email, and requested scopes when emailing support.
-            Active Trial workspaces connecting through Claude receive hosted OAuth scan creation automatically, limited to 20 new scans
-            per hour and 100 per day per workspace; eligible recent-result reuse does not consume the allowance.
+            Hosted OAuth has a separate policy: {MCP_OAUTH_ELIGIBILITY} See <a href="/developers/mcp#hosted-oauth-start">Hosted OAuth setup and limits</a>.
           </p>
         </Section>
 
