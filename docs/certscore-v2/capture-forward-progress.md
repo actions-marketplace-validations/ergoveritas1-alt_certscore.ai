@@ -175,3 +175,10 @@ CNN local reproduction completed in 171ms versus 636ms with settling. Document,
 crop and intersecting-control geometry must still match after capture; all input
 pixels remain masked before review. The two-second pixel and 2.5-second shared
 limits are unchanged. No retries or extra screenshots are introduced.
+
+A temporary same-image, same-memory regional Lambda diagnostic measured the
+bounded capture path at 1,644ms with a deterministic test reviewer. This is
+capture timing evidence, not a production safety-review result. The duplicate
+Playwright bounding-box read was removed; the helper still validates positive,
+bounded geometry and document/mask binding before and after pixels. The one-off
+diagnostic cost was below $1 and does not increase recurring capacity.

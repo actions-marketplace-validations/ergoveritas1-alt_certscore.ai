@@ -52,8 +52,6 @@ export async function captureCollectionSurfaceSnapshots(page: Page, inventory: C
       }, { fields: form.fields, structure: form.structure, url: inventory.pageUrl });
       const element = target.asElement();
       if (!element) { results.push(unavailable("control_binding_changed")); continue; }
-      const bounds = await element.boundingBox();
-      if (!bounds || bounds.width <= 0 || bounds.height <= 0 || bounds.width * bounds.height > 40_000_000) { results.push(unavailable(bounds && bounds.width * bounds.height > 40_000_000 ? "form_bounds_exceeded" : "form_not_visible")); continue; }
       const remaining = Math.max(1, deadline - Date.now());
       stage = "screenshot_failed";
       const original = await captureMaskedFormScreenshot(page, element, remaining);
@@ -80,7 +78,10 @@ export async function captureCollectionSurfaceSnapshots(page: Page, inventory: C
         } catch { return unavailable(signal?.aborted ? "capture_cancelled" : boundedSignal.aborted ? "review_timed_out" : "review_failed"); }
         finally { if (onAbort) boundedSignal.removeEventListener("abort", onAbort); }
       })());
-    } catch { results.push(unavailable(signal?.aborted ? "capture_cancelled" : page.url() !== inventory.pageUrl ? "document_changed" : stage)); }
+    } catch (error) {
+      if (error instanceof Error && error.message === "Form screenshot bounds unavailable") stage = "form_not_visible";
+      if (error instanceof Error && error.message === "Form screenshot bounds exceeded") stage = "form_bounds_exceeded";
+      results.push(unavailable(signal?.aborted ? "capture_cancelled" : page.url() !== inventory.pageUrl ? "document_changed" : stage)); }
     finally { await target?.dispose().catch(() => {}); }
   }
   return Promise.all(results);

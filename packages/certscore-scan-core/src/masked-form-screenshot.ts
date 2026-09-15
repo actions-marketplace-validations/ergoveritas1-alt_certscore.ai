@@ -74,7 +74,8 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
         const before = await readLayout();
         if (Date.now() >= deadline) throw new Error("Form screenshot deadline");
         const clip = before.bounds;
-        if (clip.width <= 0 || clip.height <= 0 || clip.width * clip.height > 40_000_000) throw new Error("Form screenshot bounds unavailable");
+        if (clip.width <= 0 || clip.height <= 0) throw new Error("Form screenshot bounds unavailable");
+        if (clip.width * clip.height > 40_000_000) throw new Error("Form screenshot bounds exceeded");
         stage = "capture_pixels";
         const captured = await Promise.race([session.send("Page.captureScreenshot", {
           format: "jpeg", quality: 45, fromSurface: true, optimizeForSpeed: true,
