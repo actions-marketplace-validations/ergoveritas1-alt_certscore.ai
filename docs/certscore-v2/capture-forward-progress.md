@@ -97,3 +97,23 @@ The follow-up keeps all existing time, lane, image-size, review and model budget
 These optimizations add no recurring cost, browser invocation or capture time.
 Production effectiveness must be checked with fresh retained evidence; passing
 fixtures alone does not establish complete CNN capture.
+
+## Consent capture scheduling follow-up
+
+Fresh production run 3e65a0f8-4058-4518-9d9d-f6003923d31c still failed
+form pixel capture and completed its structured control read only near the
+36.5-second consent module deadline. Adaptive-gate setup included unbounded
+page/locator metadata reads, and supplemental full-page capture could precede
+needed geometry. The scheduling correction:
+
+- Uses one 300ms-bounded metadata call for scripts and mutation counters. Missing
+  metadata is explicit internally and cannot authorize stable-partial early exit.
+- Bounds semantic checkpoint work to its existing slice.
+- Reserves four seconds inside the existing consent-proof module deadline for
+  retained geometry/finalization, without adding observation time.
+- Defers generic supplemental full-page work while structured controls still
+  need geometry; geometry-driven below-fold capture remains available.
+
+No recurring-cost increase, deadline increase, new lane or model call is introduced.
+The separate proposed form screenshot slice increase remains unimplemented
+pending explicit approval of its incremental compute/storage allowance.

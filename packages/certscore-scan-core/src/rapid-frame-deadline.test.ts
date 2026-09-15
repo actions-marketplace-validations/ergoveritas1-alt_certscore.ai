@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { chromium } from 'playwright';
-import { readRapidFirstLayerConsentUiObservation } from './scanners/pre-consent-runtime-scanner';
+import { captureConsentGateSnapshot, readRapidFirstLayerConsentUiObservation } from './scanners/pre-consent-runtime-scanner';
 
 test('stalled child frames preserve completed main inventory and explicit frame coverage', async () => {
   const browser = await chromium.launch({ headless: true });
@@ -41,4 +41,15 @@ test('rapid inventory is one self-contained main-document call despite a stale p
     assert.equal(result.inventoryOutcome, 'complete_empty');
     assert.ok(result.captureDiagnostics?.completedChannels.includes('dom_inventory'));
   } finally { await browser.close(); }
+});
+
+
+test('stalled adaptive-gate metadata cannot consume the geometry capture reserve', async () => {
+  const page = { frames: () => [], evaluate: () => new Promise(() => {}) };
+  const observation = { controls: [], likelyPresent: false } as any;
+  const started = Date.now();
+  const snapshot = await captureConsentGateSnapshot({ page: page as any, cmpRuntimeObservations: [], navigationStartedAtMs: started }, observation);
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(snapshot.metadataComplete, false);
+  assert.equal(snapshot.observation, observation);
 });

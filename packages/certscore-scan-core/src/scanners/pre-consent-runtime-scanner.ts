@@ -2595,7 +2595,9 @@ export async function preConsentRuntimeScanner(
         page,
         scanStartedAtMs: input.scanStartedAtMs,
         timingBreakdown,
-        deadlineAtMs: moduleDeadlineAtMs,
+        deadlineAtMs: input.captureScope === "consent_proof"
+          ? Math.max(Date.now(), moduleDeadlineAtMs - 4_000)
+          : moduleDeadlineAtMs,
       });
       const recapturedConsentObservation = highConfidenceCmpRuntimeEvidence
         ? await recordParentTiming(
@@ -2803,7 +2805,6 @@ export async function preConsentRuntimeScanner(
       const lateGateReadReserveMs = 500;
       const lateGateRemainingBudgetMs = remainingModuleBudgetMs();
       if (lateGateRemainingBudgetMs >= waitToLateSurfaceGateMs + lateGateReadReserveMs) {
-        await installConsentGateMutationProbe(page);
         const lateGateCaptureBudgetMs = Math.min(
           waitToLateSurfaceGateMs + 1_250,
           lateGateRemainingBudgetMs,
@@ -2988,6 +2989,7 @@ export async function preConsentRuntimeScanner(
       earlyScreenshotCaptured &&
       !supplementalScreenshotAttempted &&
       !supplementalFullPageProofAlreadyComplete &&
+      (!structuredFirstLayerControlsConfirmed || consentGeometryDiagnosticWritten) &&
       (input.screenshotCaptureMode ?? "viewport_first") === "viewport_first" &&
       screenshots.some((screenshot) => screenshot.captureMethod === "primary_viewport_fallback") &&
       shouldCaptureSupplementalFullPageScreenshot({
@@ -5780,6 +5782,7 @@ type ConsentGateSnapshot = {
   cmpFrameKeys: string[];
   cmpScriptKeys: string[];
   mutationCount: number;
+  metadataComplete: boolean;
   observation: ConsentUiObservation;
   pageAgeMs: number;
 };
@@ -5906,7 +5909,6 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
   timingBreakdown: NonNullable<ScanModuleRun["timingBreakdown"]>;
   deadlineAtMs: number;
 }): Promise<ConsentUiObservation> {
-  await installConsentGateMutationProbe(input.page);
   let current = input.initialObservation;
   let previous = await captureConsentGateSnapshot(input, current);
   let shadowExitCandidate: ConsentGateShadowExitCandidate | undefined;
@@ -6044,7 +6046,12 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
     ) && input.deadlineAtMs - Date.now() >= 250;
     if (shouldRunSemanticCheckpoint) {
       const semanticBudgetMs = Math.min(750, Math.max(250, input.deadlineAtMs - Date.now()));
-      const semanticObservation = await detectConsentUi(
+      const semanticObservation = await recordBoundedTiming(
+        input.timingBreakdown,
+        "consent gate semantic checkpoint",
+        "Bounded semantic read leaves time for retained geometry and finalization.",
+        semanticBudgetMs,
+        () => detectConsentUi(
         input.page,
         input.scanStartedAtMs,
         0,
@@ -6053,6 +6060,8 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
           rapidInventoryTimeoutMs: Math.min(200, semanticBudgetMs),
           returnAfterRapidSnapshot: false,
         },
+        ),
+        () => current,
       );
       current = mergeConsentUiObservations(
         current,
@@ -6079,8 +6088,8 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
       return finish(snapshot, gate, "hard_cap_exit", progress);
     }
 
-    const proofStable = input.resolveStablePartialProofPacket?.(current) ??
-      input.stablePartialProofPacket;
+    const proofStable = snapshot.metadataComplete && previous.metadataComplete &&
+      (input.resolveStablePartialProofPacket?.(current) ?? input.stablePartialProofPacket);
     const stableForMs = lastTypedControlProgressAtMs === undefined
       ? 0
       : Math.max(0, snapshot.pageAgeMs - lastTypedControlProgressAtMs);
@@ -6171,32 +6180,7 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
   return finish(finalSnapshot, "24s", "hard_cap_exit", undefined);
 }
 
-async function installConsentGateMutationProbe(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const scope = window as typeof window & {
-      __certscoreConsentGateMutations?: { count: number; lastMutationAtMs: number };
-    };
-    if (scope.__certscoreConsentGateMutations) {
-      return;
-    }
-    scope.__certscoreConsentGateMutations = { count: 0, lastMutationAtMs: Date.now() };
-    const observer = new MutationObserver((mutations) => {
-      const state = scope.__certscoreConsentGateMutations;
-      if (!state) {
-        return;
-      }
-      state.count += mutations.length;
-      state.lastMutationAtMs = Date.now();
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      childList: true,
-      subtree: true,
-    });
-  }).catch(() => undefined);
-}
-
-async function captureConsentGateSnapshot(
+export async function captureConsentGateSnapshot(
   input: {
     cmpRuntimeObservations: CmpRuntimeObservation[];
     navigationStartedAtMs: number;
@@ -6209,21 +6193,37 @@ async function captureConsentGateSnapshot(
     .map((frame) => frame.url())
     .filter((url) => matchesConsentGateCmpHostname(url, cmpHostnames))
     .sort();
-  const scriptUrls = await input.page.locator("script[src]").evaluateAll((elements) =>
-    elements.slice(0, 200).map((element) => (element as HTMLScriptElement).src).filter(Boolean)
-  ).catch(() => [] as string[]);
-  const mutationCount = await input.page.evaluate(() => {
-    const scope = window as typeof window & {
-      __certscoreConsentGateMutations?: { count: number };
-    };
-    return scope.__certscoreConsentGateMutations?.count ?? 0;
-  }).catch(() => 0);
+  // Scheduling metadata must not consume the control-proof capture window.
+  // One bounded browser call replaces an unbounded install + locator + read.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const metadata = await Promise.race([
+    input.page.evaluate(() => {
+      const scope = window as typeof window & {
+        __certscoreConsentGateMutations?: { count: number; lastMutationAtMs: number };
+      };
+      if (!scope.__certscoreConsentGateMutations) {
+        scope.__certscoreConsentGateMutations = { count: 0, lastMutationAtMs: Date.now() };
+        new MutationObserver(mutations => {
+          const state = scope.__certscoreConsentGateMutations;
+          if (state) { state.count += mutations.length; state.lastMutationAtMs = Date.now(); }
+        }).observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+      }
+      return {
+        scriptUrls: Array.from(document.scripts).slice(0, 200).map(script => script.src).filter(Boolean),
+        mutationCount: scope.__certscoreConsentGateMutations.count,
+      };
+    }).catch(() => null),
+    new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 300); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+  const scriptUrls = metadata?.scriptUrls ?? [];
+  const mutationCount = metadata?.mutationCount ?? 0;
   return {
     cmpFrameKeys: unique(frameKeys),
     cmpScriptKeys: unique(
       scriptUrls.filter((url) => matchesConsentGateCmpHostname(url, cmpHostnames)),
     ),
     mutationCount,
+    metadataComplete: metadata !== null,
     observation,
     pageAgeMs: Math.max(0, Date.now() - input.navigationStartedAtMs),
   };
