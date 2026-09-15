@@ -31,4 +31,4 @@ Prepared `docs/gtm/seo-evidence-resource-distribution.md`: agency email, develop
 
 No new scan runs, model calls, paid tools or infrastructure were added. Additional static resource storage is estimated below $0.01/month; no per-scan cost change. GA configuration applies prospectively and does not repair historical attribution.
 
-Website changes have not been deployed. Post-recrawl ranking/conversion changes cannot yet be measured; the report template deliberately leaves those values pending.
+Website revision `ae7900c52466ce6a1678276995a9c5a64e857610` was deployed through AWS ECS on September 14, 2026 (Pacific time). Workflow 34910702095, ECS stabilization and live deployment checks passed. See `outputs/seo-release-2026-09-14/` for release verification. Post-recrawl ranking/conversion changes cannot yet be measured; the report template deliberately leaves those values pending.

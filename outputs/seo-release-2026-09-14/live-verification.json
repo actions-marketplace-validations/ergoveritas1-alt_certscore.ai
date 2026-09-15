@@ -1,0 +1,103 @@
+{
+  "verified_at": "2026-09-15T00:02:48.415427+00:00",
+  "pages": [
+    {
+      "path": "/solutions/gdpr-website-compliance-scanner",
+      "status": 200,
+      "title": "GDPR Website Scanner: Cookies & Consent | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/solutions/gdpr-website-compliance-scanner"
+      ],
+      "h1": "GDPR & ePrivacy website scanner",
+      "inline_form": true
+    },
+    {
+      "path": "/solutions/cookie-consent-scanner",
+      "status": 200,
+      "title": "Cookie consent scanner | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/solutions/cookie-consent-scanner"
+      ],
+      "h1": "Cookie consent scanner",
+      "inline_form": true
+    },
+    {
+      "path": "/gdpr",
+      "status": 200,
+      "title": "GDPR Website Evidence: Methodology & Review Guide | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/gdpr"
+      ],
+      "h1": "How to interpret GDPR website evidence"
+    },
+    {
+      "path": "/guides/detect-tracking-before-consent",
+      "status": 200,
+      "title": "How to detect tracking before consent | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/guides/detect-tracking-before-consent"
+      ],
+      "h1": "How to detect tracking before consent"
+    },
+    {
+      "path": "/guides/reject-consent-tracking-test",
+      "status": 200,
+      "title": "Reject consent tracking test | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/guides/reject-consent-tracking-test"
+      ],
+      "h1": "How to test tracking after Reject: an evidence walkthrough"
+    },
+    {
+      "path": "/guides/website-consent-audit-checklist",
+      "status": 200,
+      "title": "Website consent audit checklist | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/guides/website-consent-audit-checklist"
+      ],
+      "h1": "Website consent audit checklist"
+    },
+    {
+      "path": "/browser-extension/privacy",
+      "status": 200,
+      "title": "Chrome extension privacy | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/browser-extension/privacy"
+      ],
+      "h1": "Browser evidence is collected only when you start a scan"
+    },
+    {
+      "path": "/regulatory",
+      "status": 200,
+      "title": "Regulatory Website Signal Pages | CertScore.ai",
+      "canonical": [
+        "https://certscore.ai/regulatory"
+      ],
+      "h1": "Public regulatory signal pages"
+    },
+    {
+      "path": "/guides/pre-consent-tracking-detection",
+      "status": 308,
+      "location": "/guides/detect-tracking-before-consent"
+    },
+    {
+      "path": "/guides/detect-trackers-before-cookie-consent",
+      "status": 308,
+      "location": "/guides/detect-tracking-before-consent"
+    },
+    {
+      "path": "/guides/check-website-tracking-before-consent",
+      "status": 308,
+      "location": "/guides/detect-tracking-before-consent"
+    },
+    {
+      "path": "/sitemap.xml",
+      "status": 200,
+      "removed_entries_absent": true
+    },
+    {
+      "path": "/resources/consent-audit-worksheet.md",
+      "status": 200
+    }
+  ]
+}
