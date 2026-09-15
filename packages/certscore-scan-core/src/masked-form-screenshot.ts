@@ -47,7 +47,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
           const scope = `[${attribute}="${marker}"]`;
           node.textContent = `${scope},${scope} *,${scope}::before,${scope}::after,${scope} *::before,${scope} *::after{animation-play-state:paused!important;transition-property:none!important;caret-color:transparent!important}`;
           document.documentElement.appendChild(node);
-          root.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+
           return { node, root, attribute, previous, position, scrollPositions };
         }, { deadlineAtMs: deadline, marker: randomUUID() });
         if (Date.now() >= deadline) {
@@ -70,10 +70,6 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
             && r.x + r.width + 2 > crop.x && r.y + r.height + 2 > crop.y);
           return { url: location.href, viewport: { x: scrollX, y: scrollY, width: innerWidth, height: innerHeight }, bounds, masks };
         }, captureBounds);
-        stage = "settle_scroll";
-        // Allow scroll handlers and their layout update to run before binding pixels.
-        // This is inside the existing capture deadline, never an extra attempt.
-        await page.evaluate(() => new Promise<void>(resolve => setTimeout(() => requestAnimationFrame(() => resolve()), 500)));
         stage = "read_layout";
         const before = await readLayout();
         if (Date.now() >= deadline) throw new Error("Form screenshot deadline");

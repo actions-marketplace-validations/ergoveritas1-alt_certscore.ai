@@ -105,7 +105,7 @@ test("a form layout change during capture discards pixels before review", async 
 });
 
 
-test("footer form capture uses visible viewport pixels and restores scroll", async () => {
+test("footer form capture uses off-screen pixels without scrolling", async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
@@ -128,7 +128,7 @@ test("footer form capture uses visible viewport pixels and restores scroll", asy
     const inventory = buildCollectionSurfaceInventory({ pageUrl: 'about:blank', inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: 'native_form_0', structure: 'native_form', elementType: 'input', inputType: 'text', label: 'Search', required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
     const result = await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true }));
     assert.equal(result[0]?.status, "available");
-    assert.equal(beyond, false);
+    assert.equal(beyond, true);
     assert.equal(await page.locator("form").getAttribute("data-certscore-form-capture"), "existing");
     assert.equal(await page.evaluate(() => scrollY), 0);
     assert.equal(await page.locator("input").inputValue(), "private");

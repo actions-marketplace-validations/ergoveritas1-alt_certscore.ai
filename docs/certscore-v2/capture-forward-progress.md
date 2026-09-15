@@ -164,3 +164,14 @@ The two-second cap applies specifically to the CDP pixel operation. Settling,
 masking and review share the existing 2.5-second deadline; they do not reduce
 the nominal pixel cap except when the shared deadline has less time remaining.
 No total timeout is increased.
+
+## Direct off-screen capture
+
+Further production verification showed scroll-triggered settling still consumed
+the shared budget on CNN. The final capture protocol does not scroll the page:
+CDP captures the exact off-screen crop with captureBeyondViewport when required.
+This avoids activating lazy footer layout and removes the settling wait. A direct
+CNN local reproduction completed in 171ms versus 636ms with settling. Document,
+crop and intersecting-control geometry must still match after capture; all input
+pixels remain masked before review. The two-second pixel and 2.5-second shared
+limits are unchanged. No retries or extra screenshots are introduced.
