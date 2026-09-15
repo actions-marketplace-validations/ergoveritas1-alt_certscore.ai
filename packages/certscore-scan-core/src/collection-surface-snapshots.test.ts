@@ -62,3 +62,44 @@ test("animated forms capture within the existing budget and stalled review termi
     assert.equal((await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true }), controller.signal))[0]?.reason, "capture_cancelled");
   } finally { await browser.close(); }
 });
+
+test("pending page fonts cannot prevent a masked form snapshot", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  try {
+    await page.route('https://fonts.example.test/pending.woff2', () => new Promise(() => {}));
+    await page.setContent('<style>@font-face{font-family:pending;src:url(https://fonts.example.test/pending.woff2)}form{font-family:pending;width:300px;height:100px}</style><form><label>Search<input type="text" value="private-value"></label></form>', { waitUntil: 'domcontentloaded' });
+    const inventory = buildCollectionSurfaceInventory({ pageUrl: 'about:blank', inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: 'native_form_0', structure: 'native_form', elementType: 'input', inputType: 'text', label: 'Search', required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
+    const result = await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true }));
+    assert.equal(result[0]?.status, 'available');
+    assert.equal(result[0]?.valuesMasked, true);
+    assert.equal(await page.locator('input').inputValue(), 'private-value');
+  } finally { await browser.close(); }
+});
+
+test("a form layout change during capture discards pixels before review", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<form style="width:400px;height:150px"><label>Search<input type="text"></label></form>');
+    const context = page.context();
+    const createSession = context.newCDPSession.bind(context);
+    context.newCDPSession = async (...args) => {
+      const session = await createSession(...args);
+      const send = session.send.bind(session);
+      session.send = (async (method: string, params: unknown) => {
+        const result = await (send as Function)(method, params);
+        if (method === 'Page.captureScreenshot') await page.locator('input').evaluate(el => (el as HTMLElement).style.marginLeft = '50px');
+        return result;
+      }) as typeof session.send;
+      return session;
+    };
+    const inventory = buildCollectionSurfaceInventory({ pageUrl: 'about:blank', inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: 'native_form_0', structure: 'native_form', elementType: 'input', inputType: 'text', label: 'Search', required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
+    let reviewed = false;
+    const result = await captureCollectionSurfaceSnapshots(page, inventory, async () => { reviewed = true; return { safeForDisplay: true }; });
+    assert.equal(result[0]?.status, 'unavailable');
+    assert.equal(result[0]?.data, undefined);
+    assert.equal(reviewed, false);
+    assert.equal(await page.locator('style').count(), 0, 'temporary animation styling must be removed');
+  } finally { await browser.close(); }
+});

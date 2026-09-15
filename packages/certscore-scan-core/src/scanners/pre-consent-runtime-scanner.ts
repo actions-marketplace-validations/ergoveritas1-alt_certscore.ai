@@ -6911,7 +6911,7 @@ export async function readRapidFirstLayerConsentUiObservation(
   const boundedTimeoutMs = Math.max(100, Math.min(timeoutMs, 1_500));
   try {
     return await Promise.race([
-      readRapidFirstLayerConsentUiObservationUnbounded(page, scanStartedAtMs, phase),
+      readRapidFirstLayerConsentUiObservationUnbounded(page, scanStartedAtMs, phase, Date.now() + boundedTimeoutMs - 25),
       new Promise<ConsentUiObservation>((resolve) => {
         timer = setTimeout(() => {
           resolve({
@@ -6965,6 +6965,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
   page: Page,
   scanStartedAtMs: number,
   phase: "initial" | "post_accessibility" | "post_settle" | "retry",
+  deadlineAtMs: number,
 ): Promise<ConsentUiObservation> {
   type RapidConsentInventory = {
     documentReadyState: DocumentReadyState;
@@ -7385,7 +7386,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
   // screenshot while remaining absent from the top-level document. Keep this
   // recovery structured and passive: inspect a bounded set of child frames and
   // classify only their visible DOM controls through the canonical registry.
-  const frameInventory = await readRapidChildFrameConsentInventory(page);
+  const frameInventory = await readRapidChildFrameConsentInventory(page, deadlineAtMs);
   const frameContextText = frameInventory.textExcerpts.join(" ").slice(0, 12_000);
   let frameNavigationLimited = false;
   const frameControls = frameInventory.controls.map(control => normalizeConsentControlLink(control, control.frameUrl ?? page.url())).flatMap((control) => {
@@ -7459,6 +7460,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
 
 async function readRapidChildFrameConsentInventory(
   page: Page,
+  deadlineAtMs: number,
 ): Promise<{
   controls: ConsentUiInventoryControl[];
   frameInaccessibleCount: number;
@@ -7471,10 +7473,17 @@ async function readRapidChildFrameConsentInventory(
     .filter((frame) => frame !== page.mainFrame())
     .slice(0, 8);
   const rows = await Promise.all(frames.map(async (frame) => {
+    // An unrelated stalled frame must not erase the completed main-document
+    // inventory. Preserve explicit inaccessible-frame coverage in its place.
+    const remainingMs = Math.min(200, deadlineAtMs - Date.now());
+    if (remainingMs <= 0) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let expired = false;
+    try { return await Promise.race([(async () => {
     const installed = await frame.evaluate(CONSENT_INVENTORY_PROBE_SCRIPT)
       .then(() => true)
       .catch(() => false);
-    if (!installed) return null;
+    if (!installed || expired) return null;
     const row = await frame.evaluate<{
       controls: ConsentUiInventoryControl[];
       textExcerpt: string;
@@ -7516,6 +7525,8 @@ async function readRapidChildFrameConsentInventory(
         inventorySource: "same_origin_frame" as const,
       })),
     };
+    })(), new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), remainingMs); })]);
+    } finally { expired = true; if (timer) clearTimeout(timer); }
   }));
   const completed = rows.filter((row): row is NonNullable<typeof row> => row !== null);
   const failedFrames = frames.filter((_, index) => rows[index] === null);

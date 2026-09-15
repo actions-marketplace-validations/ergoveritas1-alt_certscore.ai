@@ -917,11 +917,13 @@ export async function policySurfaceScanner(
       }
       renderedCandidateCount = renderedCandidates.length;
       const speculativeCommonPathRecovery = await speculativeCommonPathRecoveryPromise?.catch(() => undefined);
+      // Keep completed observations and failure provenance even when the child
+      // was not usable. Success controls early exit, never evidence retention.
+      if (speculativeCommonPathRecovery) appendPolicyResults(speculativeCommonPathRecovery);
       if (
         speculativeCommonPathRecovery &&
         hasRetainedGoverningPolicyIndexChild(speculativeCommonPathRecovery.observations)
       ) {
-        appendPolicyResults(speculativeCommonPathRecovery);
         speculativeCommonPathNanoAbortController.abort();
         await speculativeCommonPathNanoRankingPromise.catch(() => undefined);
         artifactRefs.push(await writePolicyCaptureDiagnostics({
@@ -10527,7 +10529,8 @@ export function retainPolicyPacketObservations(observations: PolicySurfaceObserv
   const priority = (item: PolicySurfaceObservation) => item.governingPolicySelection?.state === "primary" ? -2
     : item.governingPolicySelection?.state === "supporting" ? -1
     : item.status === "fetched" ? item.documentRole === "policy_index" ? 1 : 0
-    : item.status === "observed" ? 2 : 3;
+    : item.parentObservationId && !item.selectionReasonCodes?.includes("not_selected_for_bounded_fetch") ? 2
+    : item.status === "observed" ? 3 : 4;
   return observations.map((item, index) => ({ item, index }))
     .sort((a, b) => priority(a.item) - priority(b.item) || a.index - b.index)
     .slice(0, 32).sort((a, b) => a.index - b.index).map(({ item }) => item);

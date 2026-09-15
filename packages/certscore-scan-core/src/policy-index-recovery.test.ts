@@ -21,7 +21,7 @@ test("three-letter policy brands require whole tokens", () => {
   assert.notEqual(classifyPolicyDocumentOwnership({ ...input, text: "ACNNEX is the data controller responsible for processing personal data." }).targetRelationship, "first_party_brand");
 });
 
-for (const [delayedNotice, renderedRecovery, multilingual] of [[false, false, false], [true, false, false], [false, true, false], [false, "homepage", false], [false, false, true]] as const) test(`OneTrust index recovery ${multilingual ? "uses the page-declared locale inside the existing child budget" : renderedRecovery === "homepage" ? "after homepage-only browser discovery" : renderedRecovery ? "after direct 403 and browser recovery" : delayedNotice ? "fails closed at the child deadline" : "selects and resolves the Europe body"}`, async () => {
+for (const [delayedNotice, renderedRecovery, multilingual] of [[false, false, false], [true, false, false], [false, true, false], [false, "homepage", false], [false, false, true], [true, true, false]] as const) test(`OneTrust index recovery ${multilingual ? "uses the page-declared locale inside the existing child budget" : renderedRecovery === "homepage" ? "after homepage-only browser discovery" : renderedRecovery ? delayedNotice ? "retains failed child after direct 403 and browser recovery" : "after direct 403 and browser recovery" : delayedNotice ? "fails closed at the child deadline" : "selects and resolves the Europe body"}`, async () => {
   const requests: string[] = [];
   const policy = "We collect personal data for service delivery. Our legal basis is contractual necessity. We retain account records for two years. Contact privacy@example.test to exercise your right to access, delete or object. We transfer data using standard contractual clauses. ".repeat(20);
   const index = `<h1>Consumer Privacy Policy</h1><p>${"Choose your regional privacy policy. We care about your privacy. ".repeat(12)}</p><a href="/policycenter/b2c/en-us">English (US) Privacy Policy</a><a href="/policycenter/b2c/en-emea">English (Europe) Privacy Policy</a>`;
@@ -85,4 +85,13 @@ test("policy packet bounds preserve fetched governing documents ahead of index l
   assert.equal(retained.length, 32);
   assert.ok(retained.some(item => item.observationId === "governing"));
   assert.equal(links.length, 40);
+});
+
+test("policy packet bounds retain the selected failed child ahead of unselected links", () => {
+  const links = Array.from({ length: 40 }, (_, i) => ({ observationId: `link-${i}`, status: "observed", selectionReasonCodes: ["not_selected_for_bounded_fetch"] }));
+  const failed = { observationId: "selected", status: "failed", parentObservationId: "index", selectionReasonCodes: ["scan_region_policy_route_match"] };
+  const retained = retainPolicyPacketObservations([...links, failed] as any);
+  assert.equal(retained.length, 32);
+  assert.ok(retained.some(item => item.observationId === "selected"));
+  assert.equal(retained.find(item => item.observationId === "selected")?.status, "failed");
 });
