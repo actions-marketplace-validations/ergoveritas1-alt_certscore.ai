@@ -5,13 +5,37 @@ import type { Page } from "playwright";
 import { collectionSurfaceSnapshotSchema, type CollectionSurfaceInventory, type CollectionSurfaceSnapshot } from "@certscore/contracts";
 
 export type FormSnapshotReviewer = (input: { bytes: Buffer; mimeType: "image/jpeg"; signal?: AbortSignal }) => Promise<{ safeForDisplay: boolean }>;
-export const FORM_SNAPSHOT_BUDGET_MS = 5000;
+export const FORM_SNAPSHOT_BUDGET_MS = 2500;
 const hash = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 
 /** Same-session, masked, low-resolution crops. No form action, values, or pixel-derived findings. */
 export async function captureCollectionSurfaceSnapshots(page: Page, inventory: CollectionSurfaceInventory, review: FormSnapshotReviewer, signal?: AbortSignal): Promise<CollectionSurfaceSnapshot[]> {
-  const sourceInventoryHash = hash(JSON.stringify(inventory));
+  const controller = new AbortController();
+  const boundedSignal = AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = Date.now() + FORM_SNAPSHOT_BUDGET_MS;
+  try {
+    return await Promise.race([
+      captureWithinBudget(page, inventory, review, deadline, boundedSignal),
+      new Promise<CollectionSurfaceSnapshot[]>(resolve => {
+        timer = setTimeout(() => {
+          controller.abort();
+          const sourceInventoryHash = hash(JSON.stringify(inventory));
+          resolve(inventory.forms.map(form => collectionSurfaceSnapshotSchema.parse({
+            contractVersion: "certscore.collection-surface-snapshot.v1",
+            formRef: form.formRef, pageUrl: inventory.pageUrl,
+            capturedAt: new Date().toISOString(), sourceInventoryHash,
+            mimeType: "image/jpeg", valuesMasked: true, status: "unavailable",
+            reason: signal?.aborted ? "capture_cancelled" : "capture_budget_exhausted",
+          })));
+        }, Math.max(1, deadline - Date.now()));
+      }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+async function captureWithinBudget(page: Page, inventory: CollectionSurfaceInventory, review: FormSnapshotReviewer, deadline: number, signal: AbortSignal): Promise<CollectionSurfaceSnapshot[]> {
+  const sourceInventoryHash = hash(JSON.stringify(inventory));
   const results: Array<CollectionSurfaceSnapshot | Promise<CollectionSurfaceSnapshot>> = [];
   for (const form of inventory.forms) {
     const base = { contractVersion: "certscore.collection-surface-snapshot.v1" as const, formRef: form.formRef, pageUrl: inventory.pageUrl, capturedAt: new Date().toISOString(), sourceInventoryHash, mimeType: "image/jpeg" as const, valuesMasked: true as const };
@@ -50,6 +74,9 @@ export async function captureCollectionSurfaceSnapshots(page: Page, inventory: C
         while (cropRoot && controls.some(el => !cropRoot!.contains(el))) cropRoot = cropRoot.parentElement;
         return cropRoot;
       }, { fields: form.fields, structure: form.structure, url: inventory.pageUrl });
+      if (signal.aborted || Date.now() >= deadline) {
+        results.push(unavailable("capture_budget_exhausted")); continue;
+      }
       const element = target.asElement();
       if (!element) { results.push(unavailable("control_binding_changed")); continue; }
       const remaining = Math.max(1, deadline - Date.now());

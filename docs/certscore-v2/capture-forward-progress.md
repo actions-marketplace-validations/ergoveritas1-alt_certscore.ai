@@ -198,3 +198,14 @@ but timed out in mandatory safety review. Within the approved $20/month ceiling,
 the shared total is adjusted to five seconds (estimated $17–$19/month incremental
 at 100,000 affected scans); the two-second pixel cap remains unchanged. This
 provides review time without a retry or additional model invocation.
+
+## Canonical owner decision: 2.5-second maximum, otherwise skip
+
+The owner superseded the four/five-second allocations: the entire optional form
+snapshot operation has a shared 2.5-second maximum. Capture, binding, masking and
+mandatory safety review must finish within that window; otherwise skip the
+snapshot with an explicit unavailable reason. A top-level deadline also bounds
+stalled browser binding/cleanup, aborts pending work and prevents late publication.
+No retry or budget extension is permitted. Keep direct off-screen capture,
+duplicate-read removal, strict evidence binding and masking. This lowers the
+budget and introduces no recurring-cost increase.

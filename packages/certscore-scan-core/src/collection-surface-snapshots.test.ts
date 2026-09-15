@@ -52,7 +52,7 @@ test("animated forms capture within the existing budget and stalled review termi
     assert.equal((await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true })))[0]?.status, "available");
     const started = Date.now();
     const stalled = await captureCollectionSurfaceSnapshots(page, inventory, () => new Promise(() => {}));
-    assert.equal(stalled[0]?.reason, "review_timed_out");
+    assert.ok(["review_timed_out", "capture_budget_exhausted"].includes(stalled[0]?.reason ?? ""));
     assert.equal(stalled[0]?.data, undefined);
     assert.ok(Date.now() - started < FORM_SNAPSHOT_BUDGET_MS + 1500, "review must not hang beyond the shared budget plus scheduling tolerance");
     await page.locator('form').evaluate(el => (el as HTMLElement).style.display = 'none');
@@ -183,4 +183,14 @@ test("changes to controls outside retained pixels do not invalidate a form crop"
     assert.equal(changed[0]?.data, undefined);
     assert.equal(reviewed, false);
   } finally { await browser.close(); }
+});
+
+test("the total budget also bounds a stalled control-binding operation", async () => {
+  const inventory = buildCollectionSurfaceInventory({ pageUrl: "https://example.test/", inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: "native_form_0", structure: "native_form", elementType: "input", inputType: "text", label: "Search", required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
+  const page = { url: () => inventory.pageUrl, evaluateHandle: () => new Promise(() => {}) } as unknown as import("playwright").Page;
+  const start = Date.now();
+  const result = await captureCollectionSurfaceSnapshots(page, inventory, async () => { throw new Error("must not review"); });
+  assert.equal(result[0]?.reason, "capture_budget_exhausted");
+  assert.equal(result[0]?.data, undefined);
+  assert.ok(Date.now() - start < FORM_SNAPSHOT_BUDGET_MS + 500);
 });
