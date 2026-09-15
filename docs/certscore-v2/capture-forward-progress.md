@@ -192,3 +192,9 @@ The shared form capture, masking and safety-review deadline is now four seconds.
 The CDP pixel operation remains capped at two seconds. This supersedes the earlier
 2.5-second shared limit only; no retries, lanes, extra model calls, image limits
 or evidence-safety requirements change. Production success must still be checked.
+
+Production verification of the four-second allocation completed masked capture
+but timed out in mandatory safety review. Within the approved $20/month ceiling,
+the shared total is adjusted to five seconds (estimated $17–$19/month incremental
+at 100,000 affected scans); the two-second pixel cap remains unchanged. This
+provides review time without a retry or additional model invocation.

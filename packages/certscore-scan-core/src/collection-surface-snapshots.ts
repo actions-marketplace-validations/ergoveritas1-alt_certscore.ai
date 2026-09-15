@@ -5,7 +5,7 @@ import type { Page } from "playwright";
 import { collectionSurfaceSnapshotSchema, type CollectionSurfaceInventory, type CollectionSurfaceSnapshot } from "@certscore/contracts";
 
 export type FormSnapshotReviewer = (input: { bytes: Buffer; mimeType: "image/jpeg"; signal?: AbortSignal }) => Promise<{ safeForDisplay: boolean }>;
-export const FORM_SNAPSHOT_BUDGET_MS = 4000;
+export const FORM_SNAPSHOT_BUDGET_MS = 5000;
 const hash = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 
 /** Same-session, masked, low-resolution crops. No form action, values, or pixel-derived findings. */
