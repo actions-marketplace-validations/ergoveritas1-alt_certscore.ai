@@ -264,7 +264,7 @@ test("active timeline report surfaces canonical Accept and Reject projections in
   const report = readFileSync("apps/web/components/scans/report-lab/shadow-scan-report.tsx", "utf8");
 
   assert.match(model, /buildExecutiveRejectPathProjection\([\s\S]*item\.id === "post_reject_tracking_reduction"[\s\S]*\)/);
-  assert.match(model, /buildAcceptPathProjection\(runtimeArtifacts, canonical\.ownerUnifiedFindings\)/);
+  assert.match(model, /buildAcceptPathProjection\(\{ \.\.\.runtimeArtifacts, consentControlAssessment: retainedConsentAssessment\(scanRecord\) \}, canonical\.ownerUnifiedFindings\)/);
   assert.match(model, /"acceptance_signal_contradicts_action"/);
   assert.match(model, /"post_accept_consent_dependent_activity"/);
   assert.match(model, /"accept_reject_outcomes_indistinguishable"/);

@@ -1,3 +1,4 @@
+import { isAfterActionReportEligible } from "./after-action-report-eligibility";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -45,4 +46,20 @@ test("completed no-Reject inventory suppresses an irrelevant post-Reject limitat
     getReportableGdprEprivacyCoverageItems([row], { consentControlAssessment: assessment }),
     [],
   );
+  for (const state of ["observed", "not_observed", "unknown"]) {
+    const candidate = { ...assessment, assessmentStatus: "limited", controls: {
+      ...assessment.controls, reject: { ...assessment.controls.reject, state },
+    } };
+    assert.equal(isAfterActionReportEligible(candidate, "accept"), true);
+    assert.equal(isAfterActionReportEligible(candidate, "reject"), state === "observed");
+    assert.equal(getReportableGdprEprivacyCoverageItems([row], { consentControlAssessment: candidate }).length, state === "observed" ? 1 : 0);
+    const reversed = { ...candidate, controls: { ...candidate.controls, accept: { ...candidate.controls.accept, state } } };
+    assert.equal(isAfterActionReportEligible(reversed, "accept"), state === "observed");
+  }
+  assert.equal(isAfterActionReportEligible(undefined, "accept"), false);
+  assert.equal(isAfterActionReportEligible({ controls: { reject: { state: "observed" } } }, "reject"), false);
+  assert.equal(getReportableGdprEprivacyCoverageItems([row]).length, 0);
+  const retained = { ...row, criticalEvidence: { ...row.criticalEvidence, retainedEvidence: { reportControlObserved: true } } };
+  assert.equal(getReportableGdprEprivacyCoverageItems([retained]).length, 1);
+
 });

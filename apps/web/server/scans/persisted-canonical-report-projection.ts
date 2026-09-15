@@ -1,3 +1,5 @@
+import { isAfterActionReportEligible, retainedConsentAssessment } from "../../lib/scans/after-action-report-eligibility";
+import { getReportableGdprEprivacyCoverageItems } from "../../lib/scans/gdpr-eprivacy-reportable-rows";
 import type { ScanReportUnifiedFindingState } from "../../lib/scans/scan-report-unified-findings";
 import type { UnifiedFindingDisplayPacket } from "../../lib/scans/unified-findings";
 import type { GdprEprivacyCoverageChecklistItem } from "../../lib/scans/gdpr-eprivacy-coverage-checklist";
@@ -55,9 +57,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function reportChecklistPresentation(value: unknown) {
+function reportChecklistPresentation(value: unknown, assessment: unknown) {
   return isGdprEprivacyChecklistPresentation(value)
-    ? filterGdprEprivacyChecklistPresentationForReport(value)
+    ? filterGdprEprivacyChecklistPresentationForReport(value, isAfterActionReportEligible(assessment, "reject"))
     : undefined;
 }
 
@@ -140,13 +142,15 @@ export function getPersistedCanonicalReportProjection(
       .flatMap((id) => globalById.get(id) ?? []);
     return {
       ...candidate,
-      checklistPresentation: reportChecklistPresentation(candidate.checklistPresentation),
+      checklistRows: getReportableGdprEprivacyCoverageItems(candidate.checklistRows as GdprEprivacyCoverageChecklistItem[], { consentControlAssessment: retainedConsentAssessment(scanRecord) }),
+      checklistPresentation: reportChecklistPresentation(candidate.checklistPresentation, retainedConsentAssessment(scanRecord)),
       ownerUnifiedFindings,
     } as PersistedCanonicalReportProjection;
   }
 
   return {
     ...candidate,
-    checklistPresentation: reportChecklistPresentation(candidate.checklistPresentation),
+    checklistRows: getReportableGdprEprivacyCoverageItems(candidate.checklistRows as GdprEprivacyCoverageChecklistItem[], { consentControlAssessment: retainedConsentAssessment(scanRecord) }),
+    checklistPresentation: reportChecklistPresentation(candidate.checklistPresentation, retainedConsentAssessment(scanRecord)),
   } as PersistedCanonicalReportProjection;
 }

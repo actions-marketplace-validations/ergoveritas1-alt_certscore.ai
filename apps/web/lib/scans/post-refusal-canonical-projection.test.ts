@@ -485,6 +485,8 @@ test("completed after-click capture survives canonical projection without invent
     network: { requests: [request], postRefusalNonEssentialRequests: [], activeRequestIdsAtRefusalRegistration: [] },
   }));
   assert.equal(result.reportProjection.afterActionCapture?.activationStatus, "completed");
+  assert.equal(result.reportProjection.execution?.status, "succeeded");
+  assert.deepEqual(result.postRejectRow.criticalEvidence.retainedEvidence.execution, result.reportProjection.execution);
   assert.equal(result.reportProjection.afterActionRequests?.[0]?.requestId, request.requestId);
   assert.equal(result.reportProjection.registrationStatus, "unconfirmed");
   assert.deepEqual(result.postRejectRow.criticalEvidence.retainedEvidence.afterActionCapture, result.reportProjection.afterActionCapture);
@@ -534,6 +536,24 @@ function unverifiedRejectClickPacket() {
   });
 }
 
+test("late refusal confirmation preserves the original Reject-click tracking finding and score", () => {
+  const original = unverifiedRejectClickPacket();
+  const baseline = projectCanonical(original);
+  const result = projectCanonical(packet({ ...original, terminalDecisionEvidence: {
+    policyVersion: "bounded_terminal_consent_decision.v1", action: "reject", authorizedTargetSha256: "e".repeat(64),
+    readStartedAtMs: 8250, readCompletedAtMs: 8400,
+    evidence: { policyVersion: "semantic_consent_registration.v2", decision: "denied", basis: "verified_state",
+      observedAtMs: 8300, observedStateSha256: "f".repeat(64), timestampBasis: "verified_state_observed" },
+  } }));
+  assert.equal(result.reportProjection.execution?.status, "succeeded_with_confirmation");
+  assert.equal(result.reportProjection.registrationStatus, "unconfirmed");
+  assert.equal(result.reportProjection.productionProjectable, false);
+  assert.equal(result.normalizedConcerns[0]?.suggestedUnifiedFindingId, "post_reject_click_tracking");
+  assert.equal(deriveRegulatoryCoverageScore({ framework: "gdpr_eprivacy", rows: [result.postRejectRow] }).score,
+    deriveRegulatoryCoverageScore({ framework: "gdpr_eprivacy", rows: [baseline.postRejectRow] }).score);
+  assert.equal(result.reportProjection.postRefusalActivity.length, 0);
+});
+
 test("verified generic Reject click plus tracking produces one scored review without claiming registered refusal", () => {
   const result = projectCanonical(unverifiedRejectClickPacket());
   assert.equal(result.reportProjection.registrationStatus, "unconfirmed");
@@ -558,7 +578,7 @@ test("verified generic Reject click plus tracking produces one scored review wit
     reviewFindingCandidates: [], validationFindings: [], validationFindingLookup: new Map() });
   const display = displays.find((row) => row.unifiedFindingId === "post_reject_click_tracking");
   assert.equal(display?.presentationDecision.status, "surface", JSON.stringify(display?.presentationDecision));
-  assert.match(JSON.stringify(display), /decision unverified/);
+  assert.match(JSON.stringify(display), /Tracking after Reject click/);
 
   const existing = { assessmentStatus: "gap_observed", evidenceState: "observed", id: "transport_security_http_redirect",
     criticalEvidence: { retainedEvidence: { httpProbeOutcome: "plaintext_response_served", httpProbeStatus: 200 } }, status: "Gap observed" };

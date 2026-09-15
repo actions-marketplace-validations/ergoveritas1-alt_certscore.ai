@@ -2,6 +2,17 @@ import { gpcBoundedObservationOpenApi } from "./gpc-bounded-observation-openapi.
 import { apiV2Disclaimer, CERTSCORE_API_V2_SCHEMA_VERSION } from "./api-v2.js";
 import { runtimeEvidenceGraphOpenApiSchemas } from "./runtime-evidence-graph-openapi.js";
 
+const choicePathExecutionOpenApi = {
+  type: "object", additionalProperties: false,
+  description: "Succeeded means a verified completed click and completed bounded after-action observation. Succeeded with confirmation additionally has a verified consent decision. Operational success does not establish consent honoring or finding eligibility.",
+  required: ["policyVersion", "status", "clickCompleted", "observationCompleted", "consentConfirmed"],
+  properties: {
+    policyVersion: { type: "string", enum: ["choice_path_execution.v1"] },
+    status: { type: "string", enum: ["succeeded", "succeeded_with_confirmation", "limited", "not_attempted", "unsupported"] },
+    clickCompleted: { type: "boolean" }, observationCompleted: { type: "boolean" }, consentConfirmed: { type: "boolean" },
+  },
+} as const;
+
 const afterActionSummaryOpenApi = {
   type: "object", additionalProperties: false,
   description: "Retained after-click facts, independently of consent registration. Request counts do not classify all traffic as tracking. No new finding or score effect is inferred.",
@@ -774,6 +785,7 @@ export function buildCertScoreApiV2OpenApiDocument() {
             "limitations"
           ],
           properties: {
+            execution: choicePathExecutionOpenApi,
             afterAction: afterActionSummaryOpenApi,
             status: { type: "string", description: "confirmed_observation and confirmed_clean are results. Every other value is limited coverage and must not be interpreted as a pass.", enum: ["confirmed_observation", "confirmed_clean", "unconfirmed", "not_attempted", "unsupported", "aborted"] },
             refusalExercised: { type: "boolean" },
@@ -828,6 +840,7 @@ export function buildCertScoreApiV2OpenApiDocument() {
             "limitations"
           ],
           properties: {
+            execution: choicePathExecutionOpenApi,
             afterAction: afterActionSummaryOpenApi,
             status: { type: "string", description: "confirmed_observation and confirmed_clean are results. Every other value is limited coverage and must not be interpreted as a pass.", enum: ["confirmed_observation", "confirmed_clean", "unconfirmed", "not_attempted", "unsupported", "aborted"] },
             acceptanceExercised: { type: "boolean" },

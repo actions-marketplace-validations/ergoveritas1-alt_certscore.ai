@@ -135,6 +135,28 @@ test("legacy confirmed Reject evidence without verified control proof projects a
   assert.equal(projection.productionProjectable, false);
 });
 
+test("Reject materialization retains explicit completed protocol evidence independently from confirmation", () => {
+  const base = confirmedPacket();
+  const packet = postRefusalEvidencePacketSchema.parse({ ...base,
+    decisionEvidence: { policyVersion: "semantic_consent_registration.v2", decision: "denied", basis: "verified_state",
+      observedAtMs: 15, observedStateSha256: "a".repeat(64), timestampBasis: "verified_state_observed" },
+    captureCoverage: { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 0 },
+    timing: { ...base.timing, observationMs: 250, readyAtMs: 265, totalMs: 265, observationExitReason: "window_elapsed" },
+  });
+  const projection = projectPostRefusalEvidenceForReport({ packet, packetSha256: "a".repeat(64) });
+  assert.equal(projection.execution?.status, "succeeded_with_confirmation");
+  assert.deepEqual(projection.registeredObservationCompletion, {
+    policyVersion: "registered_action_observation_completion.v1", action: "reject", startedAtMs: 15,
+    completedAtMs: 265, requiredWindowMs: 250, termination: "window_elapsed",
+  });
+  assert.deepEqual(postRefusalReportProjectionSchema.parse(JSON.parse(JSON.stringify(projection))), projection);
+  const incomplete = projectPostRefusalEvidenceForReport({ packet: { ...packet, timing: {
+    ...packet.timing, observationExitReason: undefined,
+  } }, packetSha256: "a".repeat(64) });
+  assert.equal(incomplete.execution?.status, "limited");
+  assert.equal(incomplete.execution?.consentConfirmed, true);
+});
+
 test("post-refusal evidence stays score-ineligible when refusal is unconfirmed", () => {
   const result = postRefusalEvidencePacketSchema.safeParse({
     ...basePacket(),

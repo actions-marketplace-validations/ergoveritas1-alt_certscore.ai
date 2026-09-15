@@ -1,3 +1,4 @@
+import { readChoicePathExecution } from "./choice-path-execution";
 import type {
   PostRefusalLaneOutcome,
   PostRefusalReportProjection,
@@ -102,6 +103,7 @@ export function buildPostRefusalRuntimeProjection(
   const activeFailureObserved = activityRows.length > 0 || projection.contradictionObserved;
   const persistenceOnly = persistedStorage.length > 0 && !activeFailureObserved;
   const reductionEvidence = {
+    execution: readChoicePathExecution(projection, "reject"),
     concretePostRejectNonEssentialDetailsRetained: activityRows.length > 0,
     postRejectNonEssentialActivityRetained: activityRows.length > 0,
     postRejectNonEssentialRequestCount: activityRows.length,

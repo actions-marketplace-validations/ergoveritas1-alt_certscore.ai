@@ -311,7 +311,7 @@ test("withheld visual evidence does not suppress verified structured options pro
     concern.evidenceBundle.rawEvidence?.consentOptionsControlProminenceState,
     "inline_link_action_cluster"
   );
-  assert.equal(concern.evidenceBundle.rawEvidence?.consentControlAssessmentContractVersion, "2.1");
+  assert.equal(concern.evidenceBundle.rawEvidence?.consentControlAssessmentContractVersion, "2.2");
 });
 
 test("normalizes a retained paid decline variant as an externally eligible review finding", () => {

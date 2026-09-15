@@ -1,6 +1,22 @@
 import { gpcBoundedObservationSchema } from "./gpc-bounded-observation.js";
 import { z } from "zod";
 
+/** Completed action path; consent confirmation is an independent enhancement. */
+export const apiV2ChoicePathExecutionSchema = z.object({
+  policyVersion: z.literal("choice_path_execution.v1"),
+  status: z.enum(["succeeded", "succeeded_with_confirmation", "limited", "not_attempted", "unsupported"]),
+  clickCompleted: z.boolean(),
+  observationCompleted: z.boolean(),
+  consentConfirmed: z.boolean(),
+}).strict().superRefine((execution, context) => {
+  const succeeded = execution.clickCompleted && execution.observationCompleted;
+  if (((execution.observationCompleted || execution.consentConfirmed) && !execution.clickCompleted) ||
+    succeeded !== ["succeeded", "succeeded_with_confirmation"].includes(execution.status) ||
+    (execution.status === "succeeded_with_confirmation") !== (succeeded && execution.consentConfirmed)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Execution success requires a completed click and observation; confirmation is separate." });
+  }
+});
+
 export const apiV2AfterActionSummarySchema = z.object({
   policyVersion: z.enum(["bounded_after_action_capture.v1", "bounded_after_action_capture.v2"]),
   action: z.enum(["accept", "reject"]),
@@ -13,6 +29,7 @@ export const apiV2AfterActionSummarySchema = z.object({
 }).strict();
 
 export const apiV2PostRefusalObservationSchema = z.object({
+  execution: apiV2ChoicePathExecutionSchema.optional(),
   afterAction: apiV2AfterActionSummarySchema.optional(),
   status: z.enum(["confirmed_observation", "confirmed_clean", "unconfirmed", "not_attempted", "unsupported", "aborted"]),
   refusalExercised: z.boolean(),
@@ -48,6 +65,7 @@ export const apiV2PostRefusalObservationSchema = z.object({
 }).strict();
 
 export const apiV2PostAcceptObservationSchema = z.object({
+  execution: apiV2ChoicePathExecutionSchema.optional(),
   afterAction: apiV2AfterActionSummarySchema.optional(),
   status: z.enum(["confirmed_observation", "confirmed_clean", "unconfirmed", "not_attempted", "unsupported", "aborted"]),
   acceptanceExercised: z.boolean(),

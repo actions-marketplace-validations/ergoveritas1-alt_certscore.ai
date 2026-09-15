@@ -1,3 +1,4 @@
+import { readChoicePathExecution } from "./choice-path-execution";
 import type {
   PostAcceptLaneOutcome,
   PostAcceptReportProjection,
@@ -58,6 +59,7 @@ export function buildPostAcceptRuntimeProjection(
       }))
     : [];
   const behaviorProjection = {
+    execution: readChoicePathExecution(projection, "accept"),
     acceptanceInteractionConfirmed: confirmed,
     acceptanceSignalContradictsAction: confirmed && projection.contradictionObserved,
     observationWindowMs: confirmed ? projection.observationWindowMs : null,

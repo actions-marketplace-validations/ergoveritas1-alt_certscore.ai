@@ -65,6 +65,7 @@ import {
   applyGoverningPolicySelection,
   countRecoveredPolicySurfaceObservations,
   mergePolicySurfaceObservations,
+  retainPolicyPacketObservations,
   policySurfaceObservationsFromRetainedRenderedLinks,
   policySurfaceScanner,
   recoverPolicyDocumentsFromRetainedRenderedLinks,
@@ -350,6 +351,13 @@ export function buildRetainedRenderedPolicyFallbackResult(input: {
   };
 }
 
+/** Capture stops inside the output budget so cleanup and typed handoff can finish. */
+export function policyCaptureDeadlineBeforeOutput(outputDeadlineAtMs: number | undefined, nowMs = Date.now()): number | undefined {
+  if (outputDeadlineAtMs === undefined) return undefined;
+  const remaining = Math.max(0, outputDeadlineAtMs - nowMs);
+  return outputDeadlineAtMs - Math.min(2_000, Math.floor(remaining * 0.2));
+}
+
 /**
  * Normalize the dedicated policy lane before exposing its non-blocking early
  * handoff. The terminal bundle applies the same canonical URL/type merge, so
@@ -359,12 +367,17 @@ export function buildRetainedRenderedPolicyFallbackResult(input: {
 export function normalizePolicySurfaceResultForEarlyHandoff(
   result: PolicySurfaceScannerResult,
 ): PolicySurfaceScannerResult {
+  const merged = mergePolicySurfaceObservations(result.policySurfaceObservations, []);
+  const retained = retainPolicyPacketObservations(merged);
+  const omitted = merged.length - retained.length;
   return {
     ...result,
-    policySurfaceObservations: mergePolicySurfaceObservations(
-      result.policySurfaceObservations,
-      [],
-    ),
+    moduleRun: omitted ? {
+      ...result.moduleRun,
+      status: result.moduleRun.status === "completed" ? "partial" : result.moduleRun.status,
+      errors: [...(result.moduleRun.errors ?? []), `policy_observation_retention_limit: omitted ${omitted} lower-priority observations from the 32-entry evidence packet.`],
+    } : result.moduleRun,
+    policySurfaceObservations: retained,
   };
 }
 
@@ -587,7 +600,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       region: input.region,
       scanStartedAtMs: startedAtMs,
       internalBudgetMs: scanProfile.internalBudgetMs,
-      absoluteDeadlineAtMs: input.policySurfaceDeadlineAtMs,
+      absoluteDeadlineAtMs: policyCaptureDeadlineBeforeOutput(input.policySurfaceDeadlineAtMs),
       artifactWriter,
       browser: sharedBrowser,
       nanoAssistProvider: nanoPolicyAssistProvider,

@@ -5,7 +5,7 @@ import {
 } from "./supported-languages";
 import type { ConsentControlLinkDestination } from "./consent-control-link";
 
-export const CONSENT_CONTROL_LABEL_REGISTRY_VERSION = "consent-control-label-registry.v3";
+export const CONSENT_CONTROL_LABEL_REGISTRY_VERSION = "consent-control-label-registry.v5";
 
 export type ConsentControlIntent =
   | "accept"
@@ -42,6 +42,7 @@ export type ConsentControlTerm = {
   strength: ConsentControlMatchStrength;
   variant?: string;
   observationOnly?: boolean;
+  exactLabelOnly?: boolean;
   requiredObservationRecipe?: string;
   requiresConsentContext?: boolean;
   requiresPreferenceContext?: boolean;
@@ -127,13 +128,22 @@ const nl = (terms: TermInput[]) => terms.map((term): ConsentControlTerm => ({ lo
 const pl = (terms: TermInput[]) => terms.map((term): ConsentControlTerm => ({ locale: "pl", ...term }));
 
 export const CONSENT_CONTROL_PHRASE_REGISTRY: ConsentControlTerm[] = [
+  // Full, reviewed observation phrases. Do not broaden action recipes.
+  { locale: "en", phrase: "accept only essential", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, observationOnly: true },
+  { locale: "de", phrase: "nur essentielle cookies akzeptieren", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, observationOnly: true },
+  { locale: "de", phrase: "nein danke", intent: "reject", strength: "contextual", requiresConsentContext: true, observationOnly: true },
+  { locale: "nl", phrase: "alles afwijzen", intent: "reject", strength: "direct", requiresConsentContext: true, observationOnly: true },
+  { locale: "ru", phrase: "отказаться", intent: "reject", strength: "direct", requiresConsentContext: true, observationOnly: true },
+  { locale: "ru", phrase: "согласиться", intent: "accept", strength: "direct", requiresConsentContext: true, observationOnly: true },
+
   { locale: "ru", phrase: "настроить", intent: "options", strength: "contextual", requiresConsentContext: true, observationOnly: true },
   { locale: "pt", phrase: "aceitar cookies", intent: "accept", strength: "direct", requiresConsentContext: true, observationOnly: true },
   { locale: "pt", phrase: "rejeitar cookies", intent: "reject", strength: "direct", requiresConsentContext: true },
   { locale: "pt", phrase: "gerenciar cookies", intent: "options", strength: "direct", requiresConsentContext: true, observationOnly: true },
   ...en([
     { phrase: "show details", intent: "options", strength: "direct", requiresConsentContext: true, observationOnly: true, requiredObservationRecipe: "Cookiebot.options.v1" },
-    ...["accept additional cookies", "agree to all", "allow"].map((phrase): TermInput => ({ phrase, intent: "accept", strength: "direct", requiresConsentContext: true, observationOnly: true })),
+    ...["agree to all", "allow"].map((phrase): TermInput => ({ phrase, intent: "accept", strength: "direct", requiresConsentContext: true, observationOnly: true })),
+    { phrase: "accept additional cookies", intent: "accept", strength: "direct", requiresConsentContext: true, exactLabelOnly: true },
     ...["reject non-necessary cookies", "reject unnecessary cookies"].map((phrase): TermInput => ({ phrase, intent: "reject", strength: "direct", requiresConsentContext: true, observationOnly: true })),
     ...direct("accept", "accept"),
     ...direct("accept", "accept all"),
@@ -182,6 +192,9 @@ export const CONSENT_CONTROL_PHRASE_REGISTRY: ConsentControlTerm[] = [
     ...direct("reject", "reject all"),
     ...direct("reject", "reject cookies"),
     ...direct("reject", "reject all cookies"),
+    // Canonical Ketch first-layer wording: "non-essential" qualifies the
+    // rejected categories; it is not a negation of the Reject action.
+    { phrase: "reject all non-essential", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true },
     ...direct("reject", "decline"),
     ...direct("reject", "decline all"),
     ...direct("reject", "refuse"),
@@ -398,7 +411,7 @@ export const CONSENT_CONTROL_PHRASE_REGISTRY: ConsentControlTerm[] = [
     equivalent("reject", "nur essenzielle cookies", "necessary_only"),
     equivalent("reject", "nur essentielle cookies", "necessary_only"),
     { phrase: "nur notwendige", intent: "reject", strength: "equivalent", requiresConsentContext: true, variant: "necessary_only" },
-    contextual("reject", "nur erforderliche", { requiresConsentContext: true, variant: "necessary_only" }),
+    { phrase: "nur erforderliche", intent: "reject", strength: "equivalent", requiresConsentContext: true, variant: "necessary_only", exactLabelOnly: true },
     contextual("reject", "nur essenzielle", { requiresConsentContext: true, variant: "necessary_only" }),
     contextual("reject", "nur essentielle", { requiresConsentContext: true, variant: "necessary_only" }),
     equivalent("reject", "nur technisch notwendige cookies", "necessary_only"),
@@ -1039,6 +1052,12 @@ function classifyConsentControlLabelInternal(
     const intents = new Set(classifications.map((classification) => classification.intent)
       .filter((intent) => intent !== "unknown"));
     if (intents.size > 1) return unknown(["visible_accessible_intent_conflict"]);
+    // Preserve a complete visible observation label instead of concatenating an
+    // unrelated accessibility description into an unmatchable phrase. Genuine
+    // semantic vetoes and opposite decisions above remain authoritative.
+    if (input.usage !== "action" && classifications[0]?.intent !== "unknown") {
+      return classifications[0]!;
+    }
   }
   const labelText = fields.join(" ");
   const normalizedLabel = normalizeConsentControlText(labelText);
@@ -1110,10 +1129,15 @@ function classifyConsentControlLabelInternal(
   const localeHints = new Set(input.localeHints ?? []);
   const semanticLocales = PRIVACY_EVIDENCE_LOCALE_REGISTRY.filter((entry) =>
     activeLocales.has(entry.locale) && (localeHints.size === 0 || localeHints.has(entry.locale)));
-  if (/[?？؟]/u.test(labelText) || semanticLocales.some((entry) =>
+  if (/^(?:learn (?:how|why|about)|how to|why (?:we|you))\b/i.test(labelText) ||
+    /[?？؟]/u.test(labelText) || semanticLocales.some((entry) =>
     entry.consentLabelGuards?.informationalPrefixes.some((prefix) =>
       semanticPrefix(normalizedLabel, normalizeConsentControlText(prefix), entry.locale)))) {
     return unknown(["informational_consent_reference"]);
+  }
+  // An instruction negating a necessary-only choice is not a refusal choice.
+  if (/^do not accept (?:only (?:essential|necessary)|(?:essential|necessary) only)(?: cookies)?$/i.test(normalizedLabel)) {
+    return unknown(["negated_consent_choice"]);
   }
   const terms = CONSENT_CONTROL_PHRASE_REGISTRY.filter((term) =>
     activeLocales.has(term.locale) &&
@@ -1331,7 +1355,7 @@ function termScore(
     return 0;
   }
   const exact = normalizedLabel === phrase;
-  if (!exact && (term.observationOnly === true || CONTEXTUAL_EXACT_LABEL_ONLY_PHRASES.has(phrase))) {
+  if (!exact && (term.observationOnly === true || term.exactLabelOnly === true || CONTEXTUAL_EXACT_LABEL_ONLY_PHRASES.has(phrase))) {
     return 0;
   }
   const phraseMatch = !exact && phrase.length >= 8 && paddedIncludes(normalizedLabel, phrase);

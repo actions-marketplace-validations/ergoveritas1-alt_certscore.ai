@@ -28,6 +28,21 @@ async function fixture() {
 }
 const listener = {callbacks:0,dropped:0,registered:false};
 
+test("deadline or cancellation before semantic readback preserves a limited terminal packet", async () => {
+  for (const aborted of [false, true]) {
+    const f = await fixture(); f.s.prepareFinalization(); await f.resolve();
+    const packet = await f.s.finish(undefined, undefined, aborted);
+    assert.equal(packet.terminal, aborted ? "aborted" : "incomplete");
+    assert.equal(packet.semanticObservation, null);
+    assert.equal(packet.mainDocument, null);
+    assert.ok(packet.limitationKeys.includes("terminal_document_unverified"));
+    assert.ok(packet.limitationKeys.includes("semantic_monitor_unavailable"));
+    assert.equal(packet.requests.length, 1);
+    assert.equal(f.treeCalls(), 2);
+    await f.s.close();
+  }
+});
+
 test("same-URL history while readback is pending adds no read and cannot override cancellation", async () => {
   for (const aborted of [false, true]) {
     const f = await fixture(); f.s.prepareFinalization();

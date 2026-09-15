@@ -1,3 +1,4 @@
+import { observedControlAssessment } from "../scans/test-fixtures/observed-control-assessment";
 import { createHash } from "node:crypto";
 import { gpcProductionRuntimeFixture } from "../../../../packages/certscore-contracts/src/test-fixtures/gpc-production";
 import { buildGpcProductionAssessment } from "../../../../packages/certscore-scan-core/src/gpc-production-observation";
@@ -407,6 +408,7 @@ test("API v2 and status expose joined canonical post-refusal observation metadat
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postRefusalEvidenceProjection: {
         status: "confirmed_observation",
         actionControlProof: { action: "reject" },
@@ -455,6 +457,7 @@ test("API v2 keeps unchanged post-refusal storage persistence review-only", () =
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postRefusalEvidenceProjection: {
         status: "confirmed_observation",
         actionControlProof: { action: "reject" },
@@ -498,6 +501,7 @@ test("API v2 and status expose joined canonical post-Accept observation metadata
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postAcceptEvidenceProjection: {
         status: "confirmed_observation",
         actionControlProof: { action: "accept" },
@@ -545,6 +549,7 @@ test("API v2 returns indeterminate when confirmed Accept evidence lacks verified
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postAcceptEvidenceProjection: {
         status: "confirmed_observation",
         acceptanceExercised: true,
@@ -579,6 +584,7 @@ test("API v2 fails closed when a joined Accept observation window was truncated"
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postAcceptEvidenceProjection: {
         status: "confirmed_observation",
         acceptanceExercised: true,
@@ -630,6 +636,7 @@ test("API v2 and status expose a bounded Reject Path timeout as a neutral limita
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postRefusalObservationCoverage: {
         completedAt: "2026-08-26T12:00:16.000Z",
         evidenceJoined: false,

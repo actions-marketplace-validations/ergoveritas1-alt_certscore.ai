@@ -1,6 +1,9 @@
+import { isAfterActionReportEligible, retainedConsentAssessment } from "../../../lib/scans/after-action-report-eligibility";
+import { readChoicePathExecution } from "../../../lib/scans/choice-path-execution";
+import { consentInspectionNotice } from "../../../lib/scans/consent-inspection-presentation";
 import { afterClickCoverage } from "../after-action-summary";
 import { projectScanReportNoGo } from "../../../lib/scans/scan-report-disposition";
-import { siteMetadataProjectionSchema } from "@certscore/contracts";
+import { consentControlAssessmentSchema, siteMetadataProjectionSchema } from "@certscore/contracts";
 import { KNOWN_CMP_REGISTRY } from "@website-signal-risk-scanner/shared";
 import { acceptPathIncompleteReason } from "./accept-path-reason";
 import type { GdprEprivacyCoverageChecklistItem } from "../../../lib/scans/gdpr-eprivacy-coverage-checklist";
@@ -96,6 +99,20 @@ function recordString(source: Record<string, unknown> | null, keys: string[]) {
   return null;
 }
 
+export function getPolicySurfaceLinkObserved(
+  runtimeArtifacts: Record<string, unknown> | null | undefined,
+): boolean {
+  const hybrid = getHybridRuntimeEvidence(runtimeArtifacts);
+  const inspection = record(
+    runtimeArtifacts?.policySurfaceInspection ?? runtimeArtifacts?.policy_surface_inspection ??
+    hybrid?.policySurfaceInspection ?? hybrid?.policy_surface_inspection,
+  );
+  // Present the persisted canonical inspection outcome; do not infer discovery
+  // from an arbitrary URL, page label, or incomplete document.
+  return inspection?.outcome === "privacy_policy_observed" &&
+    (inspection.privacyPolicyObserved ?? inspection.privacy_policy_observed) === true;
+}
+
 export function getPolicySurfaceCoverageStatus(
   runtimeArtifacts: Record<string, unknown> | null | undefined,
 ): ShadowReportData["policySurfaceCoverage"] {
@@ -145,7 +162,7 @@ export function getConsentControlSummaryLabel(
     return [
       observed > 0 ? `${observed} observed` : null,
       notObserved > 0 ? `${notObserved} not observed` : null,
-      `${unknown} unknown`,
+      "Inspection limited",
     ].filter(Boolean).join(" · ");
   }
   return `${observed} of ${values.length} observed`;
@@ -450,14 +467,9 @@ function scoreLabel(score: number) {
   return "Strong";
 }
 
-function projectedControlLabel(
-  rows: ShadowEvidenceRow[],
-  rowId: "accept_consent_control" | "options_settings_preferences_control" | "reject_all_path_availability",
-) {
-  const status = rows.find((row) => row.id === rowId)?.status;
-  if (status === "Observed") return "Observed";
-  if (status === "Not observed" || status === "Potential gap") return "Not observed";
-  return "Unknown";
+function projectedConsentControlLabels(controls?: Record<"accept" | "reject" | "options", { state: "observed" | "not_observed" | "unknown" }>) {
+  const label = (key: "accept" | "reject" | "options") => controls?.[key].state === "observed" ? "Observed" : controls?.[key].state === "not_observed" ? "Not observed" : "Unknown";
+  return { accept: label("accept"), reject: label("reject"), options: label("options") };
 }
 
 function siteRelationshipLabel(value: "same_site" | "cross_site" | "mixed" | "unknown") {
@@ -521,17 +533,20 @@ export function buildAcceptPathProjection(
   runtimeArtifacts: Record<string, unknown> | null,
   ownerUnifiedFindings: NonNullable<ReturnType<typeof getPersistedCanonicalReportProjection>>["ownerUnifiedFindings"],
 ): ShadowReportData["acceptPath"] {
+  if (!isAfterActionReportEligible(retainedConsentAssessment(runtimeArtifacts), "accept")) return null;
   const projection = record(runtimeArtifacts?.postAcceptEvidenceProjection);
   // Coverage-only outcomes do not establish that an Accept interaction occurred.
   // Keep them in retained diagnostics, not the After Accept report projection.
   if (!projection) return null;
 
   const captureCoverage = afterClickCoverage(projection, "accept");
+  const execution = readChoicePathExecution(projection, "accept");
   const click = record(record(projection.interactionDiagnostics)?.click);
   if (!captureCoverage && click?.outcome !== "completed" && projection.acceptanceExercised !== true) return null;
-  const registrationConfirmed = projection.registrationStatus === "confirmed" &&
+  const confirmedEvidenceUsable = projection.registrationStatus === "confirmed" &&
     projection.acceptanceExercised === true &&
     projection.productionProjectable === true;
+  const registrationConfirmed = execution?.consentConfirmed ?? confirmedEvidenceUsable;
   const activityRows = Array.isArray(projection.postAcceptActivity)
     ? projection.postAcceptActivity.map(record).filter((row): row is Record<string, unknown> => Boolean(row))
     : [];
@@ -548,7 +563,7 @@ export function buildAcceptPathProjection(
     storageCount > 0 ? `${storageCount} storage write${storageCount === 1 ? "" : "s"}` : null,
   ].filter((value): value is string => Boolean(value)).join(" and ");
 
-  const state = !registrationConfirmed
+  const state = !confirmedEvidenceUsable
     ? "incomplete" as const
     : contradiction
       ? "review_signal" as const
@@ -577,6 +592,7 @@ export function buildAcceptPathProjection(
     }).slice(0, 3),
     label,
     note,
+    execution,
     afterClickCoverage: captureCoverage,
     registrationConfirmed,
     observationWindowMs: recordNumber(projection, ["observationWindowMs"]),
@@ -654,11 +670,8 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Timeli
   });
   const capturedAt = formatTimestamp(scanRecord.scan.completedAt ?? scanRecord.scan.createdAt);
   const evidenceRows = reportableChecklistRows.map((item) => mapChecklistRow(item, capturedAt));
-  const controls = {
-    accept: projectedControlLabel(evidenceRows, "accept_consent_control"),
-    options: projectedControlLabel(evidenceRows, "options_settings_preferences_control"),
-    reject: projectedControlLabel(evidenceRows, "reject_all_path_availability"),
-  };
+  const assessment = consentControlAssessmentSchema.safeParse(scanRecord.snapshot?.consent_control_assessment ?? scanRecord.runtimeArtifacts?.consentControlAssessment ?? scanRecord.runtimeArtifacts?.consent_control_assessment);
+  const controls = projectedConsentControlLabels(assessment.success ? assessment.data.controls : undefined);
   const executiveUnifiedFindings = projectExecutiveFindingsFromUnifiedPackets(
     canonical.ownerUnifiedFindings.filter(
       (finding) => finding.unifiedFindingId === "acceptance_signal_contradicts_action",
@@ -715,7 +728,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Timeli
   const consentVendor = retainedConsentVendor(scanRecord);
   const runtimeArtifacts = record(scanRecord.runtimeArtifacts);
   const policySurfaceCoverage = getPolicySurfaceCoverageStatus(runtimeArtifacts);
-  const acceptPath = buildAcceptPathProjection(runtimeArtifacts, canonical.ownerUnifiedFindings);
+  const acceptPath = buildAcceptPathProjection({ ...runtimeArtifacts, consentControlAssessment: retainedConsentAssessment(scanRecord) }, canonical.ownerUnifiedFindings);
   const acceptContradictionRow = mapAcceptContradictionFinding(
     surfacedFinding(canonical.ownerUnifiedFindings, "acceptance_signal_contradicts_action"),
   );
@@ -743,7 +756,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Timeli
       at: formatTimelineTime(event.atMs),
       atMs: event.atMs,
       detail: event.label === "Consent banner"
-        ? `Accept ${controls.accept.toLowerCase()} · Reject ${controls.reject.toLowerCase()} · Options ${controls.options.toLowerCase()}`
+        ? Object.entries(controls).filter(([, state]) => state !== "Unknown").map(([name, state]) => `${name}: ${state}`).join(" · ") || "Consent inspection incomplete"
         : `${event.label} first observed`,
       label: event.label,
       tone: event.label === "Consent banner" ? "positive" as const : event.tone === "rose" || event.tone === "amber" ? "concern" as const : "neutral" as const,
@@ -824,6 +837,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Timeli
     collectionSurfaces,
     consentVendor,
     policySurfaceCoverage,
+    policySurfaceLinkObserved: getPolicySurfaceLinkObserved(runtimeArtifacts),
     gpcResponse,
     gpcLaneStatus,
     acceptPath,
@@ -833,6 +847,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Timeli
       ...(acceptContradictionRow ? [acceptContradictionRow] : []),
     ],
     controls,
+    consentInspectionNotice: consentInspectionNotice(controls, assessment.success ? assessment.data : undefined),
     coverage: {
       concern: summaryCounts.gap_observed,
       contextual: summaryCounts.neutral_signal,

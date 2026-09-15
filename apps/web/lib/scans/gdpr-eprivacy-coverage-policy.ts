@@ -1,3 +1,4 @@
+import { readChoicePathExecution } from "./choice-path-execution";
 import { checklistRemediation } from "./checklist-remediation";
 import { getRuntimeVendorDisclosureEvidence } from "./runtime-vendor-disclosure";
 import { readRejectClickTrackingAssessment, REJECT_CLICK_TRACKING_SIGNAL } from "./reject-click-tracking-policy";
@@ -8,6 +9,7 @@ import {
   extractPolicyUpdateDateText,
   collectionSurfaceAssessmentSchema,
   consentControlAssessmentSchema,
+  hasVerifiedConsentControlAbsence,
   evaluateLegalFrameworkValidity,
   hasStaleLegalFrameworkReference,
   hasSubstantiveLegalBasisEvidence,
@@ -486,6 +488,9 @@ function makeIncompleteConsentSurfaceInspectionOutcome(
 ) {
   const assessment = getConsentControlAssessmentFromArtifacts(input.runtimeArtifacts);
   if (assessment) {
+    const control = rowId === "reject_all_path_availability" ? "reject"
+      : rowId === "options_settings_preferences_control" ? "options" : null;
+    if (control && hasVerifiedConsentControlAbsence(assessment, control)) return null;
     if (
       assessment.assessmentStatus === "complete" &&
       assessment.coverage.status === "complete" &&
@@ -6354,7 +6359,9 @@ function derivePostRejectOutcome(input: GdprEprivacyCoveragePolicyInput) {
     ? { afterActionCapture: actionProjection.data.afterActionCapture, sourcePacketSha256: actionProjection.data.packetSha256 }
     : {};
   const postRejectRetainedEvidence = {
+    reportControlObserved: firstLayerChoiceEvidence.assessment?.controls.reject.state === "observed",
     ...afterClickEvidence,
+    execution: readChoicePathExecution(input.runtimeArtifacts?.postRefusalEvidenceProjection, "reject"),
     baselineVendors: compactArray(baselineVendors, 5),
     concretePostRejectNonEssentialDetailsRetained: concretePostRejectNonEssentialRows.length > 0,
     persistedVendors: compactArray(persistedVendors, 5),

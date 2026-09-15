@@ -1,3 +1,5 @@
+import { terminalConsentDecisionRead } from "./terminal-consent-decision.js";
+import { prioritizeConsentActionRecipes, consentActionBindingDeadline, liveConsentActionCmp } from "./consent-action-recipe-priority.js";
 import type { ActionTcfData } from "./consent-action-tcf-state.js";
 import { captureOneTrustBaseline, type OneTrustBaseline } from "./onetrust-consent-state.js";
 import { decodeTcfV2PurposeConsents, readConsentActionTcfData } from "./consent-action-tcf-state.js";
@@ -43,6 +45,8 @@ import {
 } from "./post-refusal-target-authorization.js";
 import {
   postRefusalStorageIdentityHash,
+  classifyNavigationFailure,
+  inspectRecoverableCommittedDocument,
 } from "./post-refusal-observer.js";
 import { installPublicNetworkGuardRoute } from "./public-network-guard.js";
 import { installWebBotAuthRoute } from "./web-bot-auth-routing.js";
@@ -358,6 +362,7 @@ export async function runPostAcceptObserver(
   let selectedRecipe: PostAcceptActionRecipe | undefined;
   let actionControlProof: ConsentActionControlProof | undefined;
   let afterActionCapture: PostAcceptEvidencePacket["afterActionCapture"];
+  let terminalDecisionEvidence: PostAcceptEvidencePacket["terminalDecisionEvidence"];
   let decisionEvidence: PostAcceptEvidencePacket["decisionEvidence"] = {
     policyVersion: "semantic_consent_registration.v2", decision: "unknown", basis: "unverified",
   };
@@ -414,6 +419,7 @@ export async function runPostAcceptObserver(
       ...finishOptionalRuntimeGraph(graphCapture, "post_accept", confirmed ? undefined : "action_not_confirmed"),
       artifactVersion: "certscore.post_accept_evidence.v2",
       ...(afterActionCapture ? { afterActionCapture } : {}),
+      ...(terminalDecisionEvidence ? { terminalDecisionEvidence } : {}),
       decisionEvidence,
       captureCoverage,
       artifactOnly: true,
@@ -585,13 +591,27 @@ export async function runPostAcceptObserver(
           requests: classifyRequests(retainedRequests(), parentScanStartedAtMs),
         });
       }
-      limitations.push(`target_navigation_failed:${classifyBrowserError(error)}`);
-      return await finalize({
-        resolverFound: false,
-        resolverReason: "target_navigation_failed",
-        registration: unconfirmedRegistration("not_attempted", "target_navigation_failed"),
-        requests: classifyRequests(retainedRequests(), parentScanStartedAtMs),
-      });
+      const failureClass = classifyNavigationFailure(error);
+      // Match Reject's committed-document recovery without another navigation
+      // or settle wait. Exact-target authorization is rechecked before action.
+      const recovery = await inspectRecoverableCommittedDocument(
+        page, effectiveAuthorization, failureClass, authorizationScanId, 0,
+      );
+      diagnostics.navigation = {
+        outcome: recovery.recovered ? "recovered_after_error" : "failed", failureClass,
+        documentCommitted: recovery.documentCommitted, finalUrlAuthorized: recovery.finalUrlAuthorized,
+        ...(recovery.recovered ? { recoveryMethod: "committed_document" as const } : {}),
+      };
+      if (!recovery.recovered) {
+        limitations.push(`target_navigation_failed:${failureClass}`);
+        return await finalize({
+          resolverFound: false,
+          resolverReason: "target_navigation_failed",
+          registration: unconfirmedRegistration("not_attempted", "target_navigation_failed"),
+          requests: classifyRequests(retainedRequests(), parentScanStartedAtMs),
+        });
+      }
+      limitations.push(`navigation_error_after_usable_document_commit:${failureClass}`);
     }
     timing.navigationMs = Math.max(0, Date.now() - navigationStartedAtMs);
 
@@ -876,7 +896,6 @@ export async function runPostAcceptObserver(
             effectiveSignal,
             [selectedRecipe],
             actionDiscovery,
-            selectedRecipe,
             undefined,
             recordResolverSnapshot,
             resolverStartedAtMs + actionSearchTimeoutMs,
@@ -982,7 +1001,13 @@ export async function runPostAcceptObserver(
         try { return !page!.isClosed() && normalizeTargetUrl(page!.url()) === normalizeTargetUrl(authorizedExactTargetUrl ?? observationTargetUrl); }
         catch { return false; }
       };
+      const terminalRead = terminalConsentDecisionRead({
+        action: "accept", authorizedTargetSha256: actionControlProof?.authorizedTargetSha256,
+        parentScanStartedAtMs, dispatchedAtEpochMs: actionDispatchedAtEpochMs, observationWindowMs,
+        signal: effectiveSignal, targetStillAuthorized, read: () => waitForAcceptanceConfirmation(context!, page!, confirmationScope, selectedRecipe!.confirmation, confirmationBaseline, actionDispatchedAtEpochMs!, 0, effectiveSignal),
+      });
       const stopReason = await finishAfterActionWindow({
+        onFinalWindow: terminalRead.start,
         dispatchedAtEpochMs: actionDispatchedAtEpochMs, observationWindowMs,
         clickCompleted: diagnostics.click.outcome === "completed", signal: effectiveSignal, targetStillAuthorized,
       });
@@ -1012,6 +1037,7 @@ export async function runPostAcceptObserver(
           }).slice(0, 48),
         requestIds: requests.filter((row) => row.startedAtMs >= actionDispatchedAtMs && row.startedAtMs <= captureEndedAtMs).map((row) => row.requestId),
       };
+      terminalDecisionEvidence = terminalRead.retained(afterActionCapture);
       return await finalize({
         resolverFound: true,
         registration: {
@@ -1371,9 +1397,8 @@ async function waitForDeterministicOrCanonicalAcceptRecipe(
         page,
         canonicalBudgetMs,
         signal,
-        activeRuntimeRecipes,
+        recipes,
         discovery,
-        activeRuntimeRecipes.length === 1 ? activeRuntimeRecipes[0] : undefined,
         rememberCmp,
         reportDiagnostic,
         deadlineAtMs,
@@ -1401,7 +1426,6 @@ async function waitForDeterministicOrCanonicalAcceptRecipe(
         signal,
         recipes,
         discovery,
-        undefined,
         rememberCmp,
         reportDiagnostic,
         deadlineAtMs,
@@ -1417,11 +1441,7 @@ async function waitForDeterministicOrCanonicalAcceptRecipe(
     if (signal?.aborted) return { status: "aborted" };
     activeRuntimeRecipes = await resolveActiveRuntimeRecipes(page, recipes, discovery);
     if (Date.now() >= deadlineAtMs) break;
-    const geometryRecipes = geometryCmpName
-      ? recipes.filter((recipe) => recipe.cmpId === geometryCmpName)
-      : [];
-    const boundedRecipes = activeRuntimeRecipes.length > 0 ? activeRuntimeRecipes
-      : geometryRecipes.length > 0 ? [...geometryRecipes, ...recipes.filter(recipe => !geometryRecipes.includes(recipe))] : recipes;
+    const boundedRecipes = prioritizeConsentActionRecipes(recipes, activeRuntimeRecipes, geometryCmpName);
     const namedResolution = await waitForDeterministicRecipe(
       page,
       boundedRecipes,
@@ -1448,9 +1468,8 @@ async function waitForDeterministicOrCanonicalAcceptRecipe(
       page,
       canonicalBudgetMs,
       signal,
-      boundedRecipes,
+      recipes,
       discovery,
-      activeRuntimeRecipes.length === 1 ? activeRuntimeRecipes[0] : undefined,
       rememberCmp,
       reportDiagnostic,
       deadlineAtMs,
@@ -1471,7 +1490,6 @@ async function waitForCanonicalAcceptControlRecipe(
   signal?: AbortSignal,
   registeredRecipes: PostAcceptActionRecipe[] = [],
   discovery?: ConsentActionDiscovery,
-  runtimeBoundRecipe?: PostAcceptActionRecipe,
   onCmpDetected?: (name: string) => void,
   reportDiagnostic?: ResolverReporter,
   outerDeadlineAtMs?: number,
@@ -1484,13 +1502,9 @@ async function waitForCanonicalAcceptControlRecipe(
     const geometry = await captureConsentControlGeometry(page, {
       candidateLimit: 48,
       containerLimit: 16,
-      timeoutMs: Math.max(250, Math.min(750, timeoutMs || 250)),
+      timeoutMs: Math.max(1, Math.min(750, deadlineAtMs - Date.now())),
     }).catch(() => undefined);
     if (geometry?.cmp.name) onCmpDetected?.(geometry.cmp.name);
-    const registeredCmpRecipe = selectCanonicalAcceptConfirmationRecipe(
-      registeredRecipes,
-      geometry?.cmp.name,
-    ) ?? runtimeBoundRecipe;
     const candidates = collapseEquivalentCanonicalAcceptCandidates(
       geometry?.candidates.filter((candidate) =>
         candidate.actionType === "accept_all" &&
@@ -1500,7 +1514,7 @@ async function waitForCanonicalAcceptControlRecipe(
         candidate.enabled &&
         candidate.intersectsViewport &&
         candidate.classifierConfidence >= 0.8 &&
-        (candidate.consentContextConfirmed || registeredCmpRecipe !== undefined) &&
+        (candidate.consentContextConfirmed || geometry?.cmp.detected === true) &&
         Boolean(candidate.selectorHint) &&
         Boolean(candidate.containerSelectorHint)
       ) ?? [],
@@ -1527,6 +1541,8 @@ async function waitForCanonicalAcceptControlRecipe(
     }
     const candidate = candidates[0];
     if (candidate) {
+      const bindingDeadlineAtMs = consentActionBindingDeadline(deadlineAtMs, outerDeadlineAtMs);
+      if (bindingDeadlineAtMs <= Date.now()) { bindingState("binding_budget_exhausted"); break; }
       const controlFrameUrl = candidate.frameContext.frameKind === "child_frame"
         ? candidate.frameContext.frameUrl
         : undefined;
@@ -1561,7 +1577,8 @@ async function waitForCanonicalAcceptControlRecipe(
       for (let index = 0; index < controlCount; index += 1) {
         const control = controls.nth(index);
         if (!await control.isVisible().catch(() => false)) { failed("control_hidden"); continue; }
-        if (!await locatorEnabledWithinDeadline(control, deadlineAtMs)) { failed("control_disabled"); continue; }
+        if (Date.now() >= bindingDeadlineAtMs) { bindingState("binding_budget_exhausted"); break; }
+        if (!await locatorEnabledWithinDeadline(control, bindingDeadlineAtMs)) { failed("control_disabled"); continue; }
         if (!(await normalizedAcceptLocatorLabels(control)).includes(candidate.normalizedLabel)) { failed("label_mismatch"); continue; }
         if (!await locatorHasViewportHitTarget(control)) { failed("control_not_hit_target"); continue; }
         actionableControls.push(control);
@@ -1572,6 +1589,9 @@ async function waitForCanonicalAcceptControlRecipe(
         continue;
       }
       if (actionableControls.length !== 1) { bindingState(failedStage); continue; }
+      const candidateCmpName = await liveConsentActionCmp(actionableControls[0]!, registeredRecipes, bindingDeadlineAtMs);
+      if (!candidate.consentContextConfirmed && !candidateCmpName) { bindingState("scope_not_interactive"); continue; }
+      const registeredCmpRecipe = selectCanonicalAcceptConfirmationRecipe(registeredRecipes, candidateCmpName);
       const recipe: PostAcceptActionRecipe = {
         artifactVersion: "certscore.post_accept_action_recipe.v1",
         recipeId: `canonical-control:accept:v1:${hashValue([
@@ -1583,8 +1603,8 @@ async function waitForCanonicalAcceptControlRecipe(
         ].join("\n")).slice(0, 24)}`,
         ...(registeredCmpRecipe?.cmpId
           ? { cmpId: registeredCmpRecipe.cmpId }
-          : geometry?.cmp.name
-            ? { cmpId: geometry.cmp.name }
+          : candidateCmpName
+            ? { cmpId: candidateCmpName }
             : {}),
         resolverMethod: registeredCmpRecipe?.resolverMethod ??
           "canonical_consent_control_registry_recipe",
@@ -1907,6 +1927,7 @@ async function waitForAcceptanceConfirmation(
           witnessType: "canonical_acceptance_state",
           expectedState: "canonical_granted_consent_decision_written_after_action" };
       }
+      if (Date.now() >= deadlineAtMs) return undefined;
       await waitForDelay(25, signal).catch(() => undefined);
     }
     return undefined;
@@ -2057,6 +2078,7 @@ async function waitForAcceptanceConfirmation(
         }
       }
     }
+    if (Date.now() >= deadlineAtMs) return undefined;
     await waitForDelay(25, signal).catch(() => undefined);
   }
   return undefined;

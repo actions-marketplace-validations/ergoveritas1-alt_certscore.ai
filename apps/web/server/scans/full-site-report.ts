@@ -361,7 +361,7 @@ export async function loadFullSiteReport(
           capturedAt: snapshot?.capturedAt ?? page.observation!.completedAt,
           snapshot: snapshot?.status === "available" && retained.sourceSizeBytes
             ? { status: "available" as const, url: `/api/scans/${scanId}/full-site?formPage=${encodeURIComponent(page.id)}&formRef=${encodeURIComponent(form.formRef)}` }
-            : { status: snapshot?.status === "withheld" ? "withheld" as const : "unavailable" as const },
+            : { status: snapshot?.status === "withheld" ? "withheld" as const : "unavailable" as const, ...(snapshot?.reason ? { reason: snapshot.reason } : {}) },
         };
       });
     }),

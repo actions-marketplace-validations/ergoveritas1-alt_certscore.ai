@@ -1,4 +1,5 @@
 "use client";
+import { formSnapshotExplanation } from "../../lib/scans/form-snapshot-status";
 import { CopyJsonButton } from "./copy-json-button";
 
 import { useTableRowLimit } from "./use-table-row-limit";
@@ -13,7 +14,7 @@ export type CollectionSurfaceTableRow = {
   id: string;
   form: Form;
   capturedAt: string;
-  snapshot: { status: "available"; url: string } | { status: "unavailable" | "withheld" | "pending" };
+  snapshot: { status: "available"; url: string } | { status: "unavailable" | "withheld" | "pending"; reason?: string };
 };
 
 function pageHref(value: string) {
@@ -169,7 +170,7 @@ export function CollectionSurfacesTable({ rows, loading = false, scanning = fals
                     <td className="px-3 py-2 uppercase">{form.method}</td>
                     <td className="px-3 py-2"><span className="block max-w-52 truncate" title={form.actionHostname}>{form.actionHostname ?? (form.method === "dialog" ? "No submission (dialog)" : "Destination not observed")}</span>{form.actionHostname ? <span className="block text-zinc-500">{label(form.actionRelationship)}</span> : null}</td>
                     <td className="px-3 py-2"><a className="block max-w-64 truncate text-sky-800 hover:underline" href={pageHref(form.pageUrl)} title={form.pageUrl} target="_blank" rel="noopener noreferrer">{form.pageUrl}</a></td>
-                    <td className="whitespace-nowrap px-3 py-2">{row.snapshot.status === "available" && row.snapshot.url.startsWith("/api/scans/") ? <button type="button" onClick={() => { if (row.snapshot.status === "available") setSnapshot({ title, url: row.snapshot.url }); }} aria-label={`View form: ${title}`} className="inline-block rounded-lg border border-zinc-200 px-3 py-1.5 text-sky-800 hover:border-sky-500">View form</button> : <span className="text-zinc-500">{row.snapshot.status === "pending" ? "Snapshot pending" : row.snapshot.status === "withheld" ? "Snapshot withheld" : "Snapshot unavailable"}</span>}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{row.snapshot.status === "available" && row.snapshot.url.startsWith("/api/scans/") ? <button type="button" onClick={() => { if (row.snapshot.status === "available") setSnapshot({ title, url: row.snapshot.url }); }} aria-label={`View form: ${title}`} className="inline-block rounded-lg border border-zinc-200 px-3 py-1.5 text-sky-800 hover:border-sky-500">View form</button> : <span className="text-zinc-500">{row.snapshot.status === "pending" ? "Snapshot pending" : row.snapshot.status === "withheld" ? "Snapshot withheld" : "Snapshot unavailable"}{row.snapshot.status !== "pending" ? <span className="mt-1 block max-w-56 whitespace-normal text-xs">{formSnapshotExplanation(row.snapshot.status === "available" ? undefined : row.snapshot.reason)}</span> : null}</span>}</td>
                   </tr>
                   <tr data-expanded-details id={detailId} hidden={!open} className="border-b border-zinc-200 bg-slate-50/60"><td colSpan={columns.length} className="p-4">
                     <h3 className="mb-2 font-semibold">{title}</h3>

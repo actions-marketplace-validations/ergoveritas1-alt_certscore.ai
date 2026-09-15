@@ -1,5 +1,8 @@
 import {
   deriveConsentControlAssessment,
+  verifyConsentControlInspection,
+  isInitialNecessaryOnlySelection, isInitialSelectionSubmit,
+  initialConsentSelectionSchema,
   consentSessionAccessLimited,
   hasUnresolvedConsentDecision,
   UNRESOLVED_CONSENT_DECISION,
@@ -135,8 +138,11 @@ function geometryInput(
         const classifierReasonCodes = Array.isArray(row.classifierReasonCodes)
           ? row.classifierReasonCodes.filter((value): value is string => typeof value === "string")
           : [];
+        const selectionClaim = classifierReasonCodes.includes("initial_necessary_only_selection_observed");
+        const selectionVerified = !selectionClaim || (row.tagName === "button" && isInitialNecessaryOnlySelection(row.initialSelection) &&
+          isInitialSelectionSubmit(typeof row.label === "string" ? row.label : undefined, classifierReasonCodes));
         const supportedActionType = retainedActionType(
-          ["accept_all", "reject_all", "manage_preferences", "save_preferences", "do_not_sell_share", "other"].includes(actionType)
+          selectionVerified && ["accept_all", "reject_all", "manage_preferences", "save_preferences", "do_not_sell_share", "other"].includes(actionType)
           ? actionType as ConsentControlAssessmentCandidate["actionType"]
           : "other",
           classifierReasonCodes,
@@ -157,7 +163,9 @@ function geometryInput(
         const visible =
           row.decisionStatus === "confirmed_visible" ||
           (presentationType === "persistent_link" && row.decisionStatus === "footer_or_policy_link");
+        const selection = initialConsentSelectionSchema.safeParse(row.initialSelection);
         return [{
+          ...(selection.success && selectionVerified ? { initialSelection: selection.data } : {}),
           evidenceId: typeof row.candidateId === "string" ? row.candidateId : undefined,
           actionType: supportedActionType,
           controlVariant,
@@ -205,7 +213,10 @@ function geometryInput(
       : pageUrl !== canonicalDocumentId
       ? "document_mismatch"
       : "complete";
+  const verifiedInspection = verifyConsentControlInspection(raw.controlInspection, raw.candidates);
   return {
+    ...(assessmentStatus === "complete" && tokenBoundToCanonicalDocument && verifiedInspection
+      ? { controlInspection: verifiedInspection } : {}),
     artifactVersion: typeof raw.artifactVersion === "string" ? raw.artifactVersion : null,
     assessmentStatus,
     documentId: tokenBoundToCanonicalDocument ? canonicalDocumentId : pageUrl,
@@ -281,6 +292,7 @@ export function deriveMaterializedConsentControlAssessment(input: {
   const geometry = geometryInput(
     input.consentControlGeometryEvidence, canonicalDocumentId, canonicalDocumentToken, input.bundle.startedAt,
   );
+  if (geometry && (accessLimited || unverifiedAccessibility)) delete geometry.controlInspection;
   const structuredGeometryBinding = {
     complete: geometry?.assessmentStatus === "complete",
     url: geometry?.documentId ?? "",

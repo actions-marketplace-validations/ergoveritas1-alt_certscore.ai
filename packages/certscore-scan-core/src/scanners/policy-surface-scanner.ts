@@ -52,6 +52,12 @@ import { httpTransportFallbackUrl } from "../transport-fallback.js";
 import { installWebBotAuthRoute } from "../web-bot-auth-routing.js";
 import { installPublicNetworkGuardRoute } from "../public-network-guard.js";
 
+import {
+  CMP_POLICY_SCOPES, CMP_VENDOR_SCOPE_PATTERN, cmpPolicyProvenance,
+  inspectCmpPolicyHtml, isCmpProviderPolicy, mergeCmpPolicyProvenance,
+  readDidomiPublisherPolicy, didomiPolicyReference, type CmpPolicyReference,
+} from "../cmp-policy-discovery.js";
+
 const SOURCE_SCANNER = "policy_surface";
 const SCENARIO = "policy_surface_review";
 const MAX_CANDIDATES_TO_FETCH = 8;
@@ -254,7 +260,9 @@ export function mergePolicySurfaceObservations(
       if (existingById && existingById[0] !== key) {
         merged.delete(existingById[0]);
       }
-      merged.set(key, observation);
+      merged.set(key, { ...observation, cmpDiscovery: mergeCmpPolicyProvenance(observation.cmpDiscovery, existing?.cmpDiscovery) });
+    } else if (existing) {
+      merged.set(existingById?.[0] ?? key, { ...existing, cmpDiscovery: mergeCmpPolicyProvenance(existing.cmpDiscovery, observation.cmpDiscovery) });
     }
   }
   return [...merged.values()];
@@ -468,7 +476,8 @@ export interface NanoTopicExtractionResult {
   uncertaintyNotes?: string[];
 }
 
-interface PolicySurfaceCandidate {
+export interface PolicySurfaceCandidate {
+  cmpDiscovery?: PolicySurfaceObservation["cmpDiscovery"];
   candidateId: string;
   url: string;
   normalizedUrl: string;
@@ -524,6 +533,7 @@ interface PolicySurfaceTextArtifactBudget {
 }
 
 interface PolicyDocumentFetchCaches {
+  earlyIndexChildClaimed?: boolean;
   browserRuntime: PolicyBrowserRuntime;
   diagnostics: PolicyFetchDiagnosticsCollector;
   direct: Map<string, Promise<FetchTextResult>>;
@@ -1912,7 +1922,8 @@ async function fetchPolicyCandidateGroup(input: {
       : mapWithConcurrency(
           toFetch.map((candidate, candidateIndex) => ({ candidate, candidateIndex })),
           POLICY_FETCH_CONCURRENCY,
-          ({ candidate, candidateIndex }) => processPolicyCandidateBeforeDeadline({
+          async ({ candidate, candidateIndex }) => {
+            const result = await processPolicyCandidateBeforeDeadline({
             input: input.input,
             fetchCaches: input.fetchCaches,
             timingBreakdown: input.timingBreakdown,
@@ -1922,7 +1933,31 @@ async function fetchPolicyCandidateGroup(input: {
             policySurfaceTextArtifactBudget: input.policySurfaceTextArtifactBudget,
             prefetchedOnly: input.prefetchedOnly,
             suppressCommonPathRenderedRecovery: hasObservedPrivacyPolicyCandidate,
-          }),
+          });
+          // The index has already selected this exact one-hop policy child.
+          // Reuse this worker slot before unrelated guessed URLs consume the
+          // shared deadline; remove it from the later supplemental queue.
+          const child = result.secondaryCandidates[0];
+          if (candidate.traversalDepth !== 1 && !input.fetchCaches.earlyIndexChildClaimed &&
+              result.observation.documentRole === "policy_index" &&
+              result.secondaryCandidates.length === 1 && child &&
+              isBoundedSameOriginPolicySupplement(child)) {
+            input.fetchCaches.earlyIndexChildClaimed = true;
+            const childResult = await processPolicyCandidateBeforeDeadline({
+              input: input.input, fetchCaches: input.fetchCaches,
+              timingBreakdown: input.timingBreakdown, moduleStartedAtMs: input.moduleStartedAtMs,
+              candidate: child, candidateIndex: 0,
+              policySurfaceTextArtifactBudget: input.policySurfaceTextArtifactBudget,
+              suppressCommonPathRenderedRecovery: true,
+            });
+            return { ...result, secondaryCandidates: [],
+              artifactRefs: [...result.artifactRefs, ...childResult.artifactRefs],
+              secondaryCandidateObservations: [...(result.secondaryCandidateObservations ?? []), childResult.observation,
+                ...(childResult.secondaryCandidateObservations ?? [])],
+            };
+          }
+          return result;
+          },
         ),
   );
   return {
@@ -1931,7 +1966,8 @@ async function fetchPolicyCandidateGroup(input: {
       ...policyResults.map((result) => result.observation),
       ...policyResults.flatMap((result) => result.secondaryCandidateObservations ?? []),
     ],
-    secondaryCandidates: policyResults.flatMap((result) => result.secondaryCandidates),
+    secondaryCandidates: policyResults.flatMap((result) => result.secondaryCandidates)
+      .filter(candidate => !input.fetchCaches.earlyIndexChildClaimed || !isBoundedSameOriginPolicySupplement(candidate)),
   };
 }
 
@@ -2221,6 +2257,7 @@ async function processPolicyCandidate({
   // evidence when browser startup or rendered discovery consumes the soft
   // module budget; no new direct network work is started in this case.
 
+  const documentFetchStartedAtMs = Date.now();
   let fetched = await recordPolicyTiming(
     timingBreakdown,
     `${protectedObservedFetch ? "policy protected fetch" : "policy fetch"} ${candidateIndex + 1}`,
@@ -2342,14 +2379,16 @@ async function processPolicyCandidate({
       timingBreakdown,
       `policy prefetched text resolution ${candidateIndex + 1}`,
       `Resolve retained visible text once from the already-fetched ${candidate.deterministicSurfaceType} document without starting follow-up network work.`,
-      async () => resolvePrefetchedPolicyVisibleText(fetched.text),
+      async () => resolvePrefetchedPolicyVisibleText(fetched.html ? fetched.text : fetchedHtml),
     )
     : await recordPolicyTiming(
       timingBreakdown,
       `policy text resolution ${candidateIndex + 1}`,
       `Resolve bounded direct, OneTrust, and canonical document text for ${candidate.deterministicSurfaceType}.`,
       () => resolvePolicyVisibleText({
-        html: fetched.text,
+        html: fetchedHtml,
+        retainedText: fetched.html ? fetched.text : undefined,
+        onResolvedPolicyHtml: (html) => secondaryCandidateHtmlInputs.push(html),
         baseUrl: effectiveCandidate.normalizedUrl,
         surfaceType: candidate.deterministicSurfaceType,
         timeoutMs: Math.max(4_000, remainingPolicyFetchMs(input, moduleStartedAtMs)),
@@ -2357,6 +2396,30 @@ async function processPolicyCandidate({
         signal: input.signal,
       }),
     );
+  if (boundedSameOriginSupplement && !prefetchedAfterSoftBudget &&
+      extractOneTrustNoticeUrls(fetchedHtml, effectiveCandidate.normalizedUrl).length > 0 &&
+      !shouldUseDirectPolicyDocumentText(visibleText)) {
+    const deadlineAtMs = Math.min(
+      input.absoluteDeadlineAtMs ?? Infinity,
+      documentFetchStartedAtMs + POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS,
+      Date.now() + remainingPolicyFetchMs(input, moduleStartedAtMs),
+    );
+    if (deadlineAtMs - Date.now() > 10) {
+      const resolved = await resolveOneTrustNoticeDocument({
+        html: fetchedHtml,
+        baseUrl: effectiveCandidate.normalizedUrl,
+        timeoutMs: deadlineAtMs - Date.now(),
+        deadlineAtMs,
+        signal: input.signal,
+        depth: 0,
+        declaredNoticeOnly: true,
+      });
+      if (resolved && shouldAdoptPolicyDocumentText(resolved.text, visibleText, { allowTopicDominant: true })) {
+        visibleText = resolved.text;
+        secondaryCandidateHtmlInputs.push(resolved.html);
+      }
+    }
+  }
   const urlOnlyStubResolution = boundedAfterSoftBudget || boundedSameOriginSupplement
     ? undefined
     : await recordPolicyTiming(
@@ -2391,7 +2454,9 @@ async function processPolicyCandidate({
     candidateIndex,
     hasObservedPrivacyPolicyCandidate: suppressCommonPathRenderedRecovery === true,
   });
-  if (renderedLowQualityFallbackWithinBudget && shouldTryRenderedPolicyDocumentTextFallback({
+  // Redirect normalization can recompute sameOrigin against the scan target.
+  // Preserve the original child budget instead of reopening browser recovery.
+  if (!boundedSameOriginSupplement && renderedLowQualityFallbackWithinBudget && shouldTryRenderedPolicyDocumentTextFallback({
     candidate: effectiveCandidate,
     documentFormat: fetched.documentFormat,
     input,
@@ -2430,6 +2495,7 @@ async function processPolicyCandidate({
         () => resolveRenderedPolicyVisibleText({
           html: renderedFetched.html,
           text: renderedFetched.text,
+          onResolvedPolicyHtml: (html) => secondaryCandidateHtmlInputs.push(html),
           baseUrl: effectiveCandidate.normalizedUrl,
           surfaceType: effectiveCandidate.deterministicSurfaceType,
           timeoutMs: Math.max(1_000, Math.min(3_000, remainingPolicyFetchMs(input, moduleStartedAtMs))),
@@ -2792,6 +2858,7 @@ export type PolicyDocumentSubstanceAssessment = {
   matchesExpectedSurface: boolean;
   reasonCode:
     | "consent_settings_shell"
+    | "application_error_shell"
     | "multilingual_policy_reviewable"
     | "obvious_navigation_shell"
     | "soft_404"
@@ -2819,6 +2886,11 @@ export function assessPolicyDocumentSubstance(input: {
     title: input.title,
   })) {
     return { matchesExpectedSurface: false, reasonCode: "soft_404" };
+  }
+  // An HTTP 200 application error plus navigation is not a policy body.
+  // Keep substantive policies containing incidental error/help wording eligible.
+  if (normalized.length < 500 && /\b(?:processing error|unable to load|failed to load|something went wrong)\b/i.test(normalized)) {
+    return { matchesExpectedSurface: false, reasonCode: "application_error_shell" };
   }
   const obviousNavigationShellSignals = [
     /\bexplore (?:our|the)\b/i,
@@ -3348,15 +3420,19 @@ function policyClickUrlIdentity(value: string, baseUrl: string): string {
 
 export async function resolvePolicyVisibleText(input: {
   html: string;
+  retainedText?: string;
   baseUrl: string;
   surfaceType: PolicySurfaceObservation["surfaceType"];
   timeoutMs: number;
   deadlineAtMs?: number;
   signal?: AbortSignal;
+  onResolvedPolicyHtml?: (html: string) => void;
 }): Promise<string> {
   throwIfAborted(input.signal);
   const visibleText = htmlToVisibleText(input.html);
-  let bestText = bestPolicyDocumentText(input.html, visibleText);
+  let bestText = input.retainedText !== undefined
+    ? bestRenderedPolicyDocumentText(input.html, [input.retainedText])
+    : bestPolicyDocumentText(input.html, visibleText);
   if (shouldUseDirectPolicyDocumentText(bestText)) {
     return bestText;
   }
@@ -3364,7 +3440,7 @@ export async function resolvePolicyVisibleText(input: {
     input.surfaceType === "privacy_policy" &&
     shouldFollowCanonicalPolicyDocumentLink(input.html, input.baseUrl, bestText);
   const [oneTrustText, speculativeCanonicalPolicyText] = await Promise.all([
-    extractOneTrustNoticeText({
+    resolveOneTrustNoticeDocument({
       html: input.html,
       baseUrl: input.baseUrl,
       timeoutMs: input.timeoutMs,
@@ -3383,8 +3459,9 @@ export async function resolvePolicyVisibleText(input: {
       })
       : Promise.resolve(undefined),
   ]);
-  if (oneTrustText && policyTextQualityScore(oneTrustText) > policyTextQualityScore(bestText)) {
-    bestText = oneTrustText;
+  if (oneTrustText && policyTextQualityScore(oneTrustText.text) > policyTextQualityScore(bestText)) {
+    bestText = oneTrustText.text;
+    input.onResolvedPolicyHtml?.(oneTrustText.html);
   }
 
   const shouldTryCanonicalPolicyLink =
@@ -3410,6 +3487,7 @@ export async function resolvePolicyVisibleText(input: {
 }
 
 export async function resolveRenderedPolicyVisibleText(input: {
+  onResolvedPolicyHtml?: (html: string) => void;
   html?: string;
   text: string;
   baseUrl: string;
@@ -3421,6 +3499,7 @@ export async function resolveRenderedPolicyVisibleText(input: {
   return resolvePolicyVisibleText({
     ...input,
     html: input.html ?? input.text,
+    retainedText: input.text,
   });
 }
 
@@ -3766,14 +3845,18 @@ async function warmPolicyDocumentFetchCache(input: {
   );
 }
 
-function extractCandidates(baseUrl: string, html: string, visibleText: string, allowGdprNoticeSupplement = false): PolicySurfaceCandidate[] {
+export function extractCandidates(baseUrl: string, html: string, visibleText: string, allowGdprNoticeSupplement = false): PolicySurfaceCandidate[] {
   const candidates: PolicySurfaceCandidate[] = [];
   const visibleTextLower = visibleText.toLowerCase();
+  const cmpInspection = inspectCmpPolicyHtml(html, baseUrl);
   const anchorPattern = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
   let index = 0;
   while ((match = anchorPattern.exec(html))) {
     const attrs = match[1] ?? "";
+    if (!cmpInspection.anchorOffsets.has(match.index)) continue;
+    const cmpContext = cmpInspection.anchors.get(match.index);
+    if (cmpContext?.vendor) continue;
     const href = attr(attrs, "href");
     if (!href) {
       continue;
@@ -3817,6 +3900,7 @@ function extractCandidates(baseUrl: string, html: string, visibleText: string, a
     if (isExternalUrlOnlyPolicyCandidate(baseUrl, normalizedUrl, candidateText, deterministic.surfaceType)) {
       continue;
     }
+    if (cmpContext && isCmpProviderPolicy(normalizedUrl, baseUrl)) continue;
     const placeholderHref = isPlaceholderHref(href);
     if (isExternalPoweredByAttributionLink(baseUrl, normalizedUrl, candidateText)) {
       continue;
@@ -3836,6 +3920,7 @@ function extractCandidates(baseUrl: string, html: string, visibleText: string, a
     const observationOnly = !fetchable || isObservationOnlyPreferenceControl(deterministic.surfaceType, candidateText);
     candidates.push({
       candidateId: `policy_candidate_${index++}`,
+      cmpDiscovery: cmpContext ? [cmpPolicyProvenance("cmp_dom", cmpContext.provider, baseUrl, cmpContext.locator)] : undefined,
       url: href,
       normalizedUrl,
       linkText: candidateText,
@@ -3857,7 +3942,26 @@ function extractCandidates(baseUrl: string, html: string, visibleText: string, a
           : "page_text_link",
     });
   }
-  return candidates;
+  return [...candidates, ...cmpConfigCandidates(cmpInspection.configReferences, baseUrl)];
+}
+
+export function cmpConfigCandidates(references: CmpPolicyReference[], baseUrl: string): PolicySurfaceCandidate[] {
+  return references.flatMap((reference): PolicySurfaceCandidate[] => {
+    const normalizedUrl = normalizeUrl(reference.url, baseUrl);
+    if (!normalizedUrl || isCmpProviderPolicy(normalizedUrl, baseUrl)) return [];
+    // The exact adapter field supplies a declared type, never an observed label or ownership.
+    const deterministic = classifySurface({ linkText: "Privacy Policy", url: normalizedUrl });
+    return [{
+      candidateId: `policy_cmp_config_${stableHash(normalizedUrl)}`,
+      url: reference.url, normalizedUrl, linkText: "", domLocation: "body",
+      renderedSourcePageUrl: baseUrl, fetchable: true, clickable: false,
+      sameOrigin: sameOrigin(baseUrl, normalizedUrl), mayLeadToConsentControls: false,
+      observationOnly: false, deterministicSurfaceType: "privacy_policy",
+      deterministicScore: Math.min(0.85, deterministic.score),
+      deterministicKeywordMatches: deterministic.keywords, ...classifierCandidateFields(deterministic),
+      discoveryMethod: "deterministic_keyword_match", cmpDiscovery: [reference.provenance],
+    }];
+  });
 }
 
 function sameSiteGenericPolicyPdfClassification(input: {
@@ -4078,14 +4182,35 @@ async function extractRenderedCandidates(
       const headChars = Math.floor(maxChars * 0.65);
       return `${text.slice(0, headChars)}\n\n[CertScore retained tail of oversized rendered text.]\n\n${text.slice(-(maxChars - headChars))}`;
     }, MAX_RENDERED_POLICY_DISCOVERY_TEXT_CHARS).catch(() => "");
-    const rawCandidates = await page.evaluate((maxCandidates) => {
+    const collectPolicyCandidates = ({ maxCandidates, cmpScopes, vendorPattern }: {
+      maxCandidates: number;
+      cmpScopes: typeof CMP_POLICY_SCOPES;
+      vendorPattern: string;
+    }) => {
       type RawCandidate = {
+        cmpProvider?: string;
+        cmpVendor?: boolean;
         href?: string;
         text: string;
         selector?: string;
         domLocation: "footer" | "header" | "nav" | "body";
         clickable: boolean;
       };
+
+      const vendorScope = new RegExp(vendorPattern, "i");
+      const contextCache = new WeakMap<Element, { provider?: string; vendor: boolean }>();
+      function cmpContextFor(element: Element): { provider?: string; vendor: boolean } {
+        const cached = contextCache.get(element);
+        if (cached) return cached;
+        const root = element.getRootNode();
+        const parent = element.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+        const inherited = parent ? cmpContextFor(parent) : { provider: undefined, vendor: false };
+        const provider = inherited.provider ?? cmpScopes.find(cmp => cmp.selectors.some(selector => element.matches(selector)))?.provider;
+        const vendor = inherited.vendor || Boolean(provider) && vendorScope.test([element.id, element.getAttribute("class"), element.getAttribute("aria-label"), element.getAttribute("data-testid")].filter(Boolean).join(" "));
+        const context = { provider, vendor };
+        contextCache.set(element, context);
+        return context;
+      }
 
       function normalizeText(value: string | null | undefined): string {
         return (value ?? "").replace(/\s+/g, " ").trim();
@@ -4120,8 +4245,10 @@ async function extractRenderedCandidates(
         return /(?:location\.href|window\.location|document\.location)\s*=\s*['"]([^'"]+)['"]/i.exec(onclick)?.[1];
       }
 
+      const seenRoots = new Set<ParentNode>();
       function collect(root: ParentNode, output: RawCandidate[]): void {
-        if (output.length >= maxCandidates) return;
+        if (output.length >= maxCandidates || seenRoots.has(root)) return;
+        seenRoots.add(root);
         const allElements = [
           ...root.querySelectorAll("a[href], button, [role='button'], [role='link'], [aria-label], [title]"),
         ];
@@ -4132,6 +4259,7 @@ async function extractRenderedCandidates(
           : allElements;
         for (const element of elements) {
           if (output.length >= maxCandidates) break;
+          const cmpContext = cmpContextFor(element);
           const href = hrefFromElement(element);
           const text = normalizeText([
             element.textContent,
@@ -4143,6 +4271,8 @@ async function extractRenderedCandidates(
           if (!text && !href) continue;
           output.push({
             href,
+            cmpProvider: cmpContext.provider,
+            cmpVendor: cmpContext.vendor,
             text: text.slice(0, 220),
             selector: selectorFor(element),
             domLocation: domLocationForElement(element),
@@ -4154,9 +4284,25 @@ async function extractRenderedCandidates(
       }
 
       const output: RawCandidate[] = [];
+      // Registered CMP shadow hosts need not be links/buttons themselves.
+      // Visit their existing open roots first so the page-wide cap cannot hide them.
+      for (const cmp of cmpScopes) {
+        for (const selector of cmp.selectors) {
+          for (const host of Array.from(document.querySelectorAll(selector)).slice(0, 4)) {
+            if (host.shadowRoot) collect(host.shadowRoot, output);
+          }
+        }
+      }
       collect(document, output);
       return output;
-    }, MAX_RENDERED_POLICY_DISCOVERY_ELEMENTS).catch(() => []);
+    };
+    // tsx/esbuild can emit a module-scoped function-name helper. Bind it only
+    // within this serialized read, without installing anything on the target.
+    const discoveryArgs = JSON.stringify({ maxCandidates: MAX_RENDERED_POLICY_DISCOVERY_ELEMENTS, cmpScopes: CMP_POLICY_SCOPES, vendorPattern: CMP_VENDOR_SCOPE_PATTERN.source });
+    const rawCandidates = await page.evaluate<ReturnType<typeof collectPolicyCandidates>>(
+      `(() => { const __name = (fn) => fn; return (${collectPolicyCandidates.toString()})(${discoveryArgs}); })()`,
+    ).catch(() => []);
+    const didomiPublisherUrl = await page.evaluate(readDidomiPublisherPolicy, undefined).catch(() => undefined);
 
     const renderedPolicyRegionHtml = await page.evaluate((maxChars) => {
       const regionHtml = [
@@ -4174,53 +4320,18 @@ async function extractRenderedCandidates(
         htmlToVisibleText(renderedPolicyRegionHtml),
       )
       : [];
-    const fallbackRawCandidates = rawCandidates.length === 0
-      ? await page.locator("a[href], button, [role='button'], [role='link'], [aria-label], [title]")
-      .evaluateAll((elements, maxCandidates) => {
-        const headCount = Math.ceil(maxCandidates / 2);
-        const selectedElements = elements.length > maxCandidates
-          ? [...elements.slice(0, headCount), ...elements.slice(-(maxCandidates - headCount))]
-          : elements;
-        return selectedElements.map((element) => {
-          const normalizeText = (value: string | null | undefined): string =>
-            (value ?? "").replace(/\s+/g, " ").trim();
-          const href = element.getAttribute("href") ??
-            element.getAttribute("data-href") ??
-            element.getAttribute("data-url") ??
-            element.getAttribute("data-link") ??
-            undefined;
-          const text = normalizeText([
-            element.textContent,
-            element.getAttribute("aria-label"),
-            element.getAttribute("title"),
-            element.getAttribute("data-testid"),
-            href,
-          ].filter(Boolean).join(" "));
-          const domLocation: PolicySurfaceCandidate["domLocation"] = element.closest("footer")
-            ? "footer"
-            : element.closest("header") || element.closest("nav")
-              ? "header"
-              : "body";
-          return {
-            href,
-            text: text.slice(0, 220),
-            selector: element.tagName.toLowerCase(),
-            domLocation,
-            clickable: element.matches("button, a, [role='button'], [role='link']"),
-          };
-        });
-      }, MAX_RENDERED_POLICY_DISCOVERY_ELEMENTS)
-      .catch(() => [])
-      : [];
+    // If rendered inspection fails, retain only the independently parsed HTML
+    // candidates; an unscoped DOM retry could turn vendor links into publisher links.
     const retainedRawCandidates = [
       ...rawCandidates,
-      ...fallbackRawCandidates,
     ];
     const visibleTextLower = visibleText.toLowerCase();
 
     return dedupeCandidates([
       ...renderedHtmlCandidates,
+      ...cmpConfigCandidates(didomiPolicyReference(didomiPublisherUrl, renderedBaseUrl), renderedBaseUrl),
       ...retainedRawCandidates.flatMap((candidate, index): PolicySurfaceCandidate[] => {
+      if ("cmpVendor" in candidate && candidate.cmpVendor) return [];
       const normalizedUrl = candidate.href ? normalizeUrl(candidate.href, renderedBaseUrl) : renderedBaseUrl;
       const surroundingTextExcerpt = surroundingText(visibleText, candidate.text, visibleTextLower);
       const deterministic = classifySurface({
@@ -4239,6 +4350,7 @@ async function extractRenderedCandidates(
       )) {
         return [];
       }
+      if ("cmpProvider" in candidate && candidate.cmpProvider && isCmpProviderPolicy(normalizedUrl, renderedBaseUrl)) return [];
       if (isExternalPoweredByAttributionLink(renderedBaseUrl, normalizedUrl, candidate.text)) {
         return [];
       }
@@ -4256,6 +4368,9 @@ async function extractRenderedCandidates(
       const observationOnly = !fetchable || isObservationOnlyPreferenceControl(deterministic.surfaceType, candidate.text);
       return [{
         candidateId: `policy_rendered_candidate_${index}`,
+        cmpDiscovery: "cmpProvider" in candidate && candidate.cmpProvider
+          ? [cmpPolicyProvenance("cmp_dom", candidate.cmpProvider, renderedBaseUrl, candidate.selector ?? "a")]
+          : undefined,
         url: candidate.href ?? renderedBaseUrl,
         normalizedUrl,
         linkText: candidate.text || normalizedUrl,
@@ -4903,6 +5018,11 @@ function isObviousCommercePolicyFalsePositive(candidate: PolicySurfaceCandidate)
 }
 
 function policyCandidateDiscoveryPriority(candidate: PolicySurfaceCandidate): number {
+  if (candidate.cmpDiscovery?.length) {
+    // A deduplicated real footer/header link keeps its priority over CMP hints.
+    if (["footer_link", "header_link"].includes(candidate.discoveryMethod)) return 0;
+    return candidate.cmpDiscovery.some(item => item.source === "cmp_dom") ? 1 : 2;
+  }
   if (
     candidate.clickable &&
     ["footer_link", "header_link", "page_text_link"].includes(candidate.discoveryMethod)
@@ -4910,12 +5030,12 @@ function policyCandidateDiscoveryPriority(candidate: PolicySurfaceCandidate): nu
     return 0;
   }
   if (candidate.seedSource === "prior_scan_hint") {
-    return 1;
-  }
-  if (candidate.discoveryMethod === "guessed_common_path") {
     return 3;
   }
-  return 2;
+  if (candidate.discoveryMethod === "guessed_common_path") {
+    return 5;
+  }
+  return 4;
 }
 
 function safeUrlPath(value: string): string {
@@ -5806,6 +5926,12 @@ async function rankCandidatesWithRequiredNano(
   candidates: PolicySurfaceCandidate[],
   signal: AbortSignal | undefined = input.signal,
 ): Promise<PolicySurfaceCandidate[]> {
+  const cmpConfig = candidates.filter(candidate => candidate.cmpDiscovery?.some(item => item.source === "cmp_config") && !candidate.clickable);
+  if (cmpConfig.length > 0) {
+    const other = candidates.filter(candidate => !cmpConfig.includes(candidate));
+    const ranked = other.length ? await rankCandidatesWithRequiredNano(input, other, signal) : [];
+    return prioritizePolicyCandidateEvaluation([...ranked, ...cmpConfig]);
+  }
   if (input.enableNanoPolicyAssist === false) {
     throw new Error("Nano policy assist cannot be disabled for policy-surface link discovery.");
   }
@@ -6005,6 +6131,7 @@ function observationFromCandidate(
     selector: candidate.selector,
     surroundingTextExcerpt: candidate.surroundingTextExcerpt,
     discoveryMethod: candidate.discoveryMethod,
+    cmpDiscovery: candidate.cmpDiscovery,
     status: input.status,
     linkObservationState,
     documentFetchState,
@@ -6266,7 +6393,11 @@ export function classifyPolicyDocumentOwnership(input: {
 
 function brandNamedInText(brand: string, text: string): boolean {
   const brandToken = brand.normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
-  if (brandToken.length < 4) return false;
+  if (brandToken.length < 3) return false;
+  if (brandToken.length < 4) {
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(brandToken)}(?=$|[^\\p{L}\\p{N}])`, "iu")
+      .test(text.normalize("NFKC"));
+  }
   const textToken = text.normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
   return textToken.includes(brandToken);
 }
@@ -7117,28 +7248,31 @@ function article13SignalIsBetter(
   return false;
 }
 
-async function extractOneTrustNoticeText(input: {
+async function resolveOneTrustNoticeDocument(input: {
   html: string;
   baseUrl: string;
   timeoutMs: number;
   depth: number;
+  declaredNoticeOnly?: boolean;
   deadlineAtMs?: number;
   signal?: AbortSignal;
-}): Promise<string | null> {
+}): Promise<{ text: string; html: string } | null> {
   throwIfAborted(input.signal);
   if (input.depth > 2) {
     return null;
   }
 
-  const noticeUrls = extractOneTrustNoticeUrls(input.html, input.baseUrl).slice(0, 4);
+  const declaredNoticeUrls = extractOneTrustNoticeUrls(input.html, input.baseUrl);
+  if (input.declaredNoticeOnly && declaredNoticeUrls.length !== 1) return null;
+  const noticeUrls = declaredNoticeUrls.slice(0, 4);
   for (let index = 0; index < noticeUrls.length; index += 2) {
     throwIfAborted(input.signal);
     if (deadlineRemainingMs(input.deadlineAtMs) <= 10) return null;
     const batch = noticeUrls.slice(index, index + 2);
     const results = await Promise.all(batch.map((noticeUrl) =>
-      extractOneTrustNoticeTextFromUrl(input, noticeUrl)
+      resolveOneTrustNoticeDocumentFromUrl(input, noticeUrl)
     ));
-    const retained = results.find((text): text is string => Boolean(text && text.length > 500));
+    const retained = results.find((document): document is { text: string; html: string } => Boolean(document && document.text.length > 500));
     if (retained) {
       return retained;
     }
@@ -7146,17 +7280,18 @@ async function extractOneTrustNoticeText(input: {
   return null;
 }
 
-async function extractOneTrustNoticeTextFromUrl(
+async function resolveOneTrustNoticeDocumentFromUrl(
   input: {
     html: string;
     baseUrl: string;
     timeoutMs: number;
     depth: number;
+    declaredNoticeOnly?: boolean;
     deadlineAtMs?: number;
     signal?: AbortSignal;
   },
   noticeUrl: string,
-): Promise<string | null> {
+): Promise<{ text: string; html: string } | null> {
   throwIfAborted(input.signal);
   const fetched = await fetchText(
     noticeUrl,
@@ -7171,7 +7306,27 @@ async function extractOneTrustNoticeTextFromUrl(
     return null;
   }
 
-  const policyUrls = extractOneTrustPolicyUrls(payload, noticeUrl).slice(0, 2);
+  const declaredLocale = declaredOneTrustNoticeLocale(input.html, noticeUrl, input.baseUrl);
+  let selectedPayload: unknown = payload;
+  if (declaredLocale && isPlainObject(payload) && isPlainObject(payload.languages)) {
+    const languages = Object.entries(payload.languages).filter(([locale]) => locale.toLowerCase() === declaredLocale);
+    // The page explicitly selected a locale: never substitute a different one.
+    if (languages.length !== 1 || !isPlainObject(languages[0]?.[1])) return null;
+    selectedPayload = languages[0]![1];
+  }
+  const declaredHtml = extractOneTrustNoticePayloadHtml(selectedPayload);
+  const declaredText = htmlToVisibleText(declaredHtml);
+  if (declaredText.length > 500 && (
+    shouldUseDirectPolicyDocumentText(declaredText) ||
+    uniqueStrings(extractPolicyLinksFromHtml(declaredHtml, input.baseUrl)).length > 1
+  )) {
+    return { text: declaredText, html: declaredHtml };
+  }
+
+  const policyUrls = extractOneTrustPolicyUrls(selectedPayload, noticeUrl, !input.declaredNoticeOnly).slice(0, 2);
+  // A bounded child may resolve one page-declared JSON pointer and one unique
+  // metadata policyUrl. It must not traverse navigation links or another page.
+  if (input.declaredNoticeOnly && policyUrls.length > 1) return null;
   for (const policyUrl of policyUrls) {
     throwIfAborted(input.signal);
     if (deadlineRemainingMs(input.deadlineAtMs) <= 10) return null;
@@ -7184,14 +7339,22 @@ async function extractOneTrustNoticeTextFromUrl(
       continue;
     }
     const policyPayload = parseJsonObject(policy.text);
+    if (input.declaredNoticeOnly) {
+      const html = policyPayload ? extractOneTrustNoticePayloadHtml(policyPayload) : "";
+      const text = htmlToVisibleText(html);
+      return text.length > 500 ? { text, html } : null;
+    }
     if (policyPayload) {
       // The payload selected by the page's OneTrust pointer is authoritative
       // when it already contains a substantive policy. Links inside that
       // policy often lead to audience-specific or jurisdictional supplements
       // and must not replace the selected governing document.
       const policyText = extractOneTrustNoticePayloadText(policyPayload);
-      if (policyText && shouldUseDirectPolicyDocumentText(policyText)) {
-        return policyText;
+      if (policyText && (
+        shouldUseDirectPolicyDocumentText(policyText) ||
+        uniqueStrings(extractPolicyLinksFromHtml(extractOneTrustNoticePayloadHtml(policyPayload), input.baseUrl)).length > 1
+      )) {
+        return { text: policyText, html: extractOneTrustNoticePayloadHtml(policyPayload) };
       }
       const nestedPolicyUrls = extractOneTrustPolicyUrls(policyPayload, policyUrl)
         .filter((nestedUrl) => nestedUrl !== policyUrl)
@@ -7212,10 +7375,10 @@ async function extractOneTrustNoticeTextFromUrl(
           const nestedUrls = extractOneTrustPolicyUrls(nestedPayload, nestedPolicyUrl);
           const nestedText = extractOneTrustNoticePayloadText(nestedPayload);
           if (nestedText && nestedText.length > 500 && nestedUrls.length === 0) {
-            return nestedText;
+            return { text: nestedText, html: extractOneTrustNoticePayloadHtml(nestedPayload) };
           }
         }
-        const nestedNoticeText = await extractOneTrustNoticeText({
+        const nestedNoticeText = await resolveOneTrustNoticeDocument({
           html: nestedPolicy.text,
           baseUrl: nestedPolicyUrl,
           timeoutMs: input.timeoutMs,
@@ -7223,17 +7386,17 @@ async function extractOneTrustNoticeTextFromUrl(
           deadlineAtMs: input.deadlineAtMs,
           signal: input.signal,
         });
-        if (nestedNoticeText && nestedNoticeText.length > 500) {
+        if (nestedNoticeText && nestedNoticeText.text.length > 500) {
           return nestedNoticeText;
         }
       }
 
       if (policyText && policyText.length > 500) {
-        return policyText;
+        return { text: policyText, html: extractOneTrustNoticePayloadHtml(policyPayload) };
       }
     }
 
-    const nestedText = await extractOneTrustNoticeText({
+    const nestedText = await resolveOneTrustNoticeDocument({
       html: policy.text,
       baseUrl: policyUrl,
       timeoutMs: input.timeoutMs,
@@ -7241,18 +7404,28 @@ async function extractOneTrustNoticeTextFromUrl(
       deadlineAtMs: input.deadlineAtMs,
       signal: input.signal,
     });
-    if (nestedText && nestedText.length > 500) {
+    if (nestedText && nestedText.text.length > 500) {
       return nestedText;
     }
 
     const visibleText = htmlToVisibleText(policy.text);
     if (visibleText.length > 500 && !/processing error|privacy center.*error/i.test(visibleText)) {
-      return visibleText;
+      return { text: visibleText, html: policy.text };
     }
   }
 
   const directText = extractOneTrustNoticePayloadText(payload);
-  return directText && directText.length > 500 ? directText : null;
+  return directText && directText.length > 500 ? { text: directText, html: extractOneTrustNoticePayloadHtml(payload) } : null;
+}
+
+export function declaredOneTrustNoticeLocale(html: string, noticeUrl: string, baseUrl: string): string | undefined {
+  const locales = new Set<string>();
+  const calls = /OneTrust\.NoticeApi\.LoadNotices\s*\(\s*(\[[\s\S]*?\])\s*,\s*(?:true|false)\s*,\s*["']([a-z]{2}(?:-[a-z0-9]{2,8})*)["']/gi;
+  for (const match of html.matchAll(calls)) {
+    const urls = parseJsonArrayOfStrings(match[1] ?? "").map(url => normalizeUrl(url, baseUrl));
+    if (urls.includes(noticeUrl)) locales.add(match[2]!.toLowerCase());
+  }
+  return locales.size === 1 ? [...locales][0] : undefined;
 }
 
 function extractOneTrustNoticeUrls(html: string, baseUrl: string): string[] {
@@ -7275,7 +7448,7 @@ function extractOneTrustNoticeUrls(html: string, baseUrl: string): string[] {
     .filter((url): url is string => Boolean(url)));
 }
 
-function extractOneTrustPolicyUrls(payload: unknown, baseUrl: string): string[] {
+function extractOneTrustPolicyUrls(payload: unknown, baseUrl: string, includeContentLinks = true): string[] {
   const urls = new Set<string>();
   const contentLinks: string[] = [];
 
@@ -7306,14 +7479,14 @@ function extractOneTrustPolicyUrls(payload: unknown, baseUrl: string): string[] 
   }
 
   visit(payload);
-  for (const link of contentLinks) {
+  for (const link of includeContentLinks ? contentLinks : []) {
     urls.add(link);
   }
 
   return [...urls].sort((left, right) => oneTrustPolicyUrlPriority(left) - oneTrustPolicyUrlPriority(right));
 }
 
-function extractOneTrustNoticePayloadText(payload: unknown): string | null {
+function extractOneTrustNoticePayloadHtml(payload: unknown): string {
   const contentBlocks: string[] = [];
 
   function visit(value: unknown, keyHint = ""): void {
@@ -7337,7 +7510,11 @@ function extractOneTrustNoticePayloadText(payload: unknown): string | null {
   }
 
   visit(payload);
-  const text = htmlToVisibleText(contentBlocks.join(" "));
+  return contentBlocks.join(" ");
+}
+
+function extractOneTrustNoticePayloadText(payload: unknown): string | null {
+  const text = htmlToVisibleText(extractOneTrustNoticePayloadHtml(payload));
   return text.length > 0 ? text : null;
 }
 
@@ -9655,6 +9832,12 @@ function bestRenderedPolicyDocumentText(html: string, textCandidates: string[]):
   const sanitizedTextCandidates = (policyHtml === html ? textCandidates : textCandidates.slice(1))
     .map(stripConsentSurfacePreambleFromPolicyText);
   const bodyText = sanitizedTextCandidates.find((text) => normalizeWhitespace(text).length > 0) ?? "";
+  const legacyCenterPanel = preferredLegacyCenterPanelPolicyText(
+    extractLegacyCenterPanelPolicyBlocks(policyHtml)
+      .map(block => stripConsentSurfacePreambleFromPolicyText(htmlToVisibleText(stripPageChromeHtml(block)))),
+    bodyText,
+  );
+  if (legacyCenterPanel) return legacyCenterPanel;
   if (!html) {
     return bodyText;
   }
@@ -9894,16 +10077,19 @@ async function fetchBestCanonicalPolicyDocumentText(input: {
 
 function canonicalPolicyDocumentUrlsFromHtml(html: string, baseUrl: string): string[] {
   const anchors: Array<{ url: string; score: number }> = [];
+  const cmpInspection = inspectCmpPolicyHtml(html, baseUrl);
   const anchorPattern = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
   while ((match = anchorPattern.exec(html))) {
+    if (!cmpInspection.anchorOffsets.has(match.index) || cmpInspection.anchors.get(match.index)?.vendor) continue;
     const attrs = match[1] ?? "";
     const href = attr(attrs, "href");
     if (!href) {
       continue;
     }
     const normalizedUrl = normalizeUrl(href, baseUrl);
-    if (!normalizedUrl || normalizedUrl === baseUrl) {
+    if (!normalizedUrl || normalizedUrl === baseUrl ||
+        (cmpInspection.anchors.has(match.index) && isCmpProviderPolicy(normalizedUrl, baseUrl))) {
       continue;
     }
     const linkText = htmlToVisibleText(match[2] ?? "");
@@ -10263,20 +10449,22 @@ function effectiveDateText(text: string): string | undefined {
   return /(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|(?:Jan(?:uary|uar)?|Feb(?:ruary|ruar)?|Mar(?:ch|z|zo)?|Apr(?:il|ile)?|May|Mai|Jun(?:e|i)?|Jul(?:y|i)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Okt(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|Dez(?:ember)?)\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+(?:Jan(?:uary|uar)?|Feb(?:ruary|ruar)?|Mar(?:ch|z|zo)?|Apr(?:il|ile)?|May|Mai|Jun(?:e|i)?|Jul(?:y|i)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Okt(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|Dez(?:ember)?)\s+\d{4})/i.exec(tail)?.[0]?.slice(0, 80);
 }
 
-function dedupeCandidates(candidates: PolicySurfaceCandidate[]): PolicySurfaceCandidate[] {
+export function dedupeCandidates(candidates: PolicySurfaceCandidate[]): PolicySurfaceCandidate[] {
   const byUrl = new Map<string, PolicySurfaceCandidate>();
   for (const candidate of candidates) {
     const key = candidate.observationOnly && candidate.selector
       ? `${candidate.normalizedUrl}#${candidate.selector}`
       : candidate.normalizedUrl;
     const existing = byUrl.get(key);
-    if (
-      !existing ||
-      (candidate.fetchable && !existing.fetchable) ||
-      candidate.deterministicScore > existing.deterministicScore
-    ) {
-      byUrl.set(key, candidate);
-    }
+    const cmpRelevant = Boolean(candidate.cmpDiscovery?.length || existing?.cmpDiscovery?.length);
+    const preferCandidate = !existing || (candidate.fetchable && !existing.fetchable) ||
+      (!cmpRelevant && candidate.deterministicScore > existing.deterministicScore) ||
+      (cmpRelevant && candidate.fetchable === existing.fetchable && (
+        policyCandidateDiscoveryPriority(candidate) < policyCandidateDiscoveryPriority(existing) ||
+        (policyCandidateDiscoveryPriority(candidate) === policyCandidateDiscoveryPriority(existing) && candidate.deterministicScore > existing.deterministicScore)
+      ));
+    const preferred = preferCandidate ? candidate : existing!;
+    byUrl.set(key, { ...preferred, cmpDiscovery: mergeCmpPolicyProvenance(preferred.cmpDiscovery, (preferCandidate ? existing : candidate)?.cmpDiscovery) });
   }
   return [...byUrl.values()];
 }
@@ -10331,4 +10519,16 @@ function unique<T extends string>(values: T[]): T[] {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Keep the canonical early/terminal policy packets within the same contract
+ * bound, prioritizing retained documents over index links and failed guesses. */
+export function retainPolicyPacketObservations(observations: PolicySurfaceObservation[]): PolicySurfaceObservation[] {
+  const priority = (item: PolicySurfaceObservation) => item.governingPolicySelection?.state === "primary" ? -2
+    : item.governingPolicySelection?.state === "supporting" ? -1
+    : item.status === "fetched" ? item.documentRole === "policy_index" ? 1 : 0
+    : item.status === "observed" ? 2 : 3;
+  return observations.map((item, index) => ({ item, index }))
+    .sort((a, b) => priority(a.item) - priority(b.item) || a.index - b.index)
+    .slice(0, 32).sort((a, b) => a.index - b.index).map(({ item }) => item);
 }

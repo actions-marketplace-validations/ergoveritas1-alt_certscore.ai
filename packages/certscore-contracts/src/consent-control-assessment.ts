@@ -1,3 +1,4 @@
+import { CONTROL_INSPECTION_POLICY, consentControlInspectionSchema, initialConsentSelectionSchema, isControlInspectionComplete, type InitialConsentSelection, type ConsentControlInspection } from "./consent-control-inspection";
 import { z } from "zod";
 import { CONSENT_CONTROL_LABEL_REGISTRY_VERSION } from "./consent-control-label-classifier";
 import { CONSENT_CONTROL_CAPTURE_POLICY_VERSION } from "./consent-control-evidence-policy";
@@ -7,10 +8,10 @@ import type {
   ConsentControlLocale,
 } from "./consent-control-label-classifier";
 
-export const CONSENT_CONTROL_ASSESSMENT_VERSION = "2.1" as const;
+export const CONSENT_CONTROL_ASSESSMENT_VERSION = "2.2" as const;
 export const CONSENT_CONTROL_EVIDENCE_POLICY = "structured_control_evidence.v1" as const;
 // Stored 2.0 assessments remain readable without silently changing their conclusions.
-export const consentControlAssessmentVersionSchema = z.enum(["2.0", "2.1"]);
+export const consentControlAssessmentVersionSchema = z.enum(["2.0", "2.1", "2.2"]);
 export const consentControlVisualEvidenceSchema = z.object({
   status: z.enum(["available", "withheld", "unavailable"]),
   artifactRefs: z.array(z.string().max(240)).max(24),
@@ -39,6 +40,11 @@ const assessmentChannelSchema = z.enum([
 
 export const consentControlAssessmentControlResultSchema = z.object({
   state: consentControlAssessmentTriStateSchema,
+  inspection: z.object({
+    policy: z.literal(CONTROL_INSPECTION_POLICY),
+    status: z.enum(["complete", "limited"]),
+    evidenceRefs: z.array(z.string().max(240)).max(24),
+  }).optional(),
   layer: consentControlAssessmentLayerSchema,
   reasonCodes: z.array(z.string().max(120)).max(16),
   evidenceRefs: z.array(z.string().max(240)).max(24),
@@ -47,6 +53,7 @@ export const consentControlAssessmentControlResultSchema = z.object({
 });
 
 export const consentControlAssessmentEvidenceSchema = z.object({
+  initialSelection: initialConsentSelectionSchema.optional(),
   evidenceId: z.string().max(240),
   intent: z.enum(["accept", "reject", "options", "privacy_opt_out", "save_preferences", "dismiss", "other"]),
   controlVariant: z.enum(["reject_with_subscription", "reject_with_payment"]).nullable().default(null),
@@ -137,7 +144,7 @@ export const consentControlAssessmentSchema = z.object({
   if (assessment.artifactVersion !== assessment.provenance.contractVersion) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Assessment and provenance contract versions must match." });
   }
-  if (assessment.artifactVersion === "2.1" && (
+  if (["2.1", "2.2"].includes(assessment.artifactVersion) && (
     !assessment.evidencePolicy || !assessment.visualEvidence ||
     assessment.coverage.requiredChannels.length === 0 ||
     [assessment.coverage.requiredChannels, assessment.coverage.completedChannels, assessment.coverage.incompleteChannels]
@@ -145,7 +152,11 @@ export const consentControlAssessmentSchema = z.object({
   )) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Assessment 2.1 requires structured evidence policy and separate, non-gating visual evidence." });
   }
-  if (assessment.artifactVersion === "2.1" && assessment.assessmentStatus === "complete" && (
+  if (assessment.artifactVersion === "2.2" && Object.values(assessment.controls).some(control =>
+    !control.inspection || (control.state === "not_observed" && (control.inspection.status !== "complete" ||
+      !control.inspection.evidenceRefs.some(ref => ["CanonicalEvidenceBundle.json", "ConsentControlGeometryEvidence.json"].includes(ref)) || assessment.scan.noGo || assessment.document.identityStatus !== "matched"))
+  )) context.addIssue({ code: z.ZodIssueCode.custom, message: "Assessment 2.2 requires control-specific inspection proof for negative states." });
+  if (["2.1", "2.2"].includes(assessment.artifactVersion) && assessment.assessmentStatus === "complete" && (
     assessment.scan.noGo || assessment.document.identityStatus !== "matched" ||
     assessment.coverage.status !== "complete" ||
     [assessment.controls.accept, assessment.controls.reject, assessment.controls.options].some((control) => control.state === "unknown")
@@ -174,6 +185,7 @@ export type ConsentControlAssessmentObservation = {
 };
 
 export type ConsentControlAssessmentCandidate = {
+  initialSelection?: InitialConsentSelection;
   evidenceId?: string;
   intent?: ConsentControlAssessmentEvidence["intent"] | "unknown";
   semanticRole?: "explicit_accept" | "ambiguous_acknowledgment" | "reject" | "necessary_only" | "preferences" | "dismiss" | "unknown";
@@ -200,6 +212,7 @@ export type ConsentControlAssessmentCandidate = {
 export type ConsentControlAssessmentChannel = z.infer<typeof assessmentChannelSchema>;
 
 export type ConsentControlAssessmentGeometry = {
+  controlInspection?: ConsentControlInspection;
   artifactVersion?: string | null;
   assessmentStatus?: "complete" | "incomplete" | "document_mismatch" | null;
   documentId?: string | null;
@@ -251,7 +264,7 @@ export type ConsentControlAssessmentInput = {
   };
 };
 
-const PROJECTOR_VERSION = "2.1.1";
+const PROJECTOR_VERSION = "2.2.0";
 const DEFAULT_REQUIRED_CHANNELS: ConsentControlAssessmentChannel[] = ["dom_inventory", "geometry"];
 
 function unique<T>(values: T[]) {
@@ -338,6 +351,7 @@ function eligibleCandidate(candidate: ConsentControlAssessmentCandidate, fallbac
     240,
   ) ?? `${source}:${observedAtMs}:${intent}`;
   return {
+    ...(candidate.initialSelection ? { initialSelection: candidate.initialSelection } : {}),
     evidenceId,
     intent,
     controlVariant: candidate.controlVariant ?? null,
@@ -600,11 +614,33 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
   if (geometryMismatch) {
     contradictionRows.push({ reasonCode: "geometry_document_mismatch_does_not_erase_bundle_evidence", earlierEvidenceId: bundleEvidence[0]?.evidenceId ?? null, laterEvidenceId: null, affectedFields: ["surface", "accept", "reject", "options"] });
   }
+  const parsedInspection = consentControlInspectionSchema.safeParse(input.geometry?.controlInspection);
+  const inspection = parsedInspection.success ? parsedInspection.data : null;
+  const inspectionDocumentBound = Boolean(canonicalDocumentToken && input.geometry?.documentToken === canonicalDocumentToken &&
+    canonicalId && input.geometry?.documentId === canonicalId);
+  // A supplemental capture cannot resolve a newer incomplete inventory. Empty
+  // surfaces still need the established completed whole-inspection path; early
+  // geometry before a CMP appears must not create a new absence shortcut.
+  const inspectionCurrent = typeof input.geometry?.observedAtMs === "number" && Number.isFinite(input.geometry.observedAtMs) &&
+    input.geometry.observedAtMs >= Math.max(0, ...observations.map(o => o.observedAtMs));
+  const independentlyComplete = (intent: "accept" | "reject" | "options" | "privacy_opt_out") =>
+    !assessmentBlocked && !geometryMismatch && geometryComplete && inspectionDocumentBound &&
+    inspectionCurrent && Boolean(inspection && inspection.candidates.length > 0 && isControlInspectionComplete(inspection, intent));
+  const resultWithInspection = (intent: "accept" | "reject" | "options" | "privacy_opt_out") => {
+    const inspected = completeInventory || independentlyComplete(intent);
+    const result = resultFor(intent, evidence, inspected, reasons);
+    result.inspection = {
+      policy: CONTROL_INSPECTION_POLICY, status: inspected ? "complete" : "limited",
+      evidenceRefs: inspected ? bounded(independentlyComplete(intent)
+        ? ["ConsentControlGeometryEvidence.json", ...(input.geometry?.evidenceRefs ?? [])]
+        : ["CanonicalEvidenceBundle.json", ...observations.flatMap(o => o.evidenceRefs ?? [])]) : [],
+    };
+    if (inspected && !completeInventory) result.reasonCodes = ["control_specific_inventory_complete", ...result.reasonCodes].slice(0, 16);
+    return result;
+  };
   const firstLayerResults = {
-    accept: resultFor("accept", evidence, completeInventory, reasons),
-    reject: resultFor("reject", evidence, completeInventory, reasons),
-    options: resultFor("options", evidence, completeInventory, reasons),
-    privacyOptOut: resultFor("privacy_opt_out", evidence, completeInventory, reasons),
+    accept: resultWithInspection("accept"), reject: resultWithInspection("reject"),
+    options: resultWithInspection("options"), privacyOptOut: resultWithInspection("privacy_opt_out"),
   };
   if (assessmentBlocked) {
     for (const result of Object.values(firstLayerResults)) {
@@ -687,4 +723,16 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
       computedAt: input.source?.computedAt ?? new Date(0).toISOString(),
     },
   });
+}
+
+/** Shared eligibility for an absence conclusion, independent of unrelated controls. */
+export function hasVerifiedConsentControlAbsence(
+  assessment: ConsentControlAssessment,
+  control: keyof ConsentControlAssessment["controls"],
+): boolean {
+  return !assessment.scan.noGo && assessment.document.identityStatus === "matched" &&
+    assessment.controls[control].state === "not_observed" &&
+    (assessment.artifactVersion === "2.2"
+      ? assessment.controls[control].inspection?.status === "complete" && Boolean(assessment.controls[control].inspection?.evidenceRefs.length)
+      : assessment.assessmentStatus === "complete" && assessment.coverage.status === "complete");
 }

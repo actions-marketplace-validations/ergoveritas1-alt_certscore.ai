@@ -5,6 +5,7 @@ import {
   classifyGdprTransparencyTopics,
   collectionSurfaceAssessmentSchema,
   consentControlAssessmentSchema,
+  hasVerifiedConsentControlAbsence,
   evaluateLegalFrameworkValidity,
   hasStaleLegalFrameworkReference,
   hasSubstantiveProcessingPurposesEvidence,
@@ -232,6 +233,7 @@ export type NormalizedConcernNegativeEvidenceFlag =
   | "tag_manager_only_without_consent_context"
   | "consent_revisit_control_observed"
   | "incomplete_consent_control_lifecycle_coverage"
+  | "canonical_consent_control_evidence_insufficient"
   | "missing_consent_tracking_context"
   | "prior_consent_state_may_hide_control"
   | "shallow_consent_control_search_scope"
@@ -1852,6 +1854,7 @@ function deriveEvidenceStrengthFlags(input: {
 import type { ScanDomainContext } from "./scan-domain-context";
 
 function buildConcernFromSharedInput(input: {
+  consentControlAssessment?: unknown;
   categoryId?: string;
   description: string;
   domainContext?: ScanDomainContext;
@@ -1895,6 +1898,18 @@ function buildConcernFromSharedInput(input: {
     signalSource: input.signalSource,
     title: input.title
   });
+  // Carry only bounded provenance into the concern; policy receives the original
+  // typed assessment so compatibility evidence cannot upgrade an unknown control.
+  if (input.consentControlAssessment !== undefined &&
+      (suggestedUnifiedFindingId === "reject_button_missing" || suggestedUnifiedFindingId === "accept_more_prominent_than_reject")) {
+    const parsed = consentControlAssessmentSchema.safeParse(input.consentControlAssessment);
+    Object.assign(policyRawEvidence, {
+      consentControlAssessmentContractVersion: parsed.success ? parsed.data.artifactVersion : null,
+      consentControlAssessmentSourceHash: parsed.success ? parsed.data.provenance.sourceHash : null,
+      consentControlAssessmentStatus: parsed.success ? parsed.data.assessmentStatus : "invalid",
+      firstLayerRejectState: parsed.success ? parsed.data.controls.reject.state : "unknown",
+    });
+  }
   const canonicalConcernKey = deriveCanonicalConcernKey({
     originKey: input.originKey,
     originType: input.originType,
@@ -1908,6 +1923,7 @@ function buildConcernFromSharedInput(input: {
     rawEvidence: policyRawEvidence
   });
   const eligibility = deriveConcernPolicy({
+    consentControlAssessment: input.consentControlAssessment,
     concern: {
       canonicalConcernKey,
       originKey: input.originKey,
@@ -1954,7 +1970,8 @@ function buildConcernFromSharedInput(input: {
 
 export function normalizeConcernFromReviewFindingCandidate(
   candidate: ReviewFindingCandidateInput,
-  domainContext?: ScanDomainContext
+  domainContext?: ScanDomainContext,
+  consentControlAssessment?: unknown
 ): NormalizedConcern {
   const originType = deriveOriginTypeFromCandidate(candidate);
   const linkedValidationFinding = candidate.linkedValidationFinding
@@ -1966,6 +1983,7 @@ export function normalizeConcernFromReviewFindingCandidate(
       : linkedValidationFinding?.ruleKey ?? normalizeTitleKey(candidate.title);
 
   return buildConcernFromSharedInput({
+    consentControlAssessment,
     categoryId: candidate.categoryId,
     description: candidate.description,
     domainContext,
@@ -1986,7 +2004,8 @@ export function normalizeConcernFromReviewFindingCandidate(
 
 export function normalizeConcernFromValidationFinding(
   finding: ScanValidationFinding | Record<string, unknown>,
-  domainContext?: ScanDomainContext
+  domainContext?: ScanDomainContext,
+  consentControlAssessment?: unknown
 ): NormalizedConcern {
   const normalizedFinding = normalizeScanValidationFinding(finding);
   const fallbackTitle = typeof finding.title === "string" && finding.title.trim().length > 0 ? finding.title : "Validation finding";
@@ -1994,6 +2013,7 @@ export function normalizeConcernFromValidationFinding(
   const title = normalizedFinding?.title ?? fallbackTitle;
   const description = normalizedFinding?.description ?? title;
   return buildConcernFromSharedInput({
+    consentControlAssessment,
     description,
     domainContext,
     evidence: [],
@@ -3535,10 +3555,11 @@ function buildConsentOptionsControlProminenceConcerns(
       evidence.layer === "deeper_layer" &&
       evidence.presentationType === "persistent_link"
   );
-  const assessmentComplete =
-    assessment.assessmentStatus === "complete" &&
-    assessment.coverage.status === "complete" &&
-    assessment.surface.status === "observed_actionable";
+  const assessmentComplete = assessment.surface.status === "observed_actionable" && (
+    (assessment.assessmentStatus === "complete" && assessment.coverage.status === "complete") ||
+    (assessment.artifactVersion === "2.2" && assessment.document.identityStatus === "matched" && !assessment.scan.noGo &&
+      (assessment.controls.options.state === "observed" || hasVerifiedConsentControlAbsence(assessment, "options")))
+  );
   const state: ConsentOptionsControlProminenceState =
     !assessmentComplete
       ? "insufficient_retained_evidence"
@@ -3636,11 +3657,12 @@ function buildConsentControlInventoryConcerns(
   const inventoryComplete =
     assessment.assessmentStatus === "complete" &&
     assessment.coverage.status === "complete";
-  const projectControlState = (state: typeof assessment.controls.accept.state) =>
-    state === "observed" || inventoryComplete ? state : "unknown";
-  const acceptState = projectControlState(assessment.controls.accept.state);
-  const rejectState = projectControlState(assessment.controls.reject.state);
-  const optionsState = projectControlState(assessment.controls.options.state);
+  const projectControlState = (key: "accept" | "reject" | "options") =>
+    assessment.controls[key].state === "observed" || hasVerifiedConsentControlAbsence(assessment, key)
+      ? assessment.controls[key].state : "unknown";
+  const acceptState = projectControlState("accept");
+  const rejectState = projectControlState("reject");
+  const optionsState = projectControlState("options");
 
   const runtimeEvidenceArtifacts = uniqueStrings([
     ...assessment.surface.evidenceRefs,
@@ -3656,7 +3678,7 @@ function buildConsentControlInventoryConcerns(
       description:
         inventoryComplete
           ? "A complete, same-document first-layer consent-control inventory retained factual Accept, Reject, and Options observation states."
-          : "A limited, same-document first-layer consent-control assessment retained unknown or observed Accept, Reject, and Options states without converting missing evidence into absence.",
+          : "A same-document assessment retained each control state with its own inspection coverage; unresolved controls remain limited.",
       domainContext,
       evidence: runtimeEvidenceArtifacts,
       observedValue: [
@@ -3679,6 +3701,8 @@ function buildConsentControlInventoryConcerns(
         firstLayerAcceptState: acceptState,
         firstLayerOptionsState: optionsState,
         firstLayerRejectState: rejectState,
+        consentControlInspections: assessment.artifactVersion === "2.2"
+          ? Object.fromEntries(Object.entries(assessment.controls).map(([key, control]) => [key, control.inspection])) : undefined,
         runtimeEvidenceArtifacts
       },
       severity: "low",
@@ -3755,8 +3779,7 @@ function buildConsentDismissWithoutRejectConcerns(
   const assessment = getConsentControlAssessmentForConcern(runtimeArtifacts);
   if (
     !assessment ||
-    assessment.assessmentStatus !== "complete" ||
-    assessment.coverage.status !== "complete" ||
+    !hasVerifiedConsentControlAbsence(assessment, "reject") ||
     assessment.document.identityStatus !== "matched" ||
     assessment.scan.noGo !== false ||
     assessment.surface.status !== "observed_actionable" ||
@@ -3806,6 +3829,7 @@ function buildConsentDismissWithoutRejectConcerns(
         consentControlAssessmentSourceHash: assessment.provenance.sourceHash,
         consentControlAssessmentStatus: assessment.assessmentStatus,
         consentControlCoverageStatus: assessment.coverage.status,
+        consentRejectInspectionComplete: hasVerifiedConsentControlAbsence(assessment, "reject"),
         consentDismissWithoutRejectEvidence: true,
         consentSurfaceObserved: true,
         consentSurfaceDiagnostics: {
@@ -3891,6 +3915,7 @@ function buildConsentPaidDeclinePathConcerns(
         consentControlAssessmentSourceHash: assessment.provenance.sourceHash,
         consentControlAssessmentStatus: assessment.assessmentStatus,
         consentControlCoverageStatus: assessment.coverage.status,
+        consentRejectInspectionComplete: hasVerifiedConsentControlAbsence(assessment, "reject"),
         consentControlDocumentIdentityStatus: assessment.document.identityStatus,
         consentControlNoGo: assessment.scan.noGo,
         consentControlSurfaceStatus: assessment.surface.status,
@@ -4395,13 +4420,20 @@ export function buildNormalizedConcerns(input: {
   runtimeArtifacts?: Record<string, unknown> | null;
   validationFindings: Array<ScanValidationFinding | Record<string, unknown>>;
 }) {
+  const hybrid = getRuntimeRecord(input.runtimeArtifacts, ["hybridRuntimeEvidence", "hybrid_runtime_evidence"]);
+  const consentControlAssessment = [
+    input.runtimeArtifacts?.consentControlAssessment,
+    input.runtimeArtifacts?.consent_control_assessment,
+    hybrid?.consentControlAssessment,
+    hybrid?.consent_control_assessment,
+  ].find((assessment) => assessment !== undefined);
   const concerns = [
     ...input.reviewFindingCandidates.map((candidate) =>
-      normalizeConcernFromReviewFindingCandidate(candidate, input.domainContext)
+      normalizeConcernFromReviewFindingCandidate(candidate, input.domainContext, consentControlAssessment)
     ),
     ...input.validationFindings.flatMap((finding) => {
       const normalizedFinding = normalizeScanValidationFinding(finding);
-      return normalizedFinding ? [normalizeConcernFromValidationFinding(normalizedFinding, input.domainContext)] : [];
+      return normalizedFinding ? [normalizeConcernFromValidationFinding(normalizedFinding, input.domainContext, consentControlAssessment)] : [];
     }),
     ...buildScanNoGoAssessmentConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildRuntimeCoverageLimitationConcerns(input.runtimeArtifacts, input.domainContext),

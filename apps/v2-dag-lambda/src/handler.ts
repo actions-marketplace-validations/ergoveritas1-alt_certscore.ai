@@ -1,3 +1,4 @@
+import { actionWorkerCheckpoints } from "./action-worker-checkpoints.js";
 import { createOpenAiScreenshotSafetyClassifier as createFormSnapshotSafetyClassifier } from "./screenshot-safety";
 import { FULL_SITE_PAGE_DISPATCH, dispatchFullSitePage } from "./full-site-page";
 import { InvokeCommand, LambdaClient, type InvokeCommandOutput } from "@aws-sdk/client-lambda";
@@ -2167,6 +2168,8 @@ export async function runLocalV2DagLambdaPostRefusalArtifactChain(
   }
   const phaseTimings: LocalV2DagLambdaPhaseTiming[] = [];
   await mkdir(options.artifactRoot, { recursive: true });
+  const checkpoint = actionWorkerCheckpoints(options.artifactRoot, "reject");
+  await checkpoint("observation_started");
   const recipes = config.resolver.kind === "canonical_cmp_registry"
     ? buildCanonicalPostRefusalActionRecipes()
     : [buildPostRefusalCmpActionRecipe({
@@ -2183,6 +2186,7 @@ export async function runLocalV2DagLambdaPostRefusalArtifactChain(
     }
     return runPostRefusalObserver({
       runtimeGraph: payload.runtimeGraph,
+      onLifecycleEvent: () => { void checkpoint("action_dispatched"); },
       allowCanonicalRejectDiscovery: config.resolver.kind === "canonical_cmp_registry",
       actionSearchTimeoutMs: config.actionSearchTimeoutMs,
       confirmationTimeoutMs: config.confirmationTimeoutMs,
@@ -2207,10 +2211,12 @@ export async function runLocalV2DagLambdaPostRefusalArtifactChain(
     });
   });
   const body = Buffer.from(JSON.stringify(postRefusalEvidencePacketSchema.parse(packet)));
+  await checkpoint("packet_validated");
   const sha256 = createHash("sha256").update(body).digest("hex");
   const bucket = requireArtifactBucket();
   const key = `${artifactKeyPrefix(payload).replace(/^\/+|\/+$/g, "")}/PostRefusalEvidencePacket.json`;
   await timeLambdaPhase(phaseTimings, "post_refusal_artifact_upload", async () => {
+    await checkpoint("artifact_upload_started");
     await (options.s3Client ?? localV2DagLambdaS3Client(payload.awsRegion)).send(new PutObjectCommand({
       Body: body,
       Bucket: bucket,
@@ -2218,6 +2224,7 @@ export async function runLocalV2DagLambdaPostRefusalArtifactChain(
       Key: key,
       Metadata: { sha256 },
     }), { abortSignal: options.signal });
+    await checkpoint("artifact_upload_completed");
   });
   const packetPointer = s3Uri(bucket, key);
   const descriptor = postRefusalLambdaEvidenceDescriptorSchema.parse({
@@ -2267,6 +2274,8 @@ export async function runLocalV2DagLambdaPostAcceptArtifactChain(
   }
   const phaseTimings: LocalV2DagLambdaPhaseTiming[] = [];
   await mkdir(options.artifactRoot, { recursive: true });
+  const checkpoint = actionWorkerCheckpoints(options.artifactRoot, "accept");
+  await checkpoint("observation_started");
   const recipes = config.resolver.kind === "canonical_cmp_registry"
     ? buildCanonicalPostAcceptActionRecipes()
     : [buildPostAcceptCmpActionRecipe({
@@ -2283,6 +2292,7 @@ export async function runLocalV2DagLambdaPostAcceptArtifactChain(
     }
     return runPostAcceptObserver({
       runtimeGraph: payload.runtimeGraph,
+      onLifecycleEvent: () => { void checkpoint("action_dispatched"); },
       allowCanonicalAcceptDiscovery: config.resolver.kind === "canonical_cmp_registry",
       actionSearchTimeoutMs: config.actionSearchTimeoutMs,
       confirmationTimeoutMs: config.confirmationTimeoutMs,
@@ -2311,10 +2321,12 @@ export async function runLocalV2DagLambdaPostAcceptArtifactChain(
     });
   });
   const body = Buffer.from(JSON.stringify(postAcceptEvidencePacketSchema.parse(packet)));
+  await checkpoint("packet_validated");
   const sha256 = createHash("sha256").update(body).digest("hex");
   const bucket = requireArtifactBucket();
   const key = `${artifactKeyPrefix(payload).replace(/^\/+|\/+$/g, "")}/PostAcceptEvidencePacket.json`;
   await timeLambdaPhase(phaseTimings, "post_accept_artifact_upload", async () => {
+    await checkpoint("artifact_upload_started");
     await (options.s3Client ?? localV2DagLambdaS3Client(payload.awsRegion)).send(new PutObjectCommand({
       Body: body,
       Bucket: bucket,
@@ -2322,6 +2334,7 @@ export async function runLocalV2DagLambdaPostAcceptArtifactChain(
       Key: key,
       Metadata: { sha256 },
     }), { abortSignal: options.signal });
+    await checkpoint("artifact_upload_completed");
   });
   const packetPointer = s3Uri(bucket, key);
   const descriptor = postAcceptLambdaEvidenceDescriptorSchema.parse({

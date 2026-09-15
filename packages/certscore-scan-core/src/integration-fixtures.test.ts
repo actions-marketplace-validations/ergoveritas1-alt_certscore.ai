@@ -23,6 +23,7 @@ import { getScanProfile } from "./profiles.js";
 import {
   type FixtureRouteFulfiller,
   consentUiObservationFromConfirmedGeometryControls,
+  mergeConsentUiObservations,
   consentControlsFromAccessibilityTree,
   finalizeBoundedSameSessionConsentPacket,
   PRE_CONSENT_RUNTIME_PREVIEW_CHECKPOINT_MS,
@@ -852,19 +853,24 @@ test("pre-consent runtime scanner can retain confirmed first-layer geometry cont
     placementType: "action_cluster" as const,
     presentationType: "inline_link" as const,
   };
+  const scanStartedAtMs = Date.now() - 5000;
   const observation = consentUiObservationFromConfirmedGeometryControls({
     artifactPath: "/tmp/ConsentControlGeometryEvidence.json",
-    geometry: geometryFixture([
+    geometry: { ...geometryFixture([
       geometryCandidate("Reject all", "reject_all", "confirmed_visible", "first_layer"),
       geometryCandidate("Accept all", "accept_all", "confirmed_visible", "first_layer"),
       optionsCandidate,
+      { ...geometryCandidate("Save selection", "reject_all", "confirmed_visible", "first_layer"),
+        classifierReasonCodes: ["initial_necessary_only_selection_observed"] },
       geometryCandidate("Privacy policy", "policy_link", "footer_or_policy_link", "footer"),
       geometryCandidate("Hidden reject", "reject_all", "hidden", "first_layer"),
-    ]),
-    scanStartedAtMs: Date.now(),
+    ]), capturedAt: new Date(scanStartedAtMs + 1000).toISOString() },
+    scanStartedAtMs,
     text: "We use cookies to personalize content and measure audiences.",
   });
 
+  assert.equal(observation?.observedAtMs, 1000, "retain capture time, not later projection time");
+  assert.equal(mergeConsentUiObservations({ ...observation!, observedAtMs: 2000 }, observation!, "test").observedAtMs, 2000);
   assert.equal(observation?.likelyPresent, true);
   assert.equal(observation?.acceptControlObserved, true);
   assert.equal(observation?.rejectControlObserved, true);

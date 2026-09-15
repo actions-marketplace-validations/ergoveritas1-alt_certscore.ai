@@ -125,6 +125,28 @@ test("post-Accept observations require a semantically confirmed Accept action", 
   assert.equal(result.success, false);
 });
 
+test("Accept materialization retains explicit completed protocol evidence independently from confirmation", () => {
+  const base = confirmedPacket();
+  const packet = postAcceptEvidencePacketSchema.parse({ ...base,
+    decisionEvidence: { policyVersion: "semantic_consent_registration.v2", decision: "granted", basis: "verified_state",
+      observedAtMs: 120, observedStateSha256: "a".repeat(64), timestampBasis: "verified_state_observed" },
+    captureCoverage: { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 0 },
+    timing: { ...base.timing, observationMs: 8000, readyAtMs: 8120, totalMs: 8120, observationExitReason: "window_elapsed" },
+  });
+  const projection = projectPostAcceptEvidenceForReport({ packet, packetSha256: "a".repeat(64) });
+  assert.equal(projection.execution?.status, "succeeded_with_confirmation");
+  assert.deepEqual(projection.registeredObservationCompletion, {
+    policyVersion: "registered_action_observation_completion.v1", action: "accept", startedAtMs: 120,
+    completedAtMs: 8120, requiredWindowMs: 8000, termination: "window_elapsed",
+  });
+  assert.deepEqual(postAcceptReportProjectionSchema.parse(JSON.parse(JSON.stringify(projection))), projection);
+  const incomplete = projectPostAcceptEvidenceForReport({ packet: { ...packet, timing: {
+    ...packet.timing, observationExitReason: undefined,
+  } }, packetSha256: "a".repeat(64) });
+  assert.equal(incomplete.execution?.status, "limited");
+  assert.equal(incomplete.execution?.consentConfirmed, true);
+});
+
 test("invalid optional graph cannot invalidate independently valid retained Accept proof", () => {
   const base = postAcceptEvidencePacketSchema.parse(confirmedPacket());
   const parsed = postAcceptEvidencePacketSchema.parse({ ...base, runtimeEvidenceGraph: { scenario: "post_accept", contractVersion: "future" } });

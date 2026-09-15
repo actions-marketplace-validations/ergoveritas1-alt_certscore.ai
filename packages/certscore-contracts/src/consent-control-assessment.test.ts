@@ -6,7 +6,7 @@ import {
   type ConsentControlAssessmentInput,
 } from "./consent-control-assessment";
 
-test("2.1 records visual availability separately and 2.0 persisted conclusions remain unchanged", () => {
+test("2.2 preserves separate visual availability and historical 2.0 conclusions", () => {
   const input = baseInput();
   input.observations = [{
     observationId: "accept-only", observedAtMs: 100, likelyPresent: true,
@@ -16,7 +16,7 @@ test("2.1 records visual availability separately and 2.0 persisted conclusions r
   }];
   const available = deriveConsentControlAssessment({ ...input, visualEvidence: { status: "available", artifactRefs: ["frame"], reasonCodes: [] } });
   const withheld = deriveConsentControlAssessment({ ...input, visualEvidence: { status: "withheld", artifactRefs: [], reasonCodes: ["finalization_deadline_exceeded"] } });
-  assert.equal(withheld.artifactVersion, "2.1");
+  assert.equal(withheld.artifactVersion, "2.2");
   assert.equal(withheld.evidencePolicy, "structured_control_evidence.v1");
   assert.deepEqual(withheld.controls, available.controls);
   assert.deepEqual(withheld.coverage, available.coverage);
@@ -616,4 +616,24 @@ test("overlong redirect URLs and document identities are safely bounded with sta
   assert.equal(first.controls.accept.state, "observed");
   assert.ok(first.limitations.some((limitation) => limitation.code === "document_identity_bounded"));
   assert.deepEqual(first, second);
+});
+
+test("2.2 retains a verified negative Reject state independently of incomplete Options", () => {
+  const input = baseInput();
+  input.document!.canonicalDocumentToken = "doc-token";
+  input.coverage = { status: "limited", requiredChannels: ["dom_inventory", "geometry"], completedChannels: ["geometry"], incompleteChannels: [] };
+  input.geometry = { assessmentStatus: "complete", documentId: input.document!.canonicalDocumentId, documentToken: "doc-token", observedAtMs: 1000, candidates: [],
+    controlInspection: { version: "control_specific_inspection.v1", structuralCoverage: "complete", retainedCandidateCount: 1, captureCoverage: { inventoryTruncated: false, documentReadyState: "complete" as const, mainFrameAvailable: true, documentAndFramesStable: true, frameCount: 1, capturedFrameCount: 1 }, reasonCodes: [],
+      candidates: [{ candidateId: "info", role: "information", unresolvedIntents: ["options"] }] } };
+  const assessment = deriveConsentControlAssessment(input);
+  assert.equal(assessment.assessmentStatus, "limited");
+  assert.equal(assessment.controls.reject.state, "not_observed");
+  assert.equal(assessment.controls.reject.inspection?.status, "complete");
+  assert.equal(assessment.controls.options.state, "unknown");
+  assert.equal(consentControlAssessmentSchema.safeParse({ ...assessment, controls: { ...assessment.controls, reject: { ...assessment.controls.reject, inspection: undefined } } }).success, false);
+  input.geometry.controlInspection!.structuralCoverage = "limited";
+  assert.equal(deriveConsentControlAssessment(input).controls.reject.state, "unknown");
+  input.geometry.controlInspection!.structuralCoverage = "complete";
+  input.document!.identityStatus = "mismatched";
+  assert.equal(deriveConsentControlAssessment(input).controls.reject.state, "unknown");
 });

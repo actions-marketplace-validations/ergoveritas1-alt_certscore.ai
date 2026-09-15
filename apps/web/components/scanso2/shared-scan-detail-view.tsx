@@ -1,3 +1,5 @@
+import { choicePathExecutionSchema } from "@certscore/contracts";
+import { consentInspectionNotice } from "../../lib/scans/consent-inspection-presentation";
 import { resolveScanReportScore } from "../../lib/scans/scan-report-disposition";
 
 import { scanFailureExplanation } from "../../lib/scans/scan-failure-explanation";
@@ -1442,7 +1444,9 @@ export function buildExecutiveRejectPathProjection(
   const observationWindowMs = getOptionalFiniteNumber(retained, "observationWindowMs");
   const resolverMethod = getOptionalString(retained, "resolverMethod");
   const captureCoverage = afterClickCoverage(retained, "reject");
-  const registrationConfirmed = retained.rejectInteractionConfirmed === true;
+  const parsedExecution = choicePathExecutionSchema.safeParse(retained.execution);
+  const execution = parsedExecution.success ? parsedExecution.data : undefined;
+  const registrationConfirmed = execution?.consentConfirmed ?? retained.rejectInteractionConfirmed === true;
   const afterClickNote = afterClickSummary(retained, "reject");
   const customerFacingNote = omitScoreMechanicsFromCustomerCopy(item.note) + afterClickNote;
   const timelineEvents = activityRows
@@ -1460,6 +1464,7 @@ export function buildExecutiveRejectPathProjection(
       ].slice(0, 3),
       label: contradictionObserved ? "Consent signal contradicted Reject" : "Activity observed after Reject",
       note: customerFacingNote,
+      ...(execution ? { execution } : {}),
       afterClickCoverage: captureCoverage,
       registrationConfirmed,
       observationWindowMs,
@@ -1475,6 +1480,7 @@ export function buildExecutiveRejectPathProjection(
       evidenceRows: persistenceRows.map(formatRejectPersistenceEvidence).slice(0, 3),
       label: item.label,
       note: customerFacingNote,
+      ...(execution ? { execution } : {}),
       afterClickCoverage: captureCoverage,
       registrationConfirmed,
       observationWindowMs,
@@ -1490,6 +1496,7 @@ export function buildExecutiveRejectPathProjection(
       evidenceRows: [],
       label: "No post-Reject issue observed",
       note: "A confirmed Reject and bounded observation window were retained. No qualifying post-Reject issue was observed in that window." + afterClickNote,
+      ...(execution ? { execution } : {}),
       afterClickCoverage: captureCoverage,
       registrationConfirmed,
       observationWindowMs,
@@ -1506,6 +1513,7 @@ export function buildExecutiveRejectPathProjection(
     note: afterClickNote
       ? "The Reject control was clicked." + afterClickNote
       : customerFacingNote,
+    ...(execution ? { execution } : {}),
     afterClickCoverage: captureCoverage,
     registrationConfirmed,
     observationWindowMs,
@@ -7932,6 +7940,10 @@ export async function SharedScanDetailView({
     reject: getRecordOptionalBoolean(snapshot, "consent_reject_observed"),
     options: getRecordOptionalBoolean(snapshot, "consent_options_observed"),
   };
+  const consentStateLabel = (value: boolean | null) => value === true ? "Observed" : value === false ? "Not observed" : "Unknown";
+  executiveConsentControls.inspectionNotice = consentInspectionNotice({
+    accept: consentStateLabel(executiveConsentControls.accept), reject: consentStateLabel(executiveConsentControls.reject), options: consentStateLabel(executiveConsentControls.options),
+  }, snapshot?.consent_control_assessment ?? runtimeArtifacts?.consentControlAssessment ?? runtimeArtifacts?.consent_control_assessment);
   const executiveCookieBannerPresent =
     consentSurfaceCoverageItem?.status === "Observed"
       ? true

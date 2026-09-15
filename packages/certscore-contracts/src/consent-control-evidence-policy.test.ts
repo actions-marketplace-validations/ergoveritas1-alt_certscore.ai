@@ -4,12 +4,27 @@ import { hasPositiveControlBox, hasUnresolvedConsentDecision, consentSessionAcce
 import { classifyConsentControlLabel } from "./consent-control-label-classifier";
 
 test("new observation vocabulary does not expand automatic action eligibility", () => {
-  for (const label of ["Allow", "Agree to all", "Accept additional cookies", "Reject Non-Necessary Cookies", "Reject unnecessary cookies", "Aceitar cookies", "Gerenciar cookies"]) {
+  for (const label of ["Allow", "Agree to all", "Reject Non-Necessary Cookies", "Reject unnecessary cookies", "Aceitar cookies", "Gerenciar cookies"]) {
     assert.notEqual(classifyConsentControlLabel({ label, hasConsentContext: true }).intent, "unknown", label);
     assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true, usage: "action" }).intent, "unknown", label);
     assert.equal(classifyConsentControlLabel({ label, contextText: "Account checkout and newsletter", hasConsentContext: false }).intent, "unknown", label);
   }
   assert.equal(classifyConsentControlLabel({ label: "Accept all", hasConsentContext: true, usage: "action" }).intent, "accept");
+});
+
+test("reviewed explicit choice labels agree between inventory and action proof", () => {
+  for (const [label, intent] of [["Accept additional cookies", "accept"], ["Nur erforderliche", "reject"]]) {
+    for (const usage of ["observation", "action"] as const) {
+      const result = classifyConsentControlLabel({ label, hasConsentContext: true, usage, classifierProfile: "multilingual_v1" });
+      assert.equal(result.intent, intent);
+      assert.ok(result.confidence >= 0.8);
+      assert.equal(classifyConsentControlLabel({ label, hasConsentContext: false, usage }).intent, "unknown");
+    }
+  }
+  for (const label of ["Accept additional cookies and subscribe", "Nur erforderliche und kaufen", "GOT IT!"]) {
+    const result = classifyConsentControlLabel({ label, hasConsentContext: true, usage: "action", classifierProfile: "multilingual_v1" });
+    assert.ok(result.intent === "unknown" || result.confidence < 0.8);
+  }
 });
 
 test("Cookiebot details is recognized only with the registered passive recipe", () => {

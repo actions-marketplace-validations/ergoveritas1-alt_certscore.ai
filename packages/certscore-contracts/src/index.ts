@@ -43,6 +43,7 @@ import {
 export * from "./consent-control-label-classifier";
 export * from "./consent-control-link";
 export * from "./consent-control-evidence-policy";
+export * from "./consent-control-inspection";
 import { UNRESOLVED_CONSENT_DECISION } from "./consent-control-evidence-policy";
 export * from "./consent-action-control-proof";
 export * from "./choice-path-evidence-disposition";
@@ -885,6 +886,11 @@ export const collectionSurfaceFormSchema = z.object({
   }
 });
 
+export const collectionSurfaceSnapshotReasonSchema = z.enum([
+  "capture_cancelled", "capture_budget_exhausted", "document_changed", "control_identity_unavailable",
+  "control_binding_changed", "form_not_visible", "form_bounds_exceeded", "screenshot_failed",
+  "image_processing_failed", "image_size_exceeded", "review_failed", "review_timed_out", "review_withheld",
+]);
 // Pixels are presentation evidence only; unavailable/withheld images retain no bytes.
 const collectionSurfaceSnapshotObjectSchema = z.object({
   contractVersion: z.literal("certscore.collection-surface-snapshot.v1"),
@@ -892,6 +898,7 @@ const collectionSurfaceSnapshotObjectSchema = z.object({
   pageUrl: z.string().min(1).max(500),
   capturedAt: z.string().datetime(),
   status: z.enum(["available", "unavailable", "withheld"]),
+  reason: collectionSurfaceSnapshotReasonSchema.optional(),
   sourceInventoryHash: z.string().regex(/^[a-f0-9]{64}$/),
   mimeType: z.literal("image/jpeg"),
   width: z.number().int().positive().max(640).optional(),
@@ -903,6 +910,9 @@ const collectionSurfaceSnapshotObjectSchema = z.object({
 }).strict();
 export const collectionSurfaceSnapshotMetadataSchema = collectionSurfaceSnapshotObjectSchema.omit({ data: true });
 export const collectionSurfaceSnapshotSchema = collectionSurfaceSnapshotObjectSchema.superRefine((snapshot, context) => {
+  if (snapshot.reason && (snapshot.status === "available" || (snapshot.status === "withheld") !== (snapshot.reason === "review_withheld"))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Snapshot reason must match its status" });
+  }
   if (snapshot.status === "available" ? (!snapshot.data || !snapshot.sha256 || !snapshot.sizeBytes || !snapshot.width || !snapshot.height) : snapshot.data !== undefined) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Snapshot bytes require complete, approved capture metadata" });
   }
@@ -1918,6 +1928,14 @@ export const governingPolicySelectionSchema = z.object({
 
 export const policySurfaceObservationSchema = z.object({
   observationId: z.string(),
+  // Discovery provenance is never proof of document ownership or policy presence.
+  cmpDiscovery: z.array(z.object({
+    contractVersion: z.literal("cmp_policy_discovery.v1"),
+    source: z.enum(["cmp_dom", "cmp_config"]),
+    cmpProvider: z.string().min(1).max(80),
+    sourcePageUrl: z.string().min(1).max(500),
+    sourceLocator: z.string().min(1).max(200),
+  }).strict()).max(4).optional(),
   sourceScanner: z.string().default("policy_surface"),
   scenario: z.string().default("policy_surface_review"),
   consentStateAtTime: consentStateSchema.default("not_applicable"),
@@ -3731,3 +3749,7 @@ export const SCHEMA_VERSION = "certscore.v2.alpha.1";
 export * from "./consent-action-evidence-policy";
 export * from "./consent-state-decision";
 export * from "./after-action-capture";
+
+export * from "./choice-path-execution";
+
+export * from "./terminal-consent-decision";

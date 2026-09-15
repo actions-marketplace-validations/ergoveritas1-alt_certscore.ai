@@ -82,6 +82,35 @@ resource-only scoring limitations are not relabeled as proven sale/sharing.
 
 ## Rollout and evidence quality
 
+### September 14 navigation recovery and sparse-page finalization
+
+The owner approved an incremental allowance of $50/month at 100,000 scans/month
+for the bounded navigation-recovery repairs. The planning estimate is $5–$15/month
+compute, with a roughly $31 high-duration sensitivity before evidence and
+downstream overhead. Recovering previously short failures can increase actual
+runtime despite unchanged timeout caps. Release measurement must remain within
+the approved allowance; this does not authorize extra lanes, scan invocations,
+navigation candidates, model calls, longer timeouts, or late publication.
+
+The existing one-second navigation-reset allowance includes stopping the failed
+navigation, awaiting Chromium's exact main-frame error-document commit when its
+page is briefly inactive, and committing the single about:blank reset. A pending
+or failed reset prevents the next candidate. Preserve the original target error
+alongside reset diagnostics. `ERR_EMPTY_RESPONSE` is a transport failure eligible
+for the existing bounded URL candidates; unsafe-target and DNS guard failures
+remain blocked.
+
+For initially sparse pages, retain the GPC listener through the already-required
+same-session page-confirmation work and perform the same single terminal semantic
+read afterward. The overlapping document proof remains anchored before that
+work, so navigation or URL drift invalidates it. The paired impact-capture freeze
+retains its original position and policy. Cancellation, exhausted budgets,
+overflow, missing headers and unverifiable finalization remain limited. The
+estimated incremental retention/finalization cost is $0.10–$0.50/month, included
+in the allowance above. Historical packets and assessments remain unchanged.
+
+### Release verification
+
 Deploy the compatible web/materializer and any affected validation consumers
 before enabling the new scanner images in all three approved Lambda regions.
 Require fresh localhost retained-artifact calibration, canonical contact-ledger

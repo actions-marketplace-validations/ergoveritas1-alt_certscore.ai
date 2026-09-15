@@ -223,9 +223,10 @@ export function isGdprEprivacyChecklistPresentation(
 
 export function filterGdprEprivacyChecklistPresentationForReport(
   presentation: GdprEprivacyChecklistPresentation,
+  rejectReportEligible = true,
 ): GdprEprivacyChecklistPresentation {
   const rows = presentation.rows.filter((row) =>
-    isReportableGdprEprivacyCoverageRowId(row.id)
+    isReportableGdprEprivacyCoverageRowId(row.id) && (row.id !== "post_reject_tracking_reduction" || rejectReportEligible)
   );
   if (rows.length === presentation.rows.length) return presentation;
   const summaryCounts = rows.reduce<GdprEprivacyAssessmentSummaryCounts>((counts, row) => {

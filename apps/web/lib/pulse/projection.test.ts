@@ -1,3 +1,4 @@
+import { observedControlAssessment } from "../scans/test-fixtures/observed-control-assessment";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -331,6 +332,7 @@ test("Pulse reports a Reject Path barrier timeout without changing completed sca
         stopReviewTitle: null,
       },
       runtimeArtifacts: {
+        consentControlAssessment: observedControlAssessment,
         postRefusalObservationCoverage: {
           completedAt: "2026-08-26T12:00:16.000Z",
           evidenceJoined: false,
@@ -382,6 +384,7 @@ test("Pulse surfaces canonical score-neutral post-Accept findings", () => {
         stopReviewTitle: null,
       },
       runtimeArtifacts: {
+        consentControlAssessment: observedControlAssessment,
         postAcceptEvidenceProjection: {
           actionControlProof: { action: "accept" },
           contractVersion: "certscore.post_accept_report_projection.v1",
@@ -520,6 +523,7 @@ test("Pulse JSON surfaces GPC with retained proof alongside Accept and Reject re
         topFindingIds: [],
       },
       runtimeArtifacts: {
+        consentControlAssessment: observedControlAssessment,
         postAcceptEvidenceProjection: {
           actionControlProof: { action: "accept" },
           acceptanceExercised: true,
@@ -585,6 +589,7 @@ test("Pulse reports a truncated Accept observation as a neutral coverage limitat
         stopReviewTitle: null,
       },
       runtimeArtifacts: {
+        consentControlAssessment: observedControlAssessment,
         postAcceptObservationCoverage: {
           completedAt: "2026-09-01T12:00:06.000Z",
           evidenceJoined: true,
@@ -620,6 +625,26 @@ test("Pulse reports a truncated Accept observation as a neutral coverage limitat
     row.label === "Accept Path unavailable"
   ));
 });
+
+for (const state of ["unknown", "not_observed"] as const) {
+  test(`Pulse omits after-action sections and coverage messages when controls are ${state}`, () => {
+    const assessment = structuredClone(observedControlAssessment);
+    assessment.controls.accept.state = state;
+    assessment.controls.reject.state = state;
+    const pulse = buildPulseProjection({
+      detail: "summary", format: "json", freshnessMode: "latest", pulseRequestId: `unobserved-${state}`,
+      requestedUrl: "https://example.com/", resolutionMode: "test", waitSeconds: 0,
+      scanRecord: pulseScanRecord({ runtimeArtifacts: {
+        consentControlAssessment: assessment,
+        postAcceptObservationCoverage: { status: "limited", limitationCode: "accept_path_timeout" },
+        postRefusalObservationCoverage: { status: "limited", limitationCode: "reject_path_timeout" },
+      } }),
+    }) as Record<string, any>;
+    assert.equal(pulse.postAcceptObservation, null);
+    assert.equal(pulse.postRefusalObservation, null);
+    assert.doesNotMatch(JSON.stringify(pulse.coverage), /Accept Path|Reject Path/);
+  });
+}
 
 test("Pulse projection does not cap top findings by detail level", () => {
   const source = readFileSync(new URL("./projection.ts", import.meta.url), "utf8");

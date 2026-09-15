@@ -107,7 +107,7 @@ test("Oxfam A/R/O remains observed when a later same-document state is collapsed
     requestedUrl: "https://oxfam.org/en",
   });
 
-  assert.equal(assessment.artifactVersion, "2.1");
+  assert.equal(assessment.artifactVersion, "2.2");
   assert.equal(assessment.controls.accept.state, "observed");
   assert.equal(assessment.controls.reject.state, "observed");
   assert.equal(assessment.controls.options.state, "observed");
@@ -1512,7 +1512,7 @@ test("missing or mismatched consent binding cannot override a blocked document",
 
 test("new materialization preserves legacy classifier provenance rather than inventing a registry version", () => {
   const result = deriveMaterializedConsentControlAssessment({ bundle: bundle([{ actionType: "accept_all", label: "Accept", visible: true }]), noGo: false });
-  assert.equal(result.provenance.projectorVersion, "2.1.1");
+  assert.equal(result.provenance.projectorVersion, "2.2.0");
   assert.equal(result.evidence[0]?.classifier?.registryVersion, "consent-control-label-registry");
 });
 

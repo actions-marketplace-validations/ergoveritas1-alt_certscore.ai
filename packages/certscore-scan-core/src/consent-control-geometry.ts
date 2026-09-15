@@ -1,6 +1,13 @@
-import type { Page } from "playwright";
+import type { Frame, Page } from "playwright";
 import {
   classifyConsentControlLabel,
+  classifyConsentInspectionRole,
+  isInitialNecessaryOnlySelection,
+  isInitialSelectionSubmit,
+  isRelevantConsentInspectionCandidate,
+  CONTROL_INSPECTION_POLICY,
+  type ConsentControlInspection,
+  type InitialConsentSelection,
   classifyConsentControlLinkDestination,
   hasUnresolvedConsentDecision,
   UNRESOLVED_CONSENT_DECISION,
@@ -117,6 +124,8 @@ export interface ConsentControlCandidateEvidence {
   ariaLabel?: string;
   title?: string;
   value?: string;
+  inputType?: string;
+  initialSelection?: InitialConsentSelection;
   selectorHint: string;
   containerSelectorHint?: string;
   containerId?: string;
@@ -193,6 +202,7 @@ export interface ConsentControlGeometryArtifact {
   cmp: ConsentControlCmpEvidence;
   containers: ConsentControlContainerEvidence[];
   candidates: ConsentControlCandidateEvidence[];
+  controlInspection?: ConsentControlInspection;
   summary: {
     firstLayerAccept: boolean;
     firstLayerReject: boolean;
@@ -235,6 +245,8 @@ interface RawGeometryCandidate {
   ariaLabel?: string;
   title?: string;
   value?: string;
+  inputType?: string;
+  initialSelection?: InitialConsentSelection;
   selectorHint: string;
   containerSelectorHint?: string;
   containerIndex?: number;
@@ -258,6 +270,8 @@ interface RawGeometryCandidate {
 }
 
 interface RawGeometryCapture {
+  inventoryLimited: boolean;
+  documentReadyState: string;
   pageUrl: string;
   viewport: {
     width: number;
@@ -333,6 +347,7 @@ export async function captureConsentControlGeometry(
     controlLabelPatternSource: CANDIDATE_ACTION_PRIORITY_PATTERN.source,
     registrySelectors,
   };
+  const initialPageUrl = page.url();
   const mainFrame = page.mainFrame();
   const frames = [
     mainFrame,
@@ -349,12 +364,20 @@ export async function captureConsentControlGeometry(
   // pages. Keep every read bounded by the caller's wall-clock allowance while
   // allowing the main frame and a late-rendering CMP frame the full window.
   const frameTimeoutMs = options.timeoutMs
-    ? Math.max(250, options.timeoutMs)
+    ? Math.max(1, options.timeoutMs)
     : undefined;
-  const cookieNamesPromise = page.context().cookies(page.url())
+  const cookieNamesRead = page.context().cookies(page.url())
     .then((cookies) => cookies.map((cookie) => cookie.name))
     .catch(() => undefined);
-  const captureResults = await Promise.all(frames.map(async (frame, frameIndex) => {
+  // Cookie access is only a CMP routing hint. A stalled read must not consume
+  // the whole action lane while every document read already has a deadline.
+  const cookieNamesPromise = frameTimeoutMs
+    ? promiseWithTimeout(cookieNamesRead, frameTimeoutMs).catch(() => undefined)
+    : cookieNamesRead;
+  let navigatedDuringCapture = false;
+  const onNavigation = (_frame: Frame) => { navigatedDuringCapture = true; };
+  page.on("framenavigated", onNavigation);
+  const [captureResults, retainedCookieNames] = await Promise.all([Promise.all(frames.map(async (frame, frameIndex) => {
     try {
       const capture = frame.evaluate<RawGeometryCapture, typeof frameInput>(collectConsentGeometryInPage, frameInput);
       const result = frameTimeoutMs
@@ -364,7 +387,7 @@ export async function captureConsentControlGeometry(
     } catch {
       return undefined;
     }
-  }));
+  })), cookieNamesPromise]).finally(() => page.off("framenavigated", onNavigation));
   const successfulCaptures = captureResults.filter(
     (result): result is { capture: RawGeometryCapture; frameIndex: number } => Boolean(result),
   );
@@ -372,7 +395,7 @@ export async function captureConsentControlGeometry(
   const captures = successfulCaptures.map((result) => result.capture);
   const expectedPageUrl = page.url();
   const raw = mergeRawGeometryCaptures(captures, expectedPageUrl, frameInput);
-  const cookieNames = await cookieNamesPromise ?? raw.cookieNames;
+  const cookieNames = retainedCookieNames ?? raw.cookieNames;
   const cmp = buildCmpEvidence({ ...raw, cookieNames });
   const containers = raw.containers.map((container, index): ConsentControlContainerEvidence => ({
     containerId: `container_${index}`,
@@ -384,6 +407,29 @@ export async function captureConsentControlGeometry(
   reconcileActionableVisualProxies(candidates);
   reconcileConfirmedConsentModalClusters(candidates, containers);
   classifyConsentControlPlacements(candidates, containers);
+  // Existing geometry reads supply the inventory proof; no additional capture.
+  const structuralComplete = !raw.inventoryLimited && /^https?:\/\//.test(expectedPageUrl) &&
+    (mainFrameCapture?.viewport.width ?? 0) > 0 && (mainFrameCapture?.viewport.height ?? 0) > 0 && mainFrameCapture?.documentReadyState === "complete" &&
+    initialPageUrl === expectedPageUrl && mainFrameCapture.pageUrl === expectedPageUrl &&
+    !navigatedDuringCapture && frames.length === page.frames().length &&
+    frames.every(frame => page.frames().includes(frame)) && successfulCaptures.length === frames.length;
+  const controlInspection: ConsentControlInspection = {
+    version: CONTROL_INSPECTION_POLICY,
+    retainedCandidateCount: candidates.length,
+    captureCoverage: {
+      inventoryTruncated: raw.inventoryLimited,
+      documentReadyState: mainFrameCapture?.documentReadyState === "complete" ? "complete" : mainFrameCapture?.documentReadyState === "interactive" ? "interactive" : "loading",
+      mainFrameAvailable: /^https?:\/\//.test(expectedPageUrl) && (mainFrameCapture?.viewport.width ?? 0) > 0 && (mainFrameCapture?.viewport.height ?? 0) > 0,
+      documentAndFramesStable: !navigatedDuringCapture && initialPageUrl === expectedPageUrl && mainFrameCapture?.pageUrl === expectedPageUrl &&
+        frames.length === page.frames().length && frames.every(frame => page.frames().includes(frame)),
+      frameCount: page.frames().length,
+      capturedFrameCount: successfulCaptures.length,
+    },
+    structuralCoverage: structuralComplete ? "complete" : "limited",
+    reasonCodes: structuralComplete ? [] : ["structural_control_inventory_incomplete"],
+    candidates: candidates.filter(isRelevantConsentInspectionCandidate)
+      .slice(0, 160).map(c => ({ candidateId: c.candidateId, ...classifyConsentInspectionRole(c) })),
+  };
   const summary = summarizeConsentControlGeometry(candidates, cmp);
   if (hasUnresolvedConsentDecision({ candidates })) {
     summary.limitations = [UNRESOLVED_CONSENT_DECISION, ...summary.limitations].slice(0, 12);
@@ -415,6 +461,7 @@ export async function captureConsentControlGeometry(
     cmp,
     containers,
     candidates,
+    controlInspection,
     summary,
   };
 }
@@ -683,6 +730,8 @@ function mergeRawGeometryCaptures(
 ): RawGeometryCapture {
   const main = captures[0];
   const merged: RawGeometryCapture = {
+    inventoryLimited: captures.some(c => c.inventoryLimited),
+    documentReadyState: main?.documentReadyState ?? "loading",
     pageUrl: main?.pageUrl ?? fallbackPageUrl,
     viewport: main?.viewport ?? { width: 0, height: 0 },
     scripts: unique(captures.flatMap((capture) => capture.scripts)).slice(0, 120),
@@ -704,6 +753,7 @@ function mergeRawGeometryCaptures(
     })));
   }
   merged.containers = merged.containers.slice(0, limits.containerLimit * Math.max(1, captures.length));
+  if (merged.candidates.length > limits.candidateLimit) merged.inventoryLimited = true;
   merged.candidates = merged.candidates
     .sort((left, right) => candidateEvidencePriority(right) - candidateEvidencePriority(left))
     .slice(0, limits.candidateLimit);
@@ -797,7 +847,15 @@ function buildCandidateEvidence(
   screenshotArtifactRef: string | undefined,
   containers: ConsentControlContainerEvidence[],
 ): ConsentControlCandidateEvidence {
-  const classification = classifyCandidate(candidate);
+  const baseClassification = classifyCandidate(candidate);
+  const classification: ConsentControlLabelClassification = candidate.layer === "first_layer" &&
+    candidate.enabled && candidate.intersectsViewport && candidate.occlusion.center &&
+    CONSENT_CONTEXT_PATTERN.test(candidate.contextText) && isInitialSelectionSubmit(candidate.label, baseClassification.reasonCodes) &&
+    isInitialNecessaryOnlySelection(candidate.initialSelection)
+      ? { intent: "reject", semanticRole: "necessary_only", confidence: 0.95, contextSatisfied: true,
+          registryVersion: baseClassification.registryVersion, matchStrength: "equivalent",
+          reasonCodes: ["initial_necessary_only_selection_observed", "observation_only_label", "variant_necessary_only"] }
+      : baseClassification;
   const actionType = actionTypeForClassification(classification, candidate);
   const diagnosticClassifications = diagnosticClassificationsForCandidate(candidate);
   const reasons: string[] = [];
@@ -814,6 +872,8 @@ function buildCandidateEvidence(
     ariaLabel: candidate.ariaLabel,
     title: candidate.title,
     value: candidate.value,
+    inputType: candidate.inputType,
+    initialSelection: candidate.initialSelection,
     selectorHint: candidate.selectorHint,
     containerSelectorHint: candidate.containerSelectorHint,
     containerId: typeof candidate.containerIndex === "number" ? containers[candidate.containerIndex]?.containerId : undefined,
@@ -1217,6 +1277,13 @@ function collectConsentGeometryInPage(input: {
   const maxText = 1_200;
   const maxHtml = 2_000;
   const deepRootCache = new WeakMap<ParentNode, ParentNode[]>();
+  // This collector is synchronous: reuse reads only inside this one document
+  // snapshot. Repeating composed-tree queries and rendered-label reads for
+  // every candidate can otherwise monopolize a busy page's renderer, even
+  // after the caller's geometry timeout has expired.
+  const queryCache = new WeakMap<ParentNode, Map<string, Element[]>>();
+  const textCache = new WeakMap<Element, string>();
+  const labelCache = new WeakMap<Element, string>();
   const textContextRootCache = new WeakMap<Element, Element | null>();
   const contextVisibilityCache = new WeakMap<Element, boolean>();
   const viewport = {
@@ -1294,13 +1361,13 @@ function collectConsentGeometryInPage(input: {
       element.getAttribute("id") || "",
       element.getAttribute("class") || "",
     ].join(" "))))
-    .map(containerFor)
-    .filter((item, index, list) =>
-      item.evidence.boundingBox.width > 0 ||
-      item.evidence.boundingBox.height > 0 ||
-      index < Math.min(4, list.length)
-    )
-    .slice(0, input.containerLimit);
+    .filter((element, index, list) => {
+      const box = rectFor(element);
+      return box.width > 0 || box.height > 0 || index < Math.min(4, list.length);
+    })
+    .slice(0, input.containerLimit)
+    // Only retained containers need selector identities and sanitized clones.
+    .map(containerFor);
 
   function containerFor(element: Element) {
       const box = rectFor(element);
@@ -1347,9 +1414,8 @@ function collectConsentGeometryInPage(input: {
       containers.push(containerFor(root));
     }
   }
-  const containerControls = containers.flatMap((container) =>
-    deepQuerySelectorAll(controlSelector, container.element).slice(0, 80)
-  );
+  const containerControlInventories = containers.map((container) => deepQuerySelectorAll(controlSelector, container.element));
+  const containerControls = containerControlInventories.flatMap(controls => controls.slice(0, 80));
   const seenControlElements = new Set<Element>();
   const controlElements = [...containerControls, ...documentControls].filter((element) => {
     if (seenControlElements.has(element)) {
@@ -1359,11 +1425,11 @@ function collectConsentGeometryInPage(input: {
     return true;
   });
 
-  const candidates = controlElements
+  const unboundedCandidates = controlElements
     .map((element) => candidateFor(element, containers, viewport, consentPattern))
     .filter((candidate): candidate is RawGeometryCandidate => Boolean(candidate))
-    .sort((left, right) => candidatePriority(right) - candidatePriority(left))
-    .slice(0, input.candidateLimit);
+    .sort((left, right) => candidatePriority(right) - candidatePriority(left));
+  const candidates = unboundedCandidates.slice(0, input.candidateLimit);
 
   const domSelectors = input.registrySelectors.filter((selector) => {
     try {
@@ -1374,6 +1440,9 @@ function collectConsentGeometryInPage(input: {
   });
 
   return {
+    inventoryLimited: unboundedCandidates.length > input.candidateLimit || containers.length >= input.containerLimit ||
+      documentControls.length >= 800 || containerControlInventories.some(controls => controls.length > 80),
+    documentReadyState: document.readyState,
     pageUrl: window.location.href,
     viewport,
     scripts: Array.from(document.scripts).map((script) => script.src).filter(Boolean).slice(0, 80),
@@ -1441,7 +1510,7 @@ function collectConsentGeometryInPage(input: {
       element.getAttribute("title") || "",
       contextText,
     ].join(" "));
-    if (!label || (!controlLabelPattern.test(attrs) && !contextPattern.test(attrs) && !contextRoot)) {
+    if ((!label && !contextRoot) || (!controlLabelPattern.test(attrs) && !contextPattern.test(attrs) && !contextRoot)) {
       return null;
     }
     const box = rectFor(element);
@@ -1459,6 +1528,8 @@ function collectConsentGeometryInPage(input: {
       ariaLabel: attr(element, "aria-label"),
       title: attr(element, "title"),
       value: element instanceof HTMLInputElement ? element.value.slice(0, 160) : undefined,
+      inputType: element instanceof HTMLInputElement ? element.type : undefined,
+      initialSelection: initialSelectionFor(element),
       selectorHint: selectorHintFor(element),
       containerSelectorHint: container?.evidence.selectorHint,
       containerIndex,
@@ -1487,6 +1558,26 @@ function collectConsentGeometryInPage(input: {
       contextText: contextText.slice(0, 1_000),
       linkHref: element.tagName.toLowerCase() === "a" ? element.getAttribute("href") ?? "" : undefined,
     };
+  }
+
+  // Canonical Drupal category-submit recipe. Read only the initial state; never
+  // activate the Save control. A missing/hidden category or ambiguous scope fails closed.
+  function initialSelectionFor(element: Element): InitialConsentSelection | undefined {
+    const scopeSelector = "#sliding-popup .eu-cookie-compliance-banner" as const;
+    const submitSelector = ".eu-cookie-compliance-categories-buttons .eu-cookie-compliance-save-preferences-button" as const;
+    if (!(element instanceof HTMLButtonElement) || !element.matches(submitSelector)) return undefined;
+    const scope = element.closest(scopeSelector);
+    if (!scope || document.querySelectorAll(scopeSelector).length !== 1 || scope.querySelectorAll(submitSelector).length !== 1) return undefined;
+    const inputs = Array.from(scope.querySelectorAll("#eu-cookie-compliance-categories input"));
+    if (inputs.length === 0 || inputs.length > 24) return undefined;
+    const categories = inputs.filter((item): item is HTMLInputElement => item instanceof HTMLInputElement && item.type === "checkbox")
+      .map(item => ({ id: item.id.replace(/^cookie-category-/, "").slice(0, 80), inputType: "checkbox" as const, checked: item.checked, disabled: item.disabled }));
+    return { recipe: "drupal_eu_cookie_compliance.initial_selection.v1", scopeSelector, submitSelector, categories,
+      complete: categories.length === inputs.length && inputs.every(item => {
+        const box = rectFor(item), style = window.getComputedStyle(item);
+        return box.width > 0 && box.height > 0 && intersects(box, viewportRect()) &&
+          style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0;
+      }) };
   }
 
   function isStaticTextOnlyControlCandidate(element: Element): boolean {
@@ -1702,6 +1793,14 @@ function collectConsentGeometryInPage(input: {
   }
 
   function labelFor(element: Element): string {
+    const cached = labelCache.get(element);
+    if (cached !== undefined) return cached;
+    const label = readLabel(element);
+    labelCache.set(element, label);
+    return label;
+  }
+
+  function readLabel(element: Element): string {
     const aria = element.getAttribute("aria-label");
     const labelRoot = element.getRootNode();
     const labelledBy = (element.getAttribute("aria-labelledby") || "")
@@ -2016,6 +2115,10 @@ function collectConsentGeometryInPage(input: {
   }
 
   function deepQuerySelectorAll(selector: string, root: ParentNode = document): Element[] {
+    let queries = queryCache.get(root);
+    const cached = queries?.get(selector);
+    if (cached) return cached;
+    if (!queries) { queries = new Map(); queryCache.set(root, queries); }
     const results: Element[] = [];
     const seen = new Set<Element>();
     for (const node of deepRootsFor(root)) {
@@ -2026,6 +2129,7 @@ function collectConsentGeometryInPage(input: {
         }
       }
     }
+    queries.set(selector, results);
     return results;
   }
 
@@ -2057,11 +2161,15 @@ function collectConsentGeometryInPage(input: {
   }
 
   function deepText(element: Element): string {
+    const cached = textCache.get(element);
+    if (cached !== undefined) return cached;
     const textParts: string[] = [element.textContent || ""];
     for (const root of deepRootsFor(element).slice(1)) {
       textParts.push(root.textContent || "");
     }
-    return compactText(textParts.join(" "));
+    const text = compactText(textParts.join(" "));
+    textCache.set(element, text);
+    return text;
   }
 
   function parentElementOrHost(element: Element): Element | null {

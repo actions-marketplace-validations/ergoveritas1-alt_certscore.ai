@@ -4050,7 +4050,7 @@ test("policySurfaceScanner follows a rendered dated privacy index and extracts t
       observation.normalizedUrl === `${baseUrl}/policies/privacy-index-pdf-nl`
     );
 
-    assert.ok(privacy, "Dutch privacy PDF should be fetched");
+    assert.ok(privacy, "Dutch privacy PDF should be fetched: " + JSON.stringify(result.policySurfaceObservations.map(o => ({ url: o.normalizedUrl, status: o.status, failure: o.fetchFailureReason, role: o.documentRole, reasons: o.selectionReasonCodes }))));
     assert.equal(privacyIndex?.documentRole, "policy_index");
     assert.equal(privacy.documentRole, "policy_document");
     assert.equal(privacy.documentFormat, "pdf");

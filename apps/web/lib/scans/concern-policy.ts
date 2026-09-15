@@ -10,7 +10,7 @@ import type {
   NormalizedConcernRegulatoryChecklistEligibility,
   NormalizedConcernScoreEffect
 } from "./normalized-concerns";
-import { classifyConsentControlLabel, gpcResponseAssessmentSchema } from "@certscore/contracts";
+import { classifyConsentControlLabel, hasVerifiedConsentControlAbsence, consentControlAssessmentSchema, gpcResponseAssessmentSchema } from "@certscore/contracts";
 import {
   deriveCaliforniaGpcResponsePolicy
 } from "./california-gpc-response-policy";
@@ -2422,8 +2422,8 @@ function getConsentPaidDeclinePathChecklistEligibility(input: {
   const paidVariantObserved =
     paidDeclineState === "reject_with_subscription" || paidDeclineState === "reject_with_payment";
   const fullyQualified =
-    input.rawEvidence?.consentControlAssessmentStatus === "complete" &&
-    input.rawEvidence?.consentControlCoverageStatus === "complete" &&
+    ((input.rawEvidence?.consentControlAssessmentStatus === "complete" && input.rawEvidence?.consentControlCoverageStatus === "complete") ||
+      (input.rawEvidence?.consentControlAssessmentContractVersion === "2.2" && input.rawEvidence?.consentRejectInspectionComplete === true)) &&
     input.rawEvidence?.consentControlDocumentIdentityStatus === "matched" &&
     input.rawEvidence?.consentControlNoGo === false &&
     input.rawEvidence?.consentControlSurfaceStatus === "observed_actionable" &&
@@ -2441,8 +2441,8 @@ function getConsentDismissWithoutRejectChecklistEligibility(input: {
   ) {
     return null;
   }
-  return input.rawEvidence?.consentControlAssessmentStatus === "complete" &&
-    input.rawEvidence?.consentControlCoverageStatus === "complete" &&
+  return ((input.rawEvidence?.consentControlAssessmentStatus === "complete" && input.rawEvidence?.consentControlCoverageStatus === "complete") ||
+      (input.rawEvidence?.consentControlAssessmentContractVersion === "2.2" && input.rawEvidence?.consentRejectInspectionComplete === true)) &&
     input.rawEvidence?.firstLayerRejectState === "not_observed" &&
     input.rawEvidence?.dismiss_without_reject === true
       ? "review_signal"
@@ -2561,6 +2561,7 @@ export function packetNeedsPageAttribution(input: {
 }
 
 export function deriveConcernPolicy(input: {
+  consentControlAssessment?: unknown;
   concern: Pick<
     NormalizedConcern,
     | "canonicalConcernKey"
@@ -2587,6 +2588,28 @@ export function deriveConcernPolicy(input: {
   const negativeEvidenceFlags = new Set<NormalizedConcernNegativeEvidenceFlag>();
 
   const suggestedUnifiedFindingId = input.concern.suggestedUnifiedFindingId;
+  if (input.consentControlAssessment !== undefined &&
+      (suggestedUnifiedFindingId === "reject_button_missing" || suggestedUnifiedFindingId === "accept_more_prominent_than_reject")) {
+    const parsed = consentControlAssessmentSchema.safeParse(input.consentControlAssessment);
+    const assessment = parsed.success ? parsed.data : null;
+    const usable = assessment !== null && assessment.document.identityStatus === "matched" &&
+      !assessment.scan.noGo && assessment.surface.status === "observed_actionable";
+    const completeAbsence = usable && hasVerifiedConsentControlAbsence(assessment, "reject");
+    // A visual comparison of two observed controls remains independent of the
+    // completeness required to assert that a control is absent.
+    const supported = suggestedUnifiedFindingId === "reject_button_missing"
+      ? completeAbsence
+      : usable && assessment.controls.accept.state === "observed" &&
+        (assessment.controls.reject.state === "observed" || completeAbsence);
+    if (!supported) {
+      return {
+        allowedNarrativeTier: "weak", externalSurfacingEligibility: "suppress",
+        negativeEvidenceFlags: ["canonical_consent_control_evidence_insufficient"],
+        promotionEligibility: "blocked", regulatoryChecklistEligibility: "none", scoreEffects: [],
+      };
+    }
+  }
+
   if (suggestedUnifiedFindingId === REJECT_CLICK_TRACKING_FINDING || input.concern.originKey === REJECT_CLICK_TRACKING_SIGNAL) {
     const assessment = readRejectClickTrackingAssessment(input.rawEvidence?.rejectClickTrackingAssessment);
     if (assessment && input.concern.originType === "runtime_artifact") {

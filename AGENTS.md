@@ -148,6 +148,17 @@ never invent their missing Sec-GPC header or promote diagnostic correlations.
 Keep historical v1/v2 response records unchanged and add no lane, retry, model
 call, timeout increase or later publication.
 
+On September 14, 2026, the owner approved up to $50/month incremental cost at
+100,000 scans/month for bounded navigation-recovery repairs and GPC sparse-page
+finalization. See `docs/certscore-v2/gpc-production-observation-policy.md`.
+Keep navigation stop/error-document settling and the single about:blank reset
+inside the existing reset allowance; pending or failed reset must prevent the
+next candidate. Empty transport responses may use the existing URL candidates,
+without bypassing network guards. Defer the single GPC terminal semantic read
+through already-required sparse-page confirmation work, preserving anchored
+document invalidation and the independent paired-impact freeze. This approval
+adds no lane, invocation, candidate, model call, timeout or late publication.
+
 Start `reject_observation` 500 milliseconds after the four passive lanes to
 avoid an immediate six-browser burst when both action lanes are enabled. Do
 not publish a primary result before
@@ -216,6 +227,21 @@ only after complete structured inspection. Preserve stored 2.0 conclusions on
 read; new canonical materializations use 2.1 with policy and source provenance.
 Accept/Reject action authorization and semantic registration requirements are
 unchanged. See `docs/certscore-v2/structured-consent-evidence-policy.md`.
+
+On September 14, 2026, the owner approved the definitive first-layer control
+implementation in `control_specific_inspection.v1` / assessment 2.2. New verified,
+loader-bound captures retain per-control completeness, exact candidate roles,
+frame/capture coverage, and inspection evidence references. A complete Reject
+inspection may support `not_observed` while another control remains unknown and
+the overall assessment stays limited. Untranslated/unlabeled possible decision
+controls, capture overflow, unavailable frames, navigation drift, access failure,
+and malformed/unbound proof still limit the affected conclusions. Historical
+2.0/2.1 records retain their original states. New observation vocabulary and the
+bounded initial optional-off category recipe do not authorize new clicks or
+claim consent registration. Reports retain known binary states and present one
+inspection limitation for unresolved controls. This does not change scoring
+weights or permit display-layer inference. See
+`docs/certscore-v2/control-specific-consent-inspection-policy.md`.
 
 ### Finding-domain classification
 
@@ -407,6 +433,25 @@ The owner approved the incremental full-window compute estimate of $30–$60 per
 deductions remain independent of action verification; unverified capture does not
 erase them or establish successful refusal. No new unverified-refusal deduction
 is enabled by this capture policy alone.
+
+On September 14, 2026, the owner approved `choice_path_execution.v1`:
+**Succeeded** means a verified completed Accept/Reject click and completed bounded
+after-action observation path, regardless of consent registration. **Succeeded
+with confirmation** adds a verified corresponding consent decision. A click alone
+or interrupted/incomplete capture remains Limited. Persist the independent typed
+execution outcome; preserve consent-decision, finding-eligibility and scoring
+rules. Total successful-path metrics include both success statuses, with the
+confirmation subset reported separately. See
+`docs/certscore-v2/choice-path-execution-policy.md`.
+
+`bounded_terminal_consent_decision.v1` retains one semantic read completed inside
+the existing after-click window, bound to the exact target, fresh state hash and
+complete capture. It may add operational confirmation through the canonical
+execution assessment. Preserve the initial registration timestamp/protocol and
+after-click request classification; do not start another window or suppress the
+independent Reject-click tracking assessment. Late, cancelled, or mismatched reads
+are discarded. Named action decoders bind to the live control's registered banner
+ancestry, never merely a background CMP script.
 
 The owner separately approved `reject_click_tracking.v1`: a completed authorized
 Reject click followed by directly observed, canonically classified analytics,

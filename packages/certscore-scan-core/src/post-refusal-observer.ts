@@ -1,3 +1,5 @@
+import { terminalConsentDecisionRead } from "./terminal-consent-decision.js";
+import { prioritizeConsentActionRecipes, consentActionBindingDeadline, liveConsentActionCmp } from "./consent-action-recipe-priority.js";
 import type { ActionTcfData } from "./consent-action-tcf-state.js";
 import { captureOneTrustBaseline, type OneTrustBaseline } from "./onetrust-consent-state.js";
 import { decodeTcfV2PurposeConsents, readConsentActionTcfData } from "./consent-action-tcf-state.js";
@@ -401,6 +403,7 @@ export async function runPostRefusalObserver(
   let selectedRecipe: PostRefusalActionRecipe | undefined;
   let actionControlProof: ConsentActionControlProof | undefined;
   let afterActionCapture: PostRefusalEvidencePacket["afterActionCapture"];
+  let terminalDecisionEvidence: PostRefusalEvidencePacket["terminalDecisionEvidence"];
   let decisionEvidence: PostRefusalEvidencePacket["decisionEvidence"] = {
     policyVersion: "semantic_consent_registration.v2", decision: "unknown", basis: "unverified",
   };
@@ -462,6 +465,7 @@ export async function runPostRefusalObserver(
       ...finishOptionalRuntimeGraph(graphCapture, "post_reject", confirmedRefusal ? undefined : "action_not_confirmed"),
       artifactVersion: "certscore.post_refusal_evidence.v2",
       ...(afterActionCapture ? { afterActionCapture } : {}),
+      ...(terminalDecisionEvidence ? { terminalDecisionEvidence } : {}),
       decisionEvidence,
       captureCoverage,
       artifactOnly: true,
@@ -1217,7 +1221,6 @@ export async function runPostRefusalObserver(
             [selectedRecipe],
             recordResolverSnapshot,
             actionDiscovery,
-            selectedRecipe,
             undefined,
             resolverStartedAtMs + actionSearchTimeoutMs,
           );
@@ -1352,7 +1355,13 @@ export async function runPostRefusalObserver(
         try { return !page!.isClosed() && normalizeTargetUrl(page!.url()) === normalizeTargetUrl(authorizedExactTargetUrl ?? observationTargetUrl); }
         catch { return false; }
       };
+      const terminalRead = terminalConsentDecisionRead({
+        action: "reject", authorizedTargetSha256: actionControlProof?.authorizedTargetSha256,
+        parentScanStartedAtMs, dispatchedAtEpochMs: actionDispatchedAtEpochMs, observationWindowMs,
+        signal: input.signal, targetStillAuthorized, read: () => waitForRefusalConfirmation(context!, page!, selectedRecipe!.confirmation, confirmationBaseline, actionDispatchedAtEpochMs!, 0, input.signal),
+      });
       const stopReason = await finishAfterActionWindow({
+        onFinalWindow: terminalRead.start,
         dispatchedAtEpochMs: actionDispatchedAtEpochMs, observationWindowMs,
         clickCompleted: interactionDiagnostics.click.outcome === "completed", signal: input.signal, targetStillAuthorized,
       });
@@ -1407,6 +1416,7 @@ export async function runPostRefusalObserver(
           rootStartedAtMs: elapsed(parentScanStartedAtMs, requestStartedAtEpochMs.get(row.request) ?? row.startedAtEpochMs),
         })),
       };
+      terminalDecisionEvidence = terminalRead.retained(afterActionCapture);
       return await finalize({
         resolverFound: true,
         registration: {
@@ -2682,18 +2692,15 @@ async function waitForDeterministicOrCanonicalRecipe(
   do {
     if (signal?.aborted) return { status: "aborted" };
     const runtimeRecipes = await resolveActiveRuntimeRecipes(page, recipes, discovery);
-    const geometryRecipes = geometryCmpName
-      ? recipes.filter((recipe) => recipe.cmpId === geometryCmpName) : [];
-    const boundedRecipes = runtimeRecipes.length ? runtimeRecipes
-      : geometryRecipes.length ? [...geometryRecipes, ...recipes.filter(recipe => !geometryRecipes.includes(recipe))] : recipes;
+
     // Preserve the live canonical path even when a named CMP was identified.
     // DOM-only fingerprints from the existing geometry pass route subsequent
     // sweeps; recognition does not grant permission or confirm a decision.
     const canonicalBudgetMs = Math.min(firstPass ? 1_000 : 750, Math.max(0, deadlineAtMs - Date.now()));
     if (canonicalBudgetMs <= 0) break;
     const canonicalResolution = await waitForCanonicalRejectControlRecipe(
-      page, canonicalBudgetMs, signal, boundedRecipes, reportDiagnostic, discovery,
-      runtimeRecipes.length === 1 ? runtimeRecipes[0] : undefined, rememberCmp, deadlineAtMs,
+      page, canonicalBudgetMs, signal, recipes, reportDiagnostic, discovery,
+      rememberCmp, deadlineAtMs,
     );
     firstPass = false;
     diagnosticGeometry = canonicalResolution.diagnosticGeometry ?? diagnosticGeometry;
@@ -2701,9 +2708,9 @@ async function waitForDeterministicOrCanonicalRecipe(
     if (canonicalResolution.status === "ambiguous") sawAmbiguousResolution = true;
     const namedBudgetMs = Math.min(750, Math.max(0, deadlineAtMs - Date.now()));
     if (namedBudgetMs <= 0) break;
-    const newlyIdentified = geometryCmpName ? recipes.filter((recipe) => recipe.cmpId === geometryCmpName) : [];
+
     const namedResolution = await waitForDeterministicRecipe(
-      page, runtimeRecipes.length ? runtimeRecipes : newlyIdentified.length ? [...newlyIdentified, ...recipes.filter(recipe => !newlyIdentified.includes(recipe))] : recipes,
+      page, prioritizeConsentActionRecipes(recipes, runtimeRecipes, geometryCmpName),
       namedBudgetMs, signal, reportDiagnostic, discovery,
     );
     if (namedResolution.status === "found" || namedResolution.status === "aborted") return namedResolution;
@@ -2720,7 +2727,6 @@ async function waitForCanonicalRejectControlRecipe(
   registeredRecipes: PostRefusalActionRecipe[] = [],
   reportDiagnostic?: ResolverDiagnosticReporter,
   discovery?: ConsentActionDiscovery,
-  runtimeBoundRecipe?: PostRefusalActionRecipe,
   onCmpDetected?: (name: string) => void,
   outerDeadlineAtMs?: number,
 ): Promise<DeterministicRecipeResolution> {
@@ -2733,19 +2739,10 @@ async function waitForCanonicalRejectControlRecipe(
     const geometry = await captureConsentControlGeometry(page, {
       candidateLimit: 48,
       containerLimit: 16,
-      timeoutMs: Math.max(250, Math.min(750, timeoutMs || 250)),
+      timeoutMs: Math.max(1, Math.min(750, deadlineAtMs - Date.now())),
     }).catch(() => undefined);
     diagnosticGeometry = geometry ?? diagnosticGeometry;
     if (geometry?.cmp.name) onCmpDetected?.(geometry.cmp.name);
-    const geometryRegisteredCmpRecipe = selectCanonicalRejectConfirmationRecipe(
-      registeredRecipes,
-      geometry?.cmp.name,
-    ) ?? runtimeBoundRecipe;
-    const geometryCmpDefinition = geometry?.cmp.name
-      ? KNOWN_CMP_REGISTRY.find((definition) =>
-          definition.canonicalName.toLowerCase() === geometry.cmp.name?.toLowerCase()
-        )
-      : undefined;
     const retainedCandidates = collapseEquivalentCanonicalRejectCandidates(geometry?.candidates.filter((candidate) =>
       candidate.actionType === "reject_all" &&
         hasActionControlStructure(candidate) &&
@@ -2754,7 +2751,7 @@ async function waitForCanonicalRejectControlRecipe(
       candidate.enabled &&
       candidate.intersectsViewport &&
       candidate.classifierConfidence >= 0.8 &&
-      (candidate.consentContextConfirmed || geometryRegisteredCmpRecipe !== undefined) &&
+      (candidate.consentContextConfirmed || geometry?.cmp.detected === true) &&
       Boolean(candidate.selectorHint)
     ) ?? []);
     const containerBoundCandidates = retainedCandidates.filter((candidate) =>
@@ -2797,6 +2794,8 @@ async function waitForCanonicalRejectControlRecipe(
     }
     const candidate = candidates[0];
     if (candidate) {
+      const bindingDeadlineAtMs = consentActionBindingDeadline(deadlineAtMs, outerDeadlineAtMs);
+      if (bindingDeadlineAtMs <= Date.now()) { bindingState("binding_budget_exhausted"); break; }
       const controlFrameUrl = candidate.frameContext.frameKind === "child_frame"
         ? candidate.frameContext.frameUrl
         : undefined;
@@ -2840,7 +2839,8 @@ async function waitForCanonicalRejectControlRecipe(
       for (let index = 0; index < controlCount; index += 1) {
         const control = controls.nth(index);
         if (!await control.isVisible().catch(() => false)) { failed("control_hidden"); continue; }
-        if (!await locatorEnabledWithinDeadline(control, deadlineAtMs)) { failed("control_disabled"); continue; }
+        if (Date.now() >= bindingDeadlineAtMs) { bindingState("binding_budget_exhausted"); break; }
+        if (!await locatorEnabledWithinDeadline(control, bindingDeadlineAtMs)) { failed("control_disabled"); continue; }
         if (!(await normalizedLocatorLabels(control)).includes(candidate.normalizedLabel)) { failed("label_mismatch"); continue; }
         if (!await locatorHasViewportHitTarget(control)) { failed("control_not_hit_target"); continue; }
         actionableControls.push(control);
@@ -2855,6 +2855,10 @@ async function waitForCanonicalRejectControlRecipe(
         continue;
       }
       if (actionableControls.length !== 1) { bindingState(failedStage); continue; }
+      const candidateCmpName = await liveConsentActionCmp(actionableControls[0]!, registeredRecipes, bindingDeadlineAtMs);
+      if (!candidate.consentContextConfirmed && !candidateCmpName) { bindingState("scope_not_interactive"); continue; }
+      const geometryRegisteredCmpRecipe = selectCanonicalRejectConfirmationRecipe(registeredRecipes, candidateCmpName);
+      const geometryCmpDefinition = KNOWN_CMP_REGISTRY.find(definition => definition.canonicalName === candidateCmpName);
       let visibleContainerCount = 0;
       for (let index = 0; index < Math.min(containerCount, 8); index += 1) {
         if (await containers!.nth(index).isVisible().catch(() => false)) visibleContainerCount += 1;
@@ -2893,8 +2897,8 @@ async function waitForCanonicalRejectControlRecipe(
         ].join("\n")).slice(0, 24)}`,
         ...(registeredCmpRecipe?.cmpId
           ? { cmpId: registeredCmpRecipe.cmpId }
-          : geometry?.cmp.name
-            ? { cmpId: geometry.cmp.name }
+          : candidateCmpName
+            ? { cmpId: candidateCmpName }
             : {}),
         resolverMethod: registeredCmpRecipe?.resolverMethod ??
           "canonical_consent_control_registry_recipe",
@@ -3143,6 +3147,7 @@ async function waitForRefusalConfirmation(
           witnessType: "canonical_refusal_state",
           expectedState: "canonical_denied_consent_decision_written_after_action" };
       }
+      if (Date.now() >= deadlineAtMs) return undefined;
       await waitForDelay(25, signal).catch(() => undefined);
     }
     return undefined;
@@ -3171,6 +3176,7 @@ async function waitForRefusalConfirmation(
           expectedState: "canonical_cmp_refusal_cookie_values_written_after_reject",
         };
       }
+      if (Date.now() >= deadlineAtMs) return undefined;
       await waitForDelay(25, signal).catch(() => undefined);
     }
     return undefined;
@@ -3192,6 +3198,7 @@ async function waitForRefusalConfirmation(
             witnessType: "cmp_cookie_state", expectedState: "canonical_cmp_denied_decision_after_action",
           };
       }
+      if (Date.now() >= deadlineAtMs) return undefined;
       await waitForDelay(25, signal).catch(() => undefined);
     }
     return undefined;
@@ -3215,6 +3222,7 @@ async function waitForRefusalConfirmation(
           };
         }
       }
+      if (Date.now() >= deadlineAtMs) return undefined;
       await waitForDelay(25, signal).catch(() => undefined);
     }
     return undefined;
@@ -3238,6 +3246,7 @@ async function waitForRefusalConfirmation(
           expectedState: "all_configurable_purposes_denied_after_reject",
         };
       }
+      if (Date.now() >= deadlineAtMs) return undefined;
       await waitForDelay(25, signal).catch(() => undefined);
     }
     return undefined;
@@ -3381,6 +3390,7 @@ async function waitForRefusalConfirmation(
         }
       }
     }
+    if (Date.now() >= deadlineAtMs) return undefined;
     await waitForDelay(25, signal).catch(() => undefined);
   }
   return undefined;
@@ -3942,12 +3952,13 @@ export async function inspectRecoverableCommittedDocument(
     | ResolvedPostRefusalScanTargetAuthorization,
   failureClass: NonNullable<PostRefusalInteractionDiagnostics["navigation"]["failureClass"]>,
   scanId?: string,
+  settleDelayMs = 200,
 ): Promise<{
   recovered: boolean;
   documentCommitted: boolean;
   finalUrlAuthorized: boolean;
 }> {
-  await page.waitForTimeout(200).catch(() => undefined);
+  if (settleDelayMs > 0) await page.waitForTimeout(settleDelayMs).catch(() => undefined);
   const finalUrlAuthorization = authorizePostRefusalTarget(
     page.url(),
     interactionAuthorization,

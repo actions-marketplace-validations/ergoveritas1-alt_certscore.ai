@@ -1,3 +1,4 @@
+import type { ChoicePathExecution } from "@certscore/contracts";
 import type { ExternalScanNoGoProjection } from "@website-signal-risk-scanner/shared";
 import type { GpcResponseAssessment } from "@certscore/contracts";
 import type { ExecutiveRejectPathProjection } from "../executive-summary-card";
@@ -102,6 +103,7 @@ export type ShadowEvidenceRow = {
 };
 
 export type ExecutiveAcceptPathProjection = {
+  execution?: ChoicePathExecution;
   afterClickCoverage?: "complete" | "partial";
   registrationConfirmed?: boolean;
   evidenceRows: Array<{
@@ -163,10 +165,12 @@ export type ShadowReportData = {
     vendors: number;
   };
   controls: { accept: string; options: string; reject: string };
+  consentInspectionNotice?: string | null;
   consentVendor: string | null;
   gpcResponse?: GpcResponseReportProjection | null;
   gpcLaneStatus?: "completed" | "not_requested" | "unavailable";
   policySurfaceCoverage: "complete" | "limited" | "unavailable";
+  policySurfaceLinkObserved?: boolean;
   acceptPath?: ExecutiveAcceptPathProjection | null;
   choicePathComparison?: ChoicePathComparison | null;
   rejectPath?: ExecutiveRejectPathProjection | null;

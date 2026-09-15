@@ -1413,7 +1413,7 @@ test("capture policy recognizes reviewed observation labels in a local consent s
   ] as const) {
     const artifact = await captureFixture(`<section id="cookie-banner" role="dialog" aria-label="Cookie consent" style="position:fixed;bottom:0;padding:20px;background:white"><p>We use optional cookies for analytics. Choose your cookie preferences.</p><button>${label}</button></section>`);
     assert.equal(artifact.summary[field], true, label);
-    assert.equal(findCandidate(artifact, label)?.classifierRegistryVersion, "consent-control-label-registry.v3");
+    assert.equal(findCandidate(artifact, label)?.classifierRegistryVersion, "consent-control-label-registry.v5");
   }
 });
 
@@ -1471,5 +1471,67 @@ test("nested consent containers retain distinct exact selectors", async () => {
     const containers = geometry.containers.filter(c => c.selectorHint.includes("div"));
     assert.equal(new Set(containers.map(c => c.selectorHint)).size, containers.length);
     for (const container of containers) assert.equal(await page.locator(container.selectorHint).count(), 1);
+  } finally { await page.close(); }
+});
+
+test("refusal observations recover retained English/German labels and compatible accessibility descriptions", async () => {
+  for (const [label, aria] of [["Accept only essential", ""], ["NUR ESSENTIELLE COOKIES AKZEPTIEREN", ""], ["Nein Danke.", "dismiss cookie message"], ["Alles afwijzen", ""], ["Отказаться", ""]]) {
+    const artifact = await captureFixture(`<section role="dialog" id="cookie-banner" style="position:fixed;bottom:0"><p>We use cookies for analytics. Choose your preferences.</p><button aria-label="${aria}">${label}</button></section>`);
+    assert.equal(artifact.summary.firstLayerReject, true, label);
+  }
+});
+
+test("initial Drupal necessary-only selection is retained and positive only with complete optional-off categories", async () => {
+  for (const selected of [false, true]) {
+    const artifact = await captureFixture(`<div id="sliding-popup"><section class="eu-cookie-compliance-banner" role="dialog" style="position:fixed;bottom:0"><p>We use cookies for analytics. Choose your preferences.</p>
+      <div id="eu-cookie-compliance-categories"><input type="checkbox" id="cookie-category-mandatory" checked disabled><input type="checkbox" id="cookie-category-statistics" ${selected ? "checked" : ""}></div>
+      <div class="eu-cookie-compliance-categories-buttons"><button class="eu-cookie-compliance-save-preferences-button">ACCETTA SOLO I SELEZIONATI</button></div><button>Accept all</button>
+    </section></div>`);
+    const submit = artifact.candidates.find(c => c.label === "ACCETTA SOLO I SELEZIONATI");
+    assert.equal(submit?.initialSelection?.categories.length, 2);
+    assert.equal(submit?.actionType === "reject_all", !selected);
+    assert.equal(submit?.classifierReasonCodes.includes("observation_only_label"), !selected);
+  }
+});
+
+test("initial selected-only observation rejects hidden categories and misleading submit labels", async () => {
+  for (const [label, categoryStyle, aria] of [["Accept all", "", ""], ["Save preferences", "display:none", ""], ["Save preferences", "", "Reject all and accept all"]]) {
+    const artifact = await captureFixture(`<div id="sliding-popup"><section class="eu-cookie-compliance-banner" role="dialog" style="position:fixed;bottom:0"><p>We use cookies for analytics. Choose your preferences.</p>
+      <div id="eu-cookie-compliance-categories"><input type="checkbox" id="cookie-category-mandatory" checked disabled><input type="checkbox" id="cookie-category-statistics" style="${categoryStyle}"></div>
+      <div class="eu-cookie-compliance-categories-buttons"><button class="eu-cookie-compliance-save-preferences-button" aria-label="${aria}">${label}</button></div>
+    </section></div>`);
+    assert.equal(artifact.summary.firstLayerReject, false, label);
+    assert.equal(artifact.candidates.some(c => c.classifierReasonCodes.includes("initial_necessary_only_selection_observed")), false);
+  }
+});
+
+test("an inaccessible child frame limits structural absence without discarding observed main controls", async () => {
+  assert.ok(browser);
+  const page = await browser.newPage();
+  try {
+    await page.route("https://consent-fixture.test/", route => route.fulfill({ contentType: "text/html", body: '<section id="cookie-banner" role="dialog"><p>We use cookies for analytics.</p><button>Accept all</button></section><iframe srcdoc="<p>Unavailable choice frame</p>"></iframe>' }));
+    await page.goto("https://consent-fixture.test/");
+    const child = page.frames().find(frame => frame !== page.mainFrame())!;
+    Object.defineProperty(child, "evaluate", { configurable: true, value: async () => { throw new Error("frame inaccessible"); } });
+    const artifact = await captureConsentControlGeometry(page);
+    assert.equal(artifact.summary.firstLayerAccept, true);
+    assert.equal(artifact.controlInspection?.structuralCoverage, "limited");
+  } finally { await page.close(); }
+});
+
+test("same-URL navigation during geometry capture cannot prove a complete inventory", async () => {
+  assert.ok(browser);
+  const page = await browser.newPage();
+  try {
+    await page.route("https://consent-fixture.test/", route => route.fulfill({ contentType: "text/html", body: '<section id="cookie-banner" role="dialog"><p>We use cookies for analytics.</p><button>Accept all</button></section>' }));
+    await page.goto("https://consent-fixture.test/");
+    const frame = page.mainFrame(), evaluate = frame.evaluate;
+    Object.defineProperty(frame, "evaluate", { configurable: true, value: async (...args: unknown[]) => {
+      const captured = await Reflect.apply(evaluate, frame, args);
+      await page.reload();
+      return captured;
+    } });
+    const artifact = await captureConsentControlGeometry(page);
+    assert.equal(artifact.controlInspection?.structuralCoverage, "limited");
   } finally { await page.close(); }
 });

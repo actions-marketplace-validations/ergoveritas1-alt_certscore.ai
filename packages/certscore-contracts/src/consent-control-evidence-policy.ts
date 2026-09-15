@@ -1,5 +1,6 @@
+import { verifyConsentControlInspection } from "./consent-control-inspection";
 /** Pure, bounded interpretation of retained structural facts. No browser or model work. */
-export const CONSENT_CONTROL_CAPTURE_POLICY_VERSION = "consent-control-capture.v2";
+export const CONSENT_CONTROL_CAPTURE_POLICY_VERSION = "consent-control-capture.v3";
 export const UNRESOLVED_CONSENT_DECISION = "unresolved_visible_consent_decision";
 
 type RecordLike = Record<string, unknown>;
@@ -15,6 +16,10 @@ export function hasPositiveControlBox(value: unknown): boolean {
  * Dismissals, policy links and unrelated page controls do not limit the inventory. */
 export function hasUnresolvedConsentDecision(geometry: unknown): boolean {
   const packet = record(geometry);
+  if (packet.controlInspection !== undefined) {
+    const typed = verifyConsentControlInspection(packet.controlInspection, packet.candidates);
+    return !typed || typed.candidates.some(c => c.unresolvedIntents.length > 0);
+  }
   const candidates = Array.isArray(packet.candidates) ? packet.candidates : [];
   if (candidates.length > 160) return true; // Uninspected overflow cannot prove absence.
   return candidates.slice(0, 160).some((value) => {

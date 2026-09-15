@@ -1,3 +1,4 @@
+import { observedControlAssessment } from "../scans/test-fixtures/observed-control-assessment";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deriveAfterActionSummary, afterActionInterpretation } from "./after-action-summary";
@@ -38,11 +39,14 @@ for (const action of ["accept", "reject"] as const) {
     assert.ok(summary);
     assert.equal(summary.activationStatus, "completed");
     assert.match(afterActionInterpretation(summary)!, /was clicked/);
-    const record = { events: [], runtimeArtifacts: {
+    const record = { events: [], runtimeArtifacts: { consentControlAssessment: observedControlAssessment,
       [action === "accept" ? "postAcceptEvidenceProjection" : "postRefusalEvidenceProjection"]: projection,
     } } as any;
     const result = action === "accept" ? deriveApiV2PostAcceptObservation(record) : deriveApiV2PostRefusalObservation(record);
     assert.ok(result);
+    assert.ok("execution" in result);
+    assert.equal(result.execution?.status, "succeeded");
+    assert.equal(result.execution?.consentConfirmed, false);
     assert.equal(result.status, "unconfirmed");
     assert.equal(result.productionProjectable, false);
     assert.equal(result.observationCount, 0);
@@ -68,4 +72,45 @@ for (const action of ["accept", "reject"] as const) {
     assert.match(afterActionInterpretation(summary)!, /capture was limited/);
     assert.doesNotMatch(afterActionInterpretation(summary)!, /window completed/);
   });
+  test(`${action}: API distinguishes completed registered paths from confirmation without completion`, () => {
+    const projection = { ...fixture(action), afterActionCapture: undefined, afterActionRequests: undefined,
+      afterActionStorage: undefined, status: "confirmed_clean", registrationStatus: "confirmed",
+      productionProjectable: true, evidenceDisposition: "confirmed", indeterminateReason: null,
+      ...(action === "accept" ? { acceptanceExercised: true, acceptanceRegisteredAtMs: 101 }
+        : { refusalExercised: true, refusalRegisteredAtMs: 101 }),
+      decisionEvidence: { policyVersion: "semantic_consent_registration.v2", decision: action === "accept" ? "granted" : "denied",
+        basis: "verified_state", observedAtMs: 101, observedStateSha256: "b".repeat(64), timestampBasis: "verified_state_observed" },
+      captureCoverage: { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 0 },
+      registeredObservationCompletion: { policyVersion: "registered_action_observation_completion.v1", action,
+        startedAtMs: 101, completedAtMs: 1101, requiredWindowMs: 1000, termination: "window_elapsed" },
+    };
+    for (const complete of [true, false]) {
+      const record = { events: [], runtimeArtifacts: { consentControlAssessment: observedControlAssessment,
+        [action === "accept" ? "postAcceptEvidenceProjection" : "postRefusalEvidenceProjection"]: {
+          ...projection, registeredObservationCompletion: complete ? projection.registeredObservationCompletion : undefined,
+        },
+      } } as any;
+      const result = action === "accept" ? deriveApiV2PostAcceptObservation(record) : deriveApiV2PostRefusalObservation(record);
+      assert.ok(result && "execution" in result);
+      assert.equal(result.execution?.status, complete ? "succeeded_with_confirmation" : "limited");
+      assert.equal(result.execution?.consentConfirmed, true);
+      assert.equal(result.productionProjectable, true); // Existing findings contract is independent.
+      (action === "accept" ? apiV2PostAcceptObservationSchema : apiV2PostRefusalObservationSchema).parse(result);
+    }
+  });
 }
+
+
+test("customer action summaries omit attempts without a corresponding observed control", () => {
+  for (const action of ["accept", "reject"] as const) {
+    for (const state of ["unknown", "not_observed"]) {
+      const assessment = { ...observedControlAssessment, controls: { ...observedControlAssessment.controls,
+        [action]: { ...observedControlAssessment.controls[action], state } } };
+      const record = { events: [], runtimeArtifacts: { consentControlAssessment: assessment,
+        [action === "accept" ? "postAcceptEvidenceProjection" : "postRefusalEvidenceProjection"]: fixture(action),
+      } } as any;
+      assert.equal(action === "accept" ? deriveApiV2PostAcceptObservation(record) : deriveApiV2PostRefusalObservation(record), undefined);
+      assert.ok(record.runtimeArtifacts[action === "accept" ? "postAcceptEvidenceProjection" : "postRefusalEvidenceProjection"], "internal evidence remains retained");
+    }
+  }
+});

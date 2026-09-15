@@ -241,7 +241,7 @@ test("visual safety failure preserves the structured assessment through persiste
   ] };
   const reference = projectConsentStory(fixture);
   const withheld = projectConsentStory({ ...fixture, screenshotWithheld: true });
-  assert.equal(withheld.assessment.artifactVersion, "2.1");
+  assert.equal(withheld.assessment.artifactVersion, "2.2");
   assert.equal(withheld.assessment.visualEvidence?.status, "withheld");
   assert.deepEqual(withheld.assessment.controls, reference.assessment.controls);
   assert.deepEqual(withheld.row, reference.row);
@@ -249,7 +249,7 @@ test("visual safety failure preserves the structured assessment through persiste
   assert.deepEqual(withheld.score, reference.score);
   assert.deepEqual(withheld.rejectScore, reference.rejectScore);
   assert.equal(withheld.gapFindingObserved, reference.gapFindingObserved);
-  assert.equal(withheld.concern.evidenceBundle.rawEvidence?.consentControlAssessmentContractVersion, "2.1");
+  assert.equal(withheld.concern.evidenceBundle.rawEvidence?.consentControlAssessmentContractVersion, "2.2");
 });
 
 test("limited empty first-layer inventory remains unknown through every canonical boundary", () => {

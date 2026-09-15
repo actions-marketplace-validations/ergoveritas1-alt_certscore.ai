@@ -7,15 +7,21 @@ export async function finishAfterActionWindow(input: {
   clickCompleted: boolean;
   signal?: AbortSignal;
   targetStillAuthorized: () => boolean;
+  onFinalWindow?: () => void;
 }): Promise<AfterActionCapture["stopReason"]> {
   if (!input.clickCompleted) return "click_uncertain";
   const deadline = input.dispatchedAtEpochMs + input.observationWindowMs;
+  let finalReadStarted = false;
   while (true) {
     if (input.signal?.aborted) return "aborted";
     try { if (!input.targetStillAuthorized()) return "target_changed"; }
     catch { return "target_changed"; }
     const remaining = deadline - Date.now();
     if (remaining <= 0) return "window_elapsed";
+    if (!finalReadStarted && remaining <= 250 && input.onFinalWindow) {
+      finalReadStarted = true;
+      input.onFinalWindow();
+    }
     await new Promise<void>((resolve) => {
       const finish = () => { clearTimeout(timer); input.signal?.removeEventListener("abort", finish); resolve(); };
       const timer = setTimeout(finish, Math.min(50, remaining));

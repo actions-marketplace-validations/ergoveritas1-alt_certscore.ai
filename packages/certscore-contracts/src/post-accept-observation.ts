@@ -1,3 +1,5 @@
+import { terminalConsentDecisionSchema, validateTerminalConsentDecision } from "./terminal-consent-decision";
+import { assessChoicePathExecution, choicePathExecutionSchema, registeredObservationCompletionSchema, retainRegisteredObservationCompletion, validateChoicePathExecution } from "./choice-path-execution";
 import { z } from "zod";
 import { validateActionStorageName, validateLegacyActionStorageNames } from "./action-storage-name";
 import { afterActionCaptureSchema, validateAfterActionCapture, validateAfterActionProjection } from "./after-action-capture";
@@ -147,6 +149,7 @@ const postAcceptEvidencePacketBaseSchema = z.object({
   runtimeEvidenceGraph: packetRuntimeGraphSchema.optional(),
   runtimeEvidenceGraphDiagnostics: z.array(runtimeGraphVerificationDiagnosticSchema).max(1).optional(),
   artifactVersion: z.enum(["certscore.post_accept_evidence.v1", "certscore.post_accept_evidence.v2"]),
+  terminalDecisionEvidence: terminalConsentDecisionSchema.optional(),
   decisionEvidence: consentDecisionEvidenceSchema.optional(),
   captureCoverage: actionCaptureCoverageSchema.optional(),
   artifactOnly: z.literal(true),
@@ -205,6 +208,7 @@ const postAcceptEvidencePacketBaseSchema = z.object({
   }),
   limitations: z.array(z.string().max(240)).max(24).default([]),
 }).superRefine((packet, context) => {
+  validateTerminalConsentDecision(packet.terminalDecisionEvidence, packet.afterActionCapture, packet.actionControlProof, "accept", context);
   validateLegacyActionStorageNames(packet, context);
   validateAfterActionCapture(packet.afterActionCapture, context, {
     action: "accept", dispatchedAtMs: packet.acceptanceRegistration.actionDispatchedAtMs,
@@ -470,12 +474,15 @@ const postAcceptReportActivityRowSchema = z.object({
 });
 
 export const postAcceptReportProjectionSchema = z.object({
+  execution: choicePathExecutionSchema.optional(),
+  registeredObservationCompletion: registeredObservationCompletionSchema.optional(),
   resolver: postRefusalResolverSchema.optional(),
   resolverDurationMs: z.number().int().nonnegative().optional(),
   interactionDiagnostics: postRefusalInteractionDiagnosticsSchema.optional(),
   afterActionCapture: afterActionCaptureSchema.optional(),
   afterActionRequests: z.array(postRefusalNetworkRequestSchema.omit({ inFlightAtRefusalRegistration: true, msOffsetFromRefusal: true })).max(CONSENT_ACTION_POST_CLICK_REQUEST_LIMIT).optional(),
   afterActionStorage: z.array(postRefusalStorageItemSchema).max(96).optional(),
+  terminalDecisionEvidence: terminalConsentDecisionSchema.optional(),
   decisionEvidence: consentDecisionEvidenceSchema.optional(),
   captureCoverage: actionCaptureCoverageSchema.optional(),
   contractVersion: z.literal(POST_ACCEPT_REPORT_PROJECTION_VERSION),
@@ -503,6 +510,15 @@ export const postAcceptReportProjectionSchema = z.object({
     "aborted",
   ]),
 }).superRefine((projection, context) => {
+  if (projection.registeredObservationCompletion && (
+    projection.registeredObservationCompletion.action !== "accept" ||
+    projection.registeredObservationCompletion.startedAtMs !== projection.acceptanceRegisteredAtMs ||
+    projection.registeredObservationCompletion.requiredWindowMs !== projection.observationWindowMs ||
+    projection.registrationStatus !== "confirmed" || !projection.acceptanceExercised ||
+    (projection.registeredObservationCompletion.termination === "evidence_satisfied" && projection.observationCount === 0)
+  )) context.addIssue({ code: z.ZodIssueCode.custom, path: ["registeredObservationCompletion"], message: "Registered completion must retain its action, registration and observation binding." });
+  validateTerminalConsentDecision(projection.terminalDecisionEvidence, projection.afterActionCapture, projection.actionControlProof, "accept", context);
+  validateChoicePathExecution(projection.execution, projection, "accept", context);
   validateAfterActionProjection(projection.afterActionCapture, context, {
     action: "accept", proof: projection.actionControlProof,
     requests: projection.afterActionRequests, storage: projection.afterActionStorage,
@@ -583,12 +599,21 @@ export function projectPostAcceptEvidenceForReport(input: {
       ].slice(0, 48)
     : [];
 
-  return postAcceptReportProjectionSchema.parse({
+  const projection = postAcceptReportProjectionSchema.parse({
+    registeredObservationCompletion: retainRegisteredObservationCompletion({
+      action: "accept", registeredAtMs: packet.acceptanceRegistration.acceptanceRegisteredAtMs,
+      productionProjectable: packet.productionProjectable, cancelled: packet.cancellation.requested,
+      requestsDropped: packet.captureCoverage?.requestsDroppedAfterAction ?? 0,
+      observationWindowMs: packet.observationWindowMs, observedDurationMs: packet.timing.observationMs,
+      readyAtMs: packet.timing.readyAtMs, exitReason: packet.timing.observationExitReason,
+      observationCount: packet.observations.length,
+    }),
     ...(packet.afterActionCapture ? {
       afterActionCapture: packet.afterActionCapture,
       afterActionRequests: packet.network.requests.filter((row) => packet.afterActionCapture!.requestIds.includes(row.requestId)),
       afterActionStorage: packet.afterActionCapture.storageSnapshotRetained ? packet.storage.postAction : [],
     } : {}),
+    ...(packet.terminalDecisionEvidence ? { terminalDecisionEvidence: packet.terminalDecisionEvidence } : {}),
     ...(packet.decisionEvidence ? { decisionEvidence: packet.decisionEvidence } : {}),
     ...(packet.captureCoverage ? { captureCoverage: packet.captureCoverage } : {}),
     contractVersion: POST_ACCEPT_REPORT_PROJECTION_VERSION,
@@ -616,6 +641,7 @@ export function projectPostAcceptEvidenceForReport(input: {
     resolverMethod: packet.resolver.method,
     status,
   });
+  return postAcceptReportProjectionSchema.parse({ ...projection, execution: assessChoicePathExecution(projection, "accept") });
 }
 
 export type PostAcceptRegistrationStatus = z.infer<typeof postAcceptRegistrationStatusSchema>;

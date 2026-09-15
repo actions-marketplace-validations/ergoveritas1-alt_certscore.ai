@@ -1,3 +1,6 @@
+import { choicePathExecutionLabel } from "@certscore/contracts";
+import React from "react";
+import { consentInspectionNotice } from "../../../lib/scans/consent-inspection-presentation";
 import { ReportCoverageTiming } from "../report-coverage-timing";
 import { SinglePageResourceInventory } from "../single-page-resource-inventory";
 import { SitewideEvidenceCard } from "../sitewide-evidence-card";
@@ -380,30 +383,35 @@ function CompactMetrics({ report }: { report: ShadowReportData }) {
   );
 }
 
-function ControlStatusGrid({ compact = false, report }: { compact?: boolean; report: ShadowReportData }) {
+export function ControlStatusGrid({ compact = false, report }: { compact?: boolean; report: ShadowReportData }) {
   const controls = [
     { label: "Accept", value: report.controls.accept },
     { label: "Reject", value: report.controls.reject },
     { label: "Options", value: report.controls.options }
-  ];
+  ].filter(control => control.value === "Observed" || control.value === "Not observed");
+  const notice = report.consentInspectionNotice ?? consentInspectionNotice(report.controls);
 
   return (
-    <div className="grid grid-cols-3 divide-x divide-zinc-200 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+    <div>
+      {notice ? <p role="status" className="mb-2 text-xs text-slate-600">{notice}</p> : null}
+      {controls.length > 0 ?
+    <div className="grid grid-flow-col auto-cols-fr divide-x divide-zinc-200 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
       {controls.map((control) => {
         const observed = control.value === "Observed";
-        const unknown = control.value === "Unknown";
         return (
         <div className={`${compact ? "px-2 py-2.5" : "px-4 py-4"} relative ${observed ? "bg-emerald-50/70" : "bg-white"}`} key={control.label}>
-          <span aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${observed ? "bg-emerald-500" : unknown ? "bg-sky-300" : "bg-zinc-200"}`} />
+          <span aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${observed ? "bg-emerald-500" : "bg-zinc-200"}`} />
           <div className="flex items-center gap-2">
-            <span aria-hidden="true" className={`inline-flex ${compact ? "h-5 w-5" : "h-7 w-7"} shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-inset ${observed ? "bg-emerald-600 text-white ring-emerald-600" : unknown ? "bg-sky-50 text-sky-700 ring-sky-200" : "bg-zinc-100 text-zinc-500 ring-zinc-200"}`}>
-              {observed ? "✓" : unknown ? "?" : "—"}
+            <span aria-hidden="true" className={`inline-flex ${compact ? "h-5 w-5" : "h-7 w-7"} shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-inset ${observed ? "bg-emerald-600 text-white ring-emerald-600" : "bg-zinc-100 text-zinc-500 ring-zinc-200"}`}>
+              {observed ? "✓" : "—"}
             </span>
             <span className={`${compact ? "text-[0.68rem]" : "text-sm"} font-semibold text-zinc-900`}>{control.label}</span>
           </div>
           <p className={`${compact ? "mt-2 text-[10px]" : "mt-3 text-xs"} font-medium ${observed ? "text-emerald-700" : "text-zinc-500"}`}>{control.value}</p>
         </div>
       )})}
+    </div> : null}
+    <p className="mt-1 text-[10px] text-slate-500">Initial visit · first layer</p>
     </div>
   );
 }
@@ -488,7 +496,9 @@ function SignalSnapshot({ report, siteOverview = false }: { report: ShadowReport
             {privacyUrls.length > 0 ? privacyUrls.map((url) => <li key={url}>{url}</li>) : (
               <li>
                 {report.policySurfaceCoverage === "limited"
-                  ? "Policy discovery or document retrieval was incomplete; no verified policy URL was retained."
+                  ? report.policySurfaceLinkObserved
+                    ? "Policy destination found; the policy document could not be captured and verified."
+                    : "Policy discovery or document retrieval was incomplete; no verified policy URL was retained."
                   : report.policySurfaceCoverage === "complete"
                     ? "No public policy URL was observed with complete policy-surface coverage."
                     : "Policy-surface coverage was unavailable for this scan."}
@@ -731,7 +741,7 @@ function CompactAcceptPathCard({ projection }: { projection: NonNullable<ShadowR
     >
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-semibold uppercase leading-[10px] tracking-[0.16em] text-slate-500">After Accept</p>
-        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${presentation.badgeTone}`}>{projection.execution ? choicePathExecutionLabel(projection.execution) : presentation.badge}</span>
       </div>
       <p className="mt-1 text-xs font-semibold leading-4 text-slate-950">{projection.label}</p>
       {projection.note ? <p className="mt-1 text-[11px] leading-4 text-slate-600">{projection.note}</p> : null}
@@ -754,7 +764,7 @@ function ChoicePathCard({ path, report }: { path: "accept" | "reject"; report: S
   if (!projection) return null;
 
   const isAccept = path === "accept";
-  const badge = isAccept
+  const badge = projection.execution ? choicePathExecutionLabel(projection.execution) : isAccept
     ? projection.state === "activity_observed"
       ? "Activity observed"
       : projection.state === "review_signal"
@@ -796,6 +806,7 @@ function ChoicePathCard({ path, report }: { path: "accept" | "reject"; report: S
       className="group/path min-w-0 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 shadow-[0_1px_0_rgba(24,24,27,0.04)]"
       data-accept-path-state={isAccept ? projection.state : undefined}
       data-reject-path-state={isAccept ? undefined : projection.state}
+      data-path-execution-status={projection.execution?.status}
       data-testid={isAccept ? "post-accept-path-result" : "post-reject-timeline"}
     >
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
@@ -836,10 +847,10 @@ function ChoicePathCard({ path, report }: { path: "accept" | "reject"; report: S
 }
 
 export function ChoicePathResults({ report }: { report: ShadowReportData }) {
-  const acceptSucceeded = Boolean(report.acceptPath && (report.acceptPath.state !== "incomplete" || report.acceptPath.afterClickCoverage));
-  const rejectSucceeded = Boolean(report.rejectPath && (report.rejectPath.state !== "incomplete" || report.rejectPath.afterClickCoverage));
-  if (!acceptSucceeded && !rejectSucceeded) return null;
-  const comparison = acceptSucceeded && rejectSucceeded && report.acceptPath?.state !== "incomplete" && report.rejectPath?.state !== "incomplete" ? report.choicePathComparison : null;
+  const acceptPathAvailable = Boolean(report.acceptPath && (report.acceptPath.state !== "incomplete" || report.acceptPath.afterClickCoverage || report.acceptPath.execution?.clickCompleted));
+  const rejectPathAvailable = Boolean(report.rejectPath && (report.rejectPath.state !== "incomplete" || report.rejectPath.afterClickCoverage || report.rejectPath.execution?.clickCompleted));
+  if (!acceptPathAvailable && !rejectPathAvailable) return null;
+  const comparison = acceptPathAvailable && rejectPathAvailable && report.acceptPath?.state !== "incomplete" && report.rejectPath?.state !== "incomplete" ? report.choicePathComparison : null;
   const comparisonClasses = comparison?.state === "indistinguishable"
     ? "border-amber-300 bg-amber-50 text-amber-900"
     : "border-sky-300 bg-sky-50 text-sky-800";
@@ -851,8 +862,8 @@ export function ChoicePathResults({ report }: { report: ShadowReportData }) {
         {comparison ? <span className={`rounded-md border px-2.5 py-1 text-[0.68rem] font-semibold ${comparisonClasses}`} title={comparison.note}>{comparison.label}</span> : null}
       </div>
       <div className="mt-1.5 grid items-start gap-2 sm:grid-cols-2">
-        {acceptSucceeded ? <ChoicePathCard path="accept" report={report} /> : null}
-        {rejectSucceeded ? <ChoicePathCard path="reject" report={report} /> : null}
+        {acceptPathAvailable ? <ChoicePathCard path="accept" report={report} /> : null}
+        {rejectPathAvailable ? <ChoicePathCard path="reject" report={report} /> : null}
       </div>
     </div>
   );
@@ -1249,8 +1260,9 @@ function TriageVariant({ report }: { report: ShadowReportData }) {
           <div className="mt-9 grid gap-6 border-t border-zinc-200 pt-7 lg:grid-cols-2">
             <div>
               <h3 className="text-sm font-semibold text-zinc-950">Consent controls</h3>
+              {(report.consentInspectionNotice ?? consentInspectionNotice(report.controls)) ? <p className="text-xs text-slate-600">{report.consentInspectionNotice ?? consentInspectionNotice(report.controls)}</p> : null}
               <div className="mt-4 grid grid-cols-3 gap-2">
-                {Object.entries(report.controls).map(([label, value]) => (
+                {Object.entries(report.controls).filter(([, value]) => value === "Observed" || value === "Not observed").map(([label, value]) => (
                   <div className="border-l-2 border-zinc-200 pl-3" key={label}>
                     <p className="text-xs capitalize text-zinc-500">{label}</p>
                     <p className={`mt-1 text-xs font-semibold ${value === "Observed" ? "text-emerald-700" : "text-rose-700"}`}>{value}</p>

@@ -1,0 +1,1955 @@
+[
+  {
+    "scanId": "06b6a5b1-b781-4655-8c31-15689a5384b8",
+    "hostname": "naszemiasto.pl",
+    "consentAssessment": {
+      "scan": {
+        "noGo": false,
+        "scanId": "06b6a5b1-b781-4655-8c31-15689a5384b8",
+        "finalUrl": "https://naszemiasto.pl/",
+        "scanStatus": "completed",
+        "requestedUrl": "https://naszemiasto.pl/"
+      },
+      "surface": {
+        "status": "observed_actionable",
+        "evidenceRefs": [],
+        "lastObservedAtMs": 23992,
+        "firstObservedAtMs": 23992
+      },
+      "controls": {
+        "accept": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_4",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:Akceptuj\u0119 i przechodz\u0119 do serwisu",
+            "CanonicalEvidenceBundle.json",
+            "consent_ui_pre_consent:Akceptuj\u0119 i przechodz\u0119 do serwisu: Wyra\u017a zgod\u0119 na nasze przetwarzanie danych i zamknij"
+          ],
+          "lastObservedAtMs": 23992,
+          "firstObservedAtMs": 23969
+        },
+        "reject": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "options": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_3",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:Ustawienia zaawansowane",
+            "CanonicalEvidenceBundle.json"
+          ],
+          "lastObservedAtMs": 23992,
+          "firstObservedAtMs": 23969
+        },
+        "privacyOptOut": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        }
+      },
+      "coverage": {
+        "status": "limited",
+        "reasonCodes": [
+          "unresolved_visible_consent_decision",
+          "consent-control-capture.v2",
+          "canonical_consent_coverage_incomplete"
+        ],
+        "requiredChannels": [
+          "dom_inventory",
+          "geometry"
+        ],
+        "completedChannels": [
+          "dom_inventory",
+          "geometry",
+          "accessibility_tree",
+          "network_cmp",
+          "dom_snapshot",
+          "cmp_runtime"
+        ],
+        "incompleteChannels": []
+      },
+      "document": {
+        "reasonCodes": [],
+        "identityStatus": "matched",
+        "canonicalDocumentId": "https://naszemiasto.pl/",
+        "observedDocumentIds": [
+          "https://naszemiasto.pl/"
+        ],
+        "canonicalDocumentToken": "8CE1645B609C5A0B9846CF040909064B",
+        "observedDocumentTokens": [
+          "8CE1645B609C5A0B9846CF040909064B"
+        ]
+      },
+      "evidence": [
+        {
+          "label": "Ustawienia zaawansowane",
+          "layer": "first_layer",
+          "intent": "options",
+          "locale": "pl",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "ustawienia zaawansowane",
+            "reasonCodes": [
+              "matched_options",
+              "match_strength_contextual",
+              "requires_consent_context",
+              "context_satisfied"
+            ],
+            "matchStrength": "contextual",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://naszemiasto.pl/",
+          "evidenceId": "candidate_3",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 23969,
+          "documentToken": "8CE1645B609C5A0B9846CF040909064B",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "Akceptuj\u0119 i przechodz\u0119 do serwisu",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "pl",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "akceptuj\u0119",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://naszemiasto.pl/",
+          "evidenceId": "candidate_4",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 23969,
+          "documentToken": "8CE1645B609C5A0B9846CF040909064B",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "Ustawienia zaawansowane",
+          "layer": "first_layer",
+          "intent": "options",
+          "locale": "pl",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry",
+            "accessibility_tree"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "ustawienia zaawansowane",
+            "reasonCodes": [
+              "privacy_opt_out_context",
+              "matched_options",
+              "match_strength_contextual",
+              "requires_consent_context",
+              "context_satisfied"
+            ],
+            "matchStrength": "contextual",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://naszemiasto.pl/",
+          "evidenceId": "consent_ui_pre_consent:Ustawienia zaawansowane",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 23992,
+          "documentToken": "8CE1645B609C5A0B9846CF040909064B",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        },
+        {
+          "label": "Akceptuj\u0119 i przechodz\u0119 do serwisu",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "pl",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry",
+            "accessibility_tree"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "akceptuj\u0119",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://naszemiasto.pl/",
+          "evidenceId": "consent_ui_pre_consent:Akceptuj\u0119 i przechodz\u0119 do serwisu",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 23992,
+          "documentToken": "8CE1645B609C5A0B9846CF040909064B",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "Akceptuj\u0119 i przechodz\u0119 do serwisu: Wyra\u017a zgod\u0119 na nasze przetwarzanie danych i zamknij",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "pl",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry",
+            "accessibility_tree"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "akceptuj\u0119",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://naszemiasto.pl/",
+          "evidenceId": "consent_ui_pre_consent:Akceptuj\u0119 i przechodz\u0119 do serwisu: Wyra\u017a zgod\u0119 na nasze przetwarzanie danych i zamknij",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 23992,
+          "documentToken": "8CE1645B609C5A0B9846CF040909064B",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        }
+      ],
+      "provenance": {
+        "computedAt": "2026-09-14T19:52:53.250Z",
+        "sourceHash": "fnv1a-fc19a8fc",
+        "projectorId": "wc01.consent-control-assessment",
+        "contractVersion": "2.1",
+        "projectorVersion": "2.1.1",
+        "sourceBundleVersion": "certscore.v2.alpha.1",
+        "sourceGeometryVersion": "consent_control_geometry.v1"
+      },
+      "limitations": [],
+      "artifactType": "consent_control_assessment",
+      "contradictions": [],
+      "evidencePolicy": "structured_control_evidence.v1",
+      "visualEvidence": {
+        "status": "available",
+        "reasonCodes": [],
+        "artifactRefs": [
+          "screenshot_pre_consent_cmp_controls"
+        ]
+      },
+      "artifactVersion": "2.1",
+      "assessmentStatus": "limited"
+    },
+    "rejectPath": {
+      "completeRejectPathAvailable": false,
+      "completeRejectPathDetected": false,
+      "firstLayerCookieConsentBannerObserved": true,
+      "firstLayerConsentChoices": {
+        "acceptControlObserved": true,
+        "acceptLabels": [
+          "Akceptuj\u0119 i przechodz\u0119 do serwisu"
+        ],
+        "actionableControlInventoryRetained": true,
+        "capturedBeforeInteraction": true,
+        "controls": [
+          {
+            "actionType": "manage_preferences",
+            "classifierReasonCodes": [
+              "matched_options",
+              "match_strength_contextual",
+              "requires_consent_context",
+              "context_satisfied"
+            ],
+            "label": "Ustawienia zaawansowane",
+            "matchedLocale": "pl",
+            "matchedTerm": "ustawienia zaawansowane",
+            "matchStrength": "contextual",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "selectorHint": "#didomi-notice-learn-more-button",
+            "tagName": "button"
+          },
+          {
+            "actionType": "accept_all",
+            "classifierReasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "label": "Akceptuj\u0119 i przechodz\u0119 do serwisu",
+            "matchedLocale": "pl",
+            "matchedTerm": "akceptuj\u0119",
+            "matchStrength": "direct",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "selectorHint": "#didomi-notice-agree-button",
+            "tagName": "button"
+          }
+        ],
+        "defaultTogglePurposeLabels": [],
+        "defaultToggleStatesObserved": null,
+        "layerInspected": "first_layer",
+        "managePreferencesControlObserved": true,
+        "nonEssentialDefaultsOff": null,
+        "preferenceLabels": [
+          "Ustawienia zaawansowane"
+        ],
+        "precheckedOptionalPurposeCount": 0,
+        "precheckedOptionalPurposeLabels": [],
+        "rejectControlObserved": false,
+        "rejectLabels": [],
+        "visibleChoiceLabels": [
+          "Ustawienia zaawansowane",
+          "Akceptuj\u0119 i przechodz\u0119 do serwisu"
+        ],
+        "geometryAssessment": "complete",
+        "postClickEnforcementTested": false,
+        "controlInventoryComplete": false,
+        "screenshotRefs": [
+          {
+            "capturedAtMs": 6658,
+            "id": "local_v2:screenshot_pre_consent_settled",
+            "url": "https://naszemiasto.pl/"
+          },
+          {
+            "capturedAtMs": 4838,
+            "id": "local_v2:screenshot_pre_consent",
+            "url": "https://naszemiasto.pl/"
+          }
+        ]
+      },
+      "gdprEprivacyConsentSurfaceObserved": "confirmed",
+      "layerInspected": "first_layer",
+      "rejectAvailableOnFirstLayer": false,
+      "rejectEquivalentFound": false,
+      "rejectControlObserved": false,
+      "visibleRejectLabels": []
+    }
+  },
+  {
+    "scanId": "1e5e4d6e-85bf-4f76-a401-280dd87a6f42",
+    "hostname": "www.fp-finanzpartner.de",
+    "consentAssessment": {
+      "scan": {
+        "noGo": false,
+        "scanId": "1e5e4d6e-85bf-4f76-a401-280dd87a6f42",
+        "finalUrl": "https://www.fp-finanzpartner.de/",
+        "scanStatus": "completed",
+        "requestedUrl": "https://www.fp-finanzpartner.de/"
+      },
+      "surface": {
+        "status": "observed_actionable",
+        "evidenceRefs": [],
+        "lastObservedAtMs": 9449,
+        "firstObservedAtMs": 9449
+      },
+      "controls": {
+        "accept": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_2",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:allow cookies",
+            "CanonicalEvidenceBundle.json",
+            "consent_ui_pre_consent:Erlaube Cookies"
+          ],
+          "lastObservedAtMs": 9449,
+          "firstObservedAtMs": 9318
+        },
+        "reject": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "options": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "privacyOptOut": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        }
+      },
+      "coverage": {
+        "status": "limited",
+        "reasonCodes": [
+          "unresolved_visible_consent_decision",
+          "consent-control-capture.v2",
+          "canonical_consent_coverage_incomplete"
+        ],
+        "requiredChannels": [
+          "dom_inventory",
+          "geometry"
+        ],
+        "completedChannels": [
+          "dom_inventory",
+          "geometry",
+          "network_cmp",
+          "dom_snapshot"
+        ],
+        "incompleteChannels": []
+      },
+      "document": {
+        "reasonCodes": [],
+        "identityStatus": "matched",
+        "canonicalDocumentId": "https://www.fp-finanzpartner.de/",
+        "observedDocumentIds": [
+          "https://www.fp-finanzpartner.de/"
+        ],
+        "canonicalDocumentToken": "637E6C3F1FC4C0EACA66FC367D1691BB",
+        "observedDocumentTokens": [
+          "637E6C3F1FC4C0EACA66FC367D1691BB"
+        ]
+      },
+      "evidence": [
+        {
+          "label": "Erlaube Cookies",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "allow cookies",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied",
+              "document_locale_mismatch_recovered"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.fp-finanzpartner.de/",
+          "evidenceId": "candidate_2",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 9318,
+          "documentToken": "637E6C3F1FC4C0EACA66FC367D1691BB",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "allow cookies",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "allow cookies",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.fp-finanzpartner.de/",
+          "evidenceId": "consent_ui_pre_consent:allow cookies",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 9449,
+          "documentToken": "637E6C3F1FC4C0EACA66FC367D1691BB",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        },
+        {
+          "label": "Erlaube Cookies",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "allow cookies",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied",
+              "document_locale_mismatch_recovered"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.fp-finanzpartner.de/",
+          "evidenceId": "consent_ui_pre_consent:Erlaube Cookies",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 9449,
+          "documentToken": "637E6C3F1FC4C0EACA66FC367D1691BB",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        }
+      ],
+      "provenance": {
+        "computedAt": "2026-09-14T16:47:22.580Z",
+        "sourceHash": "fnv1a-11da5427",
+        "projectorId": "wc01.consent-control-assessment",
+        "contractVersion": "2.1",
+        "projectorVersion": "2.1.1",
+        "sourceBundleVersion": "certscore.v2.alpha.1",
+        "sourceGeometryVersion": "consent_control_geometry.v1"
+      },
+      "limitations": [],
+      "artifactType": "consent_control_assessment",
+      "contradictions": [],
+      "evidencePolicy": "structured_control_evidence.v1",
+      "visualEvidence": {
+        "status": "available",
+        "reasonCodes": [],
+        "artifactRefs": [
+          "screenshot_pre_consent"
+        ]
+      },
+      "artifactVersion": "2.1",
+      "assessmentStatus": "limited"
+    },
+    "rejectPath": {
+      "completeRejectPathAvailable": false,
+      "completeRejectPathDetected": false,
+      "firstLayerCookieConsentBannerObserved": true,
+      "firstLayerConsentChoices": {
+        "acceptControlObserved": true,
+        "acceptLabels": [
+          "Erlaube Cookies",
+          "allow cookies"
+        ],
+        "actionableControlInventoryRetained": true,
+        "capturedBeforeInteraction": true,
+        "controls": [
+          {
+            "actionType": "accept_all",
+            "classifierReasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "label": "Erlaube Cookies",
+            "matchedLocale": "en",
+            "matchedTerm": "allow cookies",
+            "matchStrength": "direct",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "role": "button",
+            "selectorHint": "a[aria-label=\"allow cookies\"]",
+            "tagName": "a"
+          },
+          {
+            "actionType": "accept_all",
+            "classifierReasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "label": "allow cookies",
+            "matchedLocale": "en",
+            "matchedTerm": "allow cookies",
+            "matchStrength": "direct",
+            "role": "button",
+            "selectorHint": "a",
+            "tagName": "a",
+            "visible": true
+          }
+        ],
+        "defaultTogglePurposeLabels": [],
+        "defaultToggleStatesObserved": null,
+        "nonEssentialDefaultsOff": null,
+        "precheckedOptionalPurposeCount": 0,
+        "precheckedOptionalPurposeLabels": [],
+        "layerInspected": "first_layer",
+        "managePreferencesControlObserved": false,
+        "preferenceLabels": [],
+        "rejectControlObserved": false,
+        "rejectLabels": [],
+        "observedAtMs": 9449,
+        "policyLinks": [],
+        "textSnippet": "Auf unserer Website verwenden wir Cookies. Einige davon sind f\u00fcr den Betrieb der Website essentiell notwendig, andere wiederum helfen uns dabei, diese Website und Ihre User Experience zu verbessern. Mehr Informationen Auf unserer Website ve",
+        "visibleChoiceLabels": [
+          "Erlaube Cookies",
+          "allow cookies"
+        ],
+        "geometryAssessment": "complete",
+        "postClickEnforcementTested": false,
+        "controlInventoryComplete": false,
+        "screenshotRefs": [
+          {
+            "capturedAtMs": 9581,
+            "id": "local_v2:screenshot_pre_consent_settled",
+            "url": "https://www.fp-finanzpartner.de/"
+          },
+          {
+            "capturedAtMs": 8153,
+            "id": "local_v2:screenshot_pre_consent",
+            "url": "https://www.fp-finanzpartner.de/"
+          }
+        ]
+      },
+      "gdprEprivacyConsentSurfaceObserved": "confirmed",
+      "layerInspected": "first_layer",
+      "rejectAvailableOnFirstLayer": false,
+      "rejectEquivalentFound": false,
+      "rejectControlObserved": false,
+      "visibleRejectLabels": []
+    }
+  },
+  {
+    "scanId": "26d78ad3-dd2b-48dd-ac15-f6a5b4c98deb",
+    "hostname": "unsw.edu.au",
+    "consentAssessment": {
+      "scan": {
+        "noGo": false,
+        "scanId": "26d78ad3-dd2b-48dd-ac15-f6a5b4c98deb",
+        "finalUrl": "https://www.unsw.edu.au/",
+        "scanStatus": "completed",
+        "requestedUrl": "https://unsw.edu.au/"
+      },
+      "surface": {
+        "status": "observed_actionable",
+        "evidenceRefs": [],
+        "lastObservedAtMs": 21667,
+        "firstObservedAtMs": 21667
+      },
+      "controls": {
+        "accept": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_0",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:Allow all cookies",
+            "CanonicalEvidenceBundle.json"
+          ],
+          "lastObservedAtMs": 21667,
+          "firstObservedAtMs": 21518
+        },
+        "reject": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "options": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_2",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:Customise preferences, Opens the preference center dialog",
+            "CanonicalEvidenceBundle.json",
+            "consent_ui_pre_consent:Customise preferences"
+          ],
+          "lastObservedAtMs": 21667,
+          "firstObservedAtMs": 21518
+        },
+        "privacyOptOut": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        }
+      },
+      "coverage": {
+        "status": "limited",
+        "reasonCodes": [
+          "unresolved_visible_consent_decision",
+          "consent-control-capture.v2",
+          "canonical_consent_coverage_incomplete"
+        ],
+        "requiredChannels": [
+          "dom_inventory",
+          "geometry"
+        ],
+        "completedChannels": [
+          "dom_inventory",
+          "accessibility_tree",
+          "geometry",
+          "network_cmp",
+          "dom_snapshot",
+          "cmp_runtime"
+        ],
+        "incompleteChannels": []
+      },
+      "document": {
+        "reasonCodes": [],
+        "identityStatus": "matched",
+        "canonicalDocumentId": "https://www.unsw.edu.au/",
+        "observedDocumentIds": [
+          "https://www.unsw.edu.au/"
+        ],
+        "canonicalDocumentToken": "086B44E00E398414274513C536226EB1",
+        "observedDocumentTokens": [
+          "086B44E00E398414274513C536226EB1"
+        ]
+      },
+      "evidence": [
+        {
+          "label": "Allow all cookies",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "allow all",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.unsw.edu.au/",
+          "evidenceId": "candidate_0",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 21518,
+          "documentToken": "086B44E00E398414274513C536226EB1",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "Customise preferences",
+          "layer": "first_layer",
+          "intent": "options",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "preference center",
+            "reasonCodes": [
+              "matched_options",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.unsw.edu.au/",
+          "evidenceId": "candidate_2",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 21518,
+          "documentToken": "086B44E00E398414274513C536226EB1",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "Allow all cookies",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "accessibility_tree",
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "allow all",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.unsw.edu.au/",
+          "evidenceId": "consent_ui_pre_consent:Allow all cookies",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 21667,
+          "documentToken": "086B44E00E398414274513C536226EB1",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        },
+        {
+          "label": "Customise preferences, Opens the preference center dialog",
+          "layer": "first_layer",
+          "intent": "options",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "accessibility_tree",
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "preference center",
+            "reasonCodes": [
+              "matched_options",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.unsw.edu.au/",
+          "evidenceId": "consent_ui_pre_consent:Customise preferences, Opens the preference center dialog",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 21667,
+          "documentToken": "086B44E00E398414274513C536226EB1",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        },
+        {
+          "label": "Customise preferences",
+          "layer": "first_layer",
+          "intent": "options",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "accessibility_tree",
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "preference center",
+            "reasonCodes": [
+              "matched_options",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.unsw.edu.au/",
+          "evidenceId": "consent_ui_pre_consent:Customise preferences",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 21667,
+          "documentToken": "086B44E00E398414274513C536226EB1",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        }
+      ],
+      "provenance": {
+        "computedAt": "2026-09-14T07:07:40.239Z",
+        "sourceHash": "fnv1a-da5b4214",
+        "projectorId": "wc01.consent-control-assessment",
+        "contractVersion": "2.1",
+        "projectorVersion": "2.1.1",
+        "sourceBundleVersion": "certscore.v2.alpha.1",
+        "sourceGeometryVersion": "consent_control_geometry.v1"
+      },
+      "limitations": [],
+      "artifactType": "consent_control_assessment",
+      "contradictions": [],
+      "evidencePolicy": "structured_control_evidence.v1",
+      "visualEvidence": {
+        "status": "available",
+        "reasonCodes": [],
+        "artifactRefs": [
+          "screenshot_pre_consent_geometry_proof",
+          "screenshot_pre_consent_settled"
+        ]
+      },
+      "artifactVersion": "2.1",
+      "assessmentStatus": "limited"
+    },
+    "rejectPath": {
+      "completeRejectPathAvailable": false,
+      "completeRejectPathDetected": false,
+      "firstLayerCookieConsentBannerObserved": true,
+      "firstLayerConsentChoices": {
+        "acceptControlObserved": true,
+        "acceptLabels": [
+          "Allow all cookies"
+        ],
+        "actionableControlInventoryRetained": true,
+        "capturedBeforeInteraction": true,
+        "controls": [
+          {
+            "actionType": "accept_all",
+            "classifierReasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "label": "Allow all cookies",
+            "matchedLocale": "en",
+            "matchedTerm": "allow all",
+            "matchStrength": "direct",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "selectorHint": "#onetrust-accept-btn-handler",
+            "tagName": "button"
+          },
+          {
+            "actionType": "manage_preferences",
+            "classifierReasonCodes": [
+              "matched_options",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "label": "Customise preferences",
+            "matchedLocale": "en",
+            "matchedTerm": "preference center",
+            "matchStrength": "direct",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "selectorHint": "#onetrust-pc-btn-handler",
+            "tagName": "button"
+          }
+        ],
+        "defaultTogglePurposeLabels": [],
+        "defaultToggleStatesObserved": null,
+        "layerInspected": "first_layer",
+        "managePreferencesControlObserved": true,
+        "nonEssentialDefaultsOff": null,
+        "preferenceLabels": [
+          "Customise preferences"
+        ],
+        "precheckedOptionalPurposeCount": 0,
+        "precheckedOptionalPurposeLabels": [],
+        "rejectControlObserved": false,
+        "rejectLabels": [],
+        "visibleChoiceLabels": [
+          "Allow all cookies",
+          "Customise preferences"
+        ],
+        "geometryAssessment": "complete",
+        "postClickEnforcementTested": false,
+        "controlInventoryComplete": false,
+        "screenshotRefs": [
+          {
+            "capturedAtMs": 21650,
+            "id": "local_v2:screenshot_pre_consent_geometry_proof",
+            "url": "https://www.unsw.edu.au/"
+          },
+          {
+            "capturedAtMs": 11194,
+            "id": "local_v2:screenshot_pre_consent_full_page",
+            "url": "https://www.unsw.edu.au/"
+          },
+          {
+            "capturedAtMs": 5290,
+            "id": "local_v2:screenshot_pre_consent_settled",
+            "url": "https://www.unsw.edu.au/"
+          },
+          {
+            "capturedAtMs": 3304,
+            "id": "local_v2:screenshot_pre_consent",
+            "url": "https://www.unsw.edu.au/"
+          }
+        ]
+      },
+      "gdprEprivacyConsentSurfaceObserved": "confirmed",
+      "layerInspected": "first_layer",
+      "rejectAvailableOnFirstLayer": false,
+      "rejectEquivalentFound": false,
+      "rejectControlObserved": false,
+      "visibleRejectLabels": []
+    }
+  },
+  {
+    "scanId": "25e462d5-96ff-4b8a-98e0-2109603d0e7c",
+    "hostname": "uni-kiel.de",
+    "consentAssessment": {
+      "scan": {
+        "noGo": false,
+        "scanId": "25e462d5-96ff-4b8a-98e0-2109603d0e7c",
+        "finalUrl": "https://www.uni-kiel.de/de",
+        "scanStatus": "completed",
+        "requestedUrl": "https://uni-kiel.de/"
+      },
+      "surface": {
+        "status": "observed_actionable",
+        "evidenceRefs": [],
+        "lastObservedAtMs": 23311,
+        "firstObservedAtMs": 23311
+      },
+      "controls": {
+        "accept": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_0",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:Alle akzeptieren",
+            "CanonicalEvidenceBundle.json"
+          ],
+          "lastObservedAtMs": 23311,
+          "firstObservedAtMs": 23039
+        },
+        "reject": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "options": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "privacyOptOut": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        }
+      },
+      "coverage": {
+        "status": "limited",
+        "reasonCodes": [
+          "unresolved_visible_consent_decision",
+          "consent-control-capture.v2",
+          "canonical_consent_coverage_incomplete"
+        ],
+        "requiredChannels": [
+          "dom_inventory",
+          "geometry"
+        ],
+        "completedChannels": [
+          "dom_inventory",
+          "geometry",
+          "network_cmp",
+          "dom_snapshot"
+        ],
+        "incompleteChannels": []
+      },
+      "document": {
+        "reasonCodes": [],
+        "identityStatus": "matched",
+        "canonicalDocumentId": "https://www.uni-kiel.de/de",
+        "observedDocumentIds": [
+          "https://www.uni-kiel.de/de"
+        ],
+        "canonicalDocumentToken": "65641F89F4A417F15D9BC145EC214667",
+        "observedDocumentTokens": [
+          "65641F89F4A417F15D9BC145EC214667"
+        ]
+      },
+      "evidence": [
+        {
+          "label": "ALLE AKZEPTIEREN",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "de",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "alle akzeptieren",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.uni-kiel.de/de",
+          "evidenceId": "candidate_0",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 23039,
+          "documentToken": "65641F89F4A417F15D9BC145EC214667",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "Alle akzeptieren",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "de",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "alle akzeptieren",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.uni-kiel.de/de",
+          "evidenceId": "consent_ui_pre_consent:Alle akzeptieren",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 23311,
+          "documentToken": "65641F89F4A417F15D9BC145EC214667",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        }
+      ],
+      "provenance": {
+        "computedAt": "2026-09-14T06:36:13.399Z",
+        "sourceHash": "fnv1a-986b56db",
+        "projectorId": "wc01.consent-control-assessment",
+        "contractVersion": "2.1",
+        "projectorVersion": "2.1.1",
+        "sourceBundleVersion": "certscore.v2.alpha.1",
+        "sourceGeometryVersion": "consent_control_geometry.v1"
+      },
+      "limitations": [],
+      "artifactType": "consent_control_assessment",
+      "contradictions": [],
+      "evidencePolicy": "structured_control_evidence.v1",
+      "visualEvidence": {
+        "status": "available",
+        "reasonCodes": [],
+        "artifactRefs": [
+          "screenshot_pre_consent_geometry_proof",
+          "screenshot_pre_consent_settled"
+        ]
+      },
+      "artifactVersion": "2.1",
+      "assessmentStatus": "limited"
+    },
+    "rejectPath": {
+      "completeRejectPathAvailable": false,
+      "completeRejectPathDetected": false,
+      "firstLayerCookieConsentBannerObserved": true,
+      "firstLayerConsentChoices": {
+        "acceptControlObserved": true,
+        "acceptLabels": [
+          "ALLE AKZEPTIEREN"
+        ],
+        "actionableControlInventoryRetained": true,
+        "capturedBeforeInteraction": true,
+        "controls": [
+          {
+            "actionType": "accept_all",
+            "classifierReasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "label": "ALLE AKZEPTIEREN",
+            "matchedLocale": "de",
+            "matchedTerm": "alle akzeptieren",
+            "matchStrength": "direct",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "selectorHint": "div.cookie-panel__control button",
+            "tagName": "button"
+          }
+        ],
+        "defaultTogglePurposeLabels": [],
+        "defaultToggleStatesObserved": null,
+        "nonEssentialDefaultsOff": null,
+        "precheckedOptionalPurposeCount": 0,
+        "precheckedOptionalPurposeLabels": [],
+        "layerInspected": "first_layer",
+        "managePreferencesControlObserved": false,
+        "preferenceLabels": [],
+        "rejectControlObserved": false,
+        "rejectLabels": [],
+        "observedAtMs": 23311,
+        "policyLinks": [],
+        "textSnippet": "Men\u00fc Universit\u00e4t Studium Forschung International Transfer Karriere Veranstaltungen CAU Insights \u00a9 Uni Kiel Wenn Materialfehler zu Energietransportern werden Kieler Forschende entdecken neuen Mechanismus f\u00fcr den Energietransport in atomar d\u00fc",
+        "visibleChoiceLabels": [
+          "ALLE AKZEPTIEREN"
+        ],
+        "geometryAssessment": "complete",
+        "postClickEnforcementTested": false,
+        "controlInventoryComplete": false,
+        "screenshotRefs": [
+          {
+            "capturedAtMs": 23295,
+            "id": "local_v2:screenshot_pre_consent_geometry_proof",
+            "url": "https://www.uni-kiel.de/de/"
+          },
+          {
+            "capturedAtMs": 20776,
+            "id": "local_v2:screenshot_pre_consent_settled",
+            "url": "https://www.uni-kiel.de/de/"
+          },
+          {
+            "capturedAtMs": 19332,
+            "id": "local_v2:screenshot_pre_consent",
+            "url": "https://www.uni-kiel.de/de/"
+          }
+        ]
+      },
+      "gdprEprivacyConsentSurfaceObserved": "confirmed",
+      "layerInspected": "first_layer",
+      "rejectAvailableOnFirstLayer": false,
+      "rejectEquivalentFound": false,
+      "rejectControlObserved": false,
+      "visibleRejectLabels": []
+    }
+  },
+  {
+    "scanId": "0116ac13-e8fe-4f14-871d-eddef0df2eeb",
+    "hostname": "ok.porn",
+    "consentAssessment": {
+      "scan": {
+        "noGo": false,
+        "scanId": "0116ac13-e8fe-4f14-871d-eddef0df2eeb",
+        "finalUrl": "https://ok.porn/",
+        "scanStatus": "completed",
+        "requestedUrl": "https://ok.porn/"
+      },
+      "surface": {
+        "status": "observed_actionable",
+        "evidenceRefs": [],
+        "lastObservedAtMs": 13378,
+        "firstObservedAtMs": 13378
+      },
+      "controls": {
+        "accept": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_1",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:OK",
+            "CanonicalEvidenceBundle.json"
+          ],
+          "lastObservedAtMs": 13378,
+          "firstObservedAtMs": 12813
+        },
+        "reject": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "options": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "privacyOptOut": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        }
+      },
+      "coverage": {
+        "status": "limited",
+        "reasonCodes": [
+          "unresolved_visible_consent_decision",
+          "consent-control-capture.v2",
+          "canonical_consent_coverage_incomplete"
+        ],
+        "requiredChannels": [
+          "dom_inventory",
+          "geometry"
+        ],
+        "completedChannels": [
+          "dom_inventory",
+          "accessibility_tree",
+          "geometry",
+          "network_cmp",
+          "dom_snapshot"
+        ],
+        "incompleteChannels": []
+      },
+      "document": {
+        "reasonCodes": [],
+        "identityStatus": "matched",
+        "canonicalDocumentId": "https://ok.porn/",
+        "observedDocumentIds": [
+          "https://ok.porn/"
+        ],
+        "canonicalDocumentToken": "1B6127D7292E53B4942C8C162EF97EEA",
+        "observedDocumentTokens": [
+          "1B6127D7292E53B4942C8C162EF97EEA"
+        ]
+      },
+      "evidence": [
+        {
+          "label": "OK",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "ok",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_weak",
+              "requires_consent_context",
+              "context_satisfied"
+            ],
+            "matchStrength": "weak",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://ok.porn/",
+          "evidenceId": "candidate_1",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 12813,
+          "documentToken": "1B6127D7292E53B4942C8C162EF97EEA",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "OK",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "en",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "accessibility_tree",
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "ok",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_weak",
+              "requires_consent_context",
+              "context_satisfied"
+            ],
+            "matchStrength": "weak",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://ok.porn/",
+          "evidenceId": "consent_ui_pre_consent:OK",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 13378,
+          "documentToken": "1B6127D7292E53B4942C8C162EF97EEA",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        }
+      ],
+      "provenance": {
+        "computedAt": "2026-09-14T05:45:42.483Z",
+        "sourceHash": "fnv1a-854e0f1b",
+        "projectorId": "wc01.consent-control-assessment",
+        "contractVersion": "2.1",
+        "projectorVersion": "2.1.1",
+        "sourceBundleVersion": "certscore.v2.alpha.1",
+        "sourceGeometryVersion": "consent_control_geometry.v1"
+      },
+      "limitations": [],
+      "artifactType": "consent_control_assessment",
+      "contradictions": [],
+      "evidencePolicy": "structured_control_evidence.v1",
+      "visualEvidence": {
+        "status": "withheld",
+        "reasonCodes": [
+          "representative_consent_screenshot_unavailable",
+          "sensitive_visual_content",
+          "finalization_deadline_exceeded",
+          "safety_check_unavailable"
+        ],
+        "artifactRefs": []
+      },
+      "artifactVersion": "2.1",
+      "assessmentStatus": "limited"
+    },
+    "rejectPath": {
+      "completeRejectPathAvailable": false,
+      "completeRejectPathDetected": false,
+      "firstLayerCookieConsentBannerObserved": true,
+      "firstLayerConsentChoices": {
+        "acceptControlObserved": true,
+        "acceptLabels": [
+          "OK"
+        ],
+        "actionableControlInventoryRetained": true,
+        "capturedBeforeInteraction": true,
+        "controls": [
+          {
+            "actionType": "accept_all",
+            "classifierReasonCodes": [
+              "matched_accept",
+              "match_strength_weak",
+              "requires_consent_context",
+              "context_satisfied"
+            ],
+            "label": "OK",
+            "matchedLocale": "en",
+            "matchedTerm": "ok",
+            "matchStrength": "weak",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "selectorHint": "div.wrapper-cookies button",
+            "tagName": "button"
+          }
+        ],
+        "defaultTogglePurposeLabels": [],
+        "defaultToggleStatesObserved": null,
+        "nonEssentialDefaultsOff": null,
+        "precheckedOptionalPurposeCount": 0,
+        "precheckedOptionalPurposeLabels": [],
+        "layerInspected": "first_layer",
+        "managePreferencesControlObserved": false,
+        "preferenceLabels": [],
+        "rejectControlObserved": false,
+        "rejectLabels": [],
+        "observedAtMs": 13378,
+        "policyLinks": [],
+        "textSnippet": "New Popular Trending Fresh free porn videos 21:09 6:00 14:59 54:08 17:51 27:35 15:13 16:01 15:14 7:59 12:00 8:15 35:08 11:54 14:45 16:38 11:57 7:52 32:33 34:04 28:01 40:25 8:12 15:10 9:59 29:53 15:00 16:20 16:57 11:59 14:58 15:31 14:58 15:3",
+        "visibleChoiceLabels": [
+          "OK"
+        ],
+        "geometryAssessment": "complete",
+        "postClickEnforcementTested": false,
+        "controlInventoryComplete": false,
+        "screenshotRefs": [
+          {
+            "capturedAtMs": 13361,
+            "id": "local_v2:screenshot_pre_consent_geometry_proof",
+            "url": "https://ok.porn/"
+          },
+          {
+            "capturedAtMs": 12550,
+            "id": "local_v2:screenshot_pre_consent_full_page",
+            "url": "https://ok.porn/"
+          },
+          {
+            "capturedAtMs": 2932,
+            "id": "local_v2:screenshot_pre_consent",
+            "url": "https://ok.porn/"
+          }
+        ]
+      },
+      "gdprEprivacyConsentSurfaceObserved": "confirmed",
+      "layerInspected": "first_layer",
+      "rejectAvailableOnFirstLayer": false,
+      "rejectEquivalentFound": false,
+      "rejectControlObserved": false,
+      "visibleRejectLabels": []
+    }
+  },
+  {
+    "scanId": "9fec1f5a-6f74-41be-829a-84b2ebdafb70",
+    "hostname": "interno.gov.it",
+    "consentAssessment": {
+      "scan": {
+        "noGo": false,
+        "scanId": "9fec1f5a-6f74-41be-829a-84b2ebdafb70",
+        "finalUrl": "https://www.interno.gov.it/it",
+        "scanStatus": "completed",
+        "requestedUrl": "https://interno.gov.it/"
+      },
+      "surface": {
+        "status": "observed_actionable",
+        "evidenceRefs": [],
+        "lastObservedAtMs": 22265,
+        "firstObservedAtMs": 22265
+      },
+      "controls": {
+        "accept": {
+          "layer": "first_layer",
+          "state": "observed",
+          "reasonCodes": [
+            "same_document_first_layer_control_observed",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [
+            "candidate_0",
+            "ConsentControlGeometryEvidence.json",
+            "consent_ui_pre_consent:Accetta tutti",
+            "CanonicalEvidenceBundle.json"
+          ],
+          "lastObservedAtMs": 22265,
+          "firstObservedAtMs": 22167
+        },
+        "reject": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "options": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        },
+        "privacyOptOut": {
+          "layer": "first_layer",
+          "state": "unknown",
+          "reasonCodes": [
+            "first_layer_inventory_incomplete",
+            "unresolved_visible_consent_decision",
+            "consent-control-capture.v2",
+            "canonical_consent_coverage_incomplete"
+          ],
+          "evidenceRefs": [],
+          "lastObservedAtMs": null,
+          "firstObservedAtMs": null
+        }
+      },
+      "coverage": {
+        "status": "limited",
+        "reasonCodes": [
+          "unresolved_visible_consent_decision",
+          "consent-control-capture.v2",
+          "canonical_consent_coverage_incomplete"
+        ],
+        "requiredChannels": [
+          "dom_inventory",
+          "geometry"
+        ],
+        "completedChannels": [
+          "dom_inventory",
+          "geometry",
+          "accessibility_tree",
+          "network_cmp",
+          "dom_snapshot",
+          "cmp_runtime"
+        ],
+        "incompleteChannels": []
+      },
+      "document": {
+        "reasonCodes": [],
+        "identityStatus": "matched",
+        "canonicalDocumentId": "https://www.interno.gov.it/it",
+        "observedDocumentIds": [
+          "https://www.interno.gov.it/it"
+        ],
+        "canonicalDocumentToken": "4A5D71886961913A15A0FCACC01C2785",
+        "observedDocumentTokens": [
+          "4A5D71886961913A15A0FCACC01C2785"
+        ]
+      },
+      "evidence": [
+        {
+          "label": "ACCETTA TUTTI",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "it",
+          "visible": true,
+          "channels": [
+            "geometry"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "accetta tutti",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.interno.gov.it/it",
+          "evidenceId": "candidate_0",
+          "artifactRefs": [
+            "ConsentControlGeometryEvidence.json"
+          ],
+          "observedAtMs": 22167,
+          "documentToken": "4A5D71886961913A15A0FCACC01C2785",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "dedicated_button"
+        },
+        {
+          "label": "Accetta tutti",
+          "layer": "first_layer",
+          "intent": "accept",
+          "locale": "it",
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry",
+            "accessibility_tree"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "accetta tutti",
+            "reasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.interno.gov.it/it",
+          "evidenceId": "consent_ui_pre_consent:Accetta tutti",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 22265,
+          "documentToken": "4A5D71886961913A15A0FCACC01C2785",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        },
+        {
+          "label": "Close",
+          "layer": "first_layer",
+          "intent": "dismiss",
+          "locale": null,
+          "visible": true,
+          "channels": [
+            "dom_inventory",
+            "geometry",
+            "accessibility_tree"
+          ],
+          "actionable": true,
+          "classifier": {
+            "matchedTerm": "close",
+            "reasonCodes": [
+              "matched_dismiss",
+              "match_strength_direct"
+            ],
+            "matchStrength": "direct",
+            "registryVersion": "consent-control-label-registry.v3"
+          },
+          "documentId": "https://www.interno.gov.it/it",
+          "evidenceId": "consent_ui_pre_consent:Close",
+          "artifactRefs": [
+            "CanonicalEvidenceBundle.json"
+          ],
+          "observedAtMs": 22265,
+          "documentToken": "4A5D71886961913A15A0FCACC01C2785",
+          "placementType": "unknown",
+          "controlVariant": null,
+          "presentationType": "unknown"
+        }
+      ],
+      "provenance": {
+        "computedAt": "2026-09-14T04:33:23.635Z",
+        "sourceHash": "fnv1a-109e8e68",
+        "projectorId": "wc01.consent-control-assessment",
+        "contractVersion": "2.1",
+        "projectorVersion": "2.1.1",
+        "sourceBundleVersion": "certscore.v2.alpha.1",
+        "sourceGeometryVersion": "consent_control_geometry.v1"
+      },
+      "limitations": [],
+      "artifactType": "consent_control_assessment",
+      "contradictions": [],
+      "evidencePolicy": "structured_control_evidence.v1",
+      "visualEvidence": {
+        "status": "available",
+        "reasonCodes": [],
+        "artifactRefs": [
+          "screenshot_pre_consent_cmp_controls"
+        ]
+      },
+      "artifactVersion": "2.1",
+      "assessmentStatus": "limited"
+    },
+    "rejectPath": {
+      "completeRejectPathAvailable": false,
+      "completeRejectPathDetected": false,
+      "firstLayerCookieConsentBannerObserved": true,
+      "firstLayerConsentChoices": {
+        "acceptControlObserved": true,
+        "acceptLabels": [
+          "ACCETTA TUTTI"
+        ],
+        "actionableControlInventoryRetained": true,
+        "capturedBeforeInteraction": true,
+        "controls": [
+          {
+            "actionType": "accept_all",
+            "classifierReasonCodes": [
+              "matched_accept",
+              "match_strength_direct",
+              "context_satisfied"
+            ],
+            "label": "ACCETTA TUTTI",
+            "matchedLocale": "it",
+            "matchedTerm": "accetta tutti",
+            "matchStrength": "direct",
+            "presentationType": "dedicated_button",
+            "placementType": "unknown",
+            "selectorHint": "#popup-buttons button",
+            "tagName": "button"
+          }
+        ],
+        "defaultTogglePurposeLabels": [],
+        "defaultToggleStatesObserved": null,
+        "layerInspected": "first_layer",
+        "managePreferencesControlObserved": false,
+        "nonEssentialDefaultsOff": null,
+        "preferenceLabels": [],
+        "precheckedOptionalPurposeCount": 0,
+        "precheckedOptionalPurposeLabels": [],
+        "rejectControlObserved": false,
+        "rejectLabels": [],
+        "visibleChoiceLabels": [
+          "ACCETTA TUTTI"
+        ],
+        "geometryAssessment": "complete",
+        "postClickEnforcementTested": false,
+        "controlInventoryComplete": false,
+        "screenshotRefs": [
+          {
+            "capturedAtMs": 11047,
+            "id": "local_v2:screenshot_pre_consent_full_page",
+            "url": "https://www.interno.gov.it/it"
+          },
+          {
+            "capturedAtMs": 5352,
+            "id": "local_v2:screenshot_pre_consent_settled",
+            "url": "https://www.interno.gov.it/it"
+          },
+          {
+            "capturedAtMs": 3478,
+            "id": "local_v2:screenshot_pre_consent",
+            "url": "https://www.interno.gov.it/it"
+          }
+        ]
+      },
+      "gdprEprivacyConsentSurfaceObserved": "confirmed",
+      "layerInspected": "first_layer",
+      "rejectAvailableOnFirstLayer": false,
+      "rejectEquivalentFound": false,
+      "rejectControlObserved": false,
+      "visibleRejectLabels": []
+    }
+  }
+]

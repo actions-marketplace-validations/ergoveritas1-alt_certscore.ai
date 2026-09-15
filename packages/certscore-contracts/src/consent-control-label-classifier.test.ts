@@ -1116,3 +1116,15 @@ test("recognizes restored German, French, Italian, and Polish consent labels", (
   assert.equal(polish.intent, "options");
   assert.equal(isProductionCreditworthySupplementalConsentControlClassification("Dostosuj zgody", polish), true);
 });
+
+test("reviewed refusal observations retain full-phrase meaning without broadening actions", () => {
+  for (const label of ["Accept only essential", "NUR ESSENTIELLE COOKIES AKZEPTIEREN", "Nein Danke.", "Alles afwijzen", "Отказаться"]) {
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true, usage: "observation" }).intent, "reject", label);
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true, usage: "action" }).intent, "unknown", label);
+  }
+  assert.equal(classifyConsentControlLabel({ label: "Nein Danke.", ariaLabel: "dismiss cookie message", hasConsentContext: true, usage: "observation" }).intent, "reject");
+  assert.equal(classifyConsentControlLabel({ label: "Reject all", ariaLabel: "Accept all", hasConsentContext: true }).intent, "unknown");
+  for (const label of ["Learn how to reject all", "Do not accept only essential", "Accept only essential or accept all"]) {
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true }).intent, "unknown", label);
+  }
+});

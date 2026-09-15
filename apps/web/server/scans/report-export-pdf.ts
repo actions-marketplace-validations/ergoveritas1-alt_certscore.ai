@@ -1,3 +1,4 @@
+import { consentInspectionNotice } from "../../lib/scans/consent-inspection-presentation";
 import type { CanonicalReportExport } from "./report-export";
 import { deflateSync, inflateSync } from "node:zlib";
 import { isGdprTransparencyReportRowId } from "../../lib/scans/gdpr-transparency-report-contract";
@@ -370,12 +371,15 @@ function reportLines(report: CanonicalReportExport, image: PdfImage | null): Pdf
   lines.push({ text: "", gapAfter: 2 }, sectionHeading("Consent control assessment"));
   const assessment = report.consentControlAssessment;
   if (assessment) {
-    lines.push(
-      { text: `Accept control: ${titleCase(assessment.controls.accept.state)}` },
-      { text: `Reject / necessary-only control: ${titleCase(assessment.controls.reject.state)}` },
-      { text: `Options / settings control: ${titleCase(assessment.controls.options.state)}` },
-      { text: `Privacy opt-out control: ${titleCase(assessment.controls.privacyOptOut.state)}` },
-    );
+    const stateLabel = (state: string) => state === "observed" ? "Observed" : state === "not_observed" ? "Not observed" : "Unknown";
+    const notice = consentInspectionNotice({ accept: stateLabel(assessment.controls.accept.state), reject: stateLabel(assessment.controls.reject.state), options: stateLabel(assessment.controls.options.state) }, assessment);
+    if (notice) lines.push({ text: notice });
+    const labels = { accept: "Accept control", reject: "Reject / necessary-only control", options: "Options / settings control", privacyOptOut: "Privacy opt-out control" };
+    for (const name of Object.keys(labels) as Array<keyof typeof labels>) {
+      const control = assessment.controls[name];
+      if (control.state !== "unknown") lines.push({ text: `${labels[name]}: ${stateLabel(control.state)}` });
+    }
+    lines.push({ text: "Scope: initial visit, first layer." });
   } else {
     lines.push({ text: "A canonical consent-control assessment was not retained for this scan." });
   }

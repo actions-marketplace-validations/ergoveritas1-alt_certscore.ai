@@ -92,3 +92,13 @@ Post-deployment Claude check at approximately 18:24 UTC: same production connect
 ## Final disposition
 
 **READY FOR SOCIAL ANNOUNCEMENT** for the published, explicitly scoped claims. Required product/site/documentation work is deployed and verified; no runtime fix was needed. Cursor/Grok support, fresh-account and changed-scope UI acceptance, and official registry 0.2.21 publication are explicitly excluded rather than claimed. MCP.so review and inaccessible listing edits remain external distribution caveats. Ben's LinkedIn and X publication is the remaining announcement action. Final composer validation remains required for the X draft; no social publication or scheduling was performed.
+
+
+## Delivery hold after conflicting external observations
+
+September 14, 18:51 UTC: the earlier READY disposition is superseded by a delivery hold. Direct/local/AWS probes and targeted Cloudflare purge verification return corrected content, but the reported stale external fetch path has not been identified or retested. See `outputs/oauth-delivery-2026-09-14/ASSESSMENT.md` and retained headers/hashes. **NOT READY FOR SOCIAL ANNOUNCEMENT until this discrepancy is resolved.** No social posts were sent.
+
+
+## Delivery hold resolved
+
+September 14, 18:59:46 UTC: user-supplied direct curl from Claude's execution environment confirms corrected canonical MCP/quickstart pages through Cloudflare ATL, supplementing our independent local/AWS raw HTTP verification. Anthropic web_fetch stale extracted content is isolated to that retrieval path; internal caching details remain unproven. See outputs/oauth-delivery-2026-09-14/claude-direct-curl-reported.json for reported hashes, headers and provenance. No stale production route/edge is known. **READY FOR SOCIAL ANNOUNCEMENT** restored for the verified release scope; no additional deployment or social posting performed.

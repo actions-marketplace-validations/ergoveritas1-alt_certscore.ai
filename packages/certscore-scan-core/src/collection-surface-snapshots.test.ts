@@ -42,3 +42,23 @@ test("form crops retain binding, mask inputs, resize, and fail closed on unsafe 
     assert.equal((await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true })))[0]?.status, "available");
   } finally { await browser.close(); }
 });
+
+test("animated forms capture within the existing budget and stalled review terminates with a retained reason", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<style>@keyframes move{from{transform:translateX(0)}to{transform:translateX(80px)}}form{animation:move 10s infinite alternate;width:300px;height:100px;background:white}</style><form><label>Search<input type="text"></label></form>');
+    const inventory = buildCollectionSurfaceInventory({ pageUrl: "about:blank", inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: "native_form_0", structure: "native_form", elementType: "input", inputType: "text", label: "Search", required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
+    assert.equal((await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true })))[0]?.status, "available");
+    const started = Date.now();
+    const stalled = await captureCollectionSurfaceSnapshots(page, inventory, () => new Promise(() => {}));
+    assert.equal(stalled[0]?.reason, "review_timed_out");
+    assert.equal(stalled[0]?.data, undefined);
+    assert.ok(Date.now() - started < 4500, "review must not hang beyond the existing 2.5s budget plus scheduling tolerance");
+    await page.locator('form').evaluate(el => (el as HTMLElement).style.display = 'none');
+    const hidden = await captureCollectionSurfaceSnapshots(page, inventory, async () => { throw new Error('must not review'); });
+    assert.equal(hidden[0]?.reason, "form_not_visible");
+    const controller = new AbortController(); controller.abort();
+    assert.equal((await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true }), controller.signal))[0]?.reason, "capture_cancelled");
+  } finally { await browser.close(); }
+});

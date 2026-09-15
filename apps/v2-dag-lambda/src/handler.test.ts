@@ -1534,6 +1534,12 @@ test("early policy handoff packet is typed, hash-bound, and non-projectable", ()
       },
       policySurfaceObservations: [{
         observationId: "privacy-policy-1",
+        cmpDiscovery: [{
+          contractVersion: "cmp_policy_discovery.v1",
+          source: "cmp_config", cmpProvider: "Didomi",
+          sourcePageUrl: "https://example.com/",
+          sourceLocator: "window.didomiConfig.app.privacyPolicyURL",
+        }],
         surfaceType: "privacy_policy",
         url: "https://example.com/privacy",
         normalizedUrl: "https://example.com/privacy",
@@ -1563,6 +1569,9 @@ test("early policy handoff packet is typed, hash-bound, and non-projectable", ()
   });
   const { sourceHash, ...unsigned } = packet;
 
+  assert.equal(packet.policySurfaceObservations[0]?.cmpDiscovery?.[0]?.cmpProvider, "Didomi");
+  const withoutProvenance = packet.policySurfaceObservations.map(({ cmpDiscovery: _provenance, ...row }) => row);
+  assert.notEqual(packet.policyContentHash, createHash("sha256").update(JSON.stringify(withoutProvenance)).digest("hex"));
   assert.equal(packet.artifactOnly, true);
   assert.equal(packet.productionFindingIntegration, false);
   assert.equal(packet.policySurfaceInspection.privacyPolicyObserved, true);

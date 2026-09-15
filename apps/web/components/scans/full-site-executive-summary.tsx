@@ -91,7 +91,7 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
         </div>
         <div data-overview-block className="mt-auto">
           {!pending && !singlePage && score ? <p className="mb-3 text-xs leading-5 text-zinc-600">Scope: {scannedPages ?? score.scoredPages} scanned pages. Consent controls, policy transparency and action-path checks cover the starting page; resource and form inventories cover the scanned pages. Completing a scan does not mean every policy topic was confirmed. {inventoryReviewCount !== undefined ? `${inventoryReviewCount} network requests need classification review; this count is separate from priority issues.` : ""}</p> : null}
-          {inventorySummary}
+          <React.Fragment key="inventory-summary">{inventorySummary}</React.Fragment>
         </div>
       </div>
     </div>

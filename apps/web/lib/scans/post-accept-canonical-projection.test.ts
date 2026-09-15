@@ -373,6 +373,7 @@ test("registered contextual activation preserves canonical proof without fabrica
     },
   }));
   assert.equal(result.projection.registrationStatus, "unconfirmed");
+  assert.equal(result.projection.execution?.status, "limited");
   assert.equal(result.projection.productionProjectable, false);
   assert.equal(result.projection.packetSha256, "b".repeat(64));
   assert.ok("postAcceptEvidenceProjection" in result.runtimeArtifacts);

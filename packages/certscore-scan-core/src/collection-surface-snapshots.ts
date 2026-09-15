@@ -14,10 +14,11 @@ export async function captureCollectionSurfaceSnapshots(page: Page, inventory: C
   const results: Array<CollectionSurfaceSnapshot | Promise<CollectionSurfaceSnapshot>> = [];
   for (const form of inventory.forms) {
     const base = { contractVersion: "certscore.collection-surface-snapshot.v1" as const, formRef: form.formRef, pageUrl: inventory.pageUrl, capturedAt: new Date().toISOString(), sourceInventoryHash, mimeType: "image/jpeg" as const, valuesMasked: true as const };
-    const unavailable = () => collectionSurfaceSnapshotSchema.parse({ ...base, status: "unavailable" });
+    const unavailable = (reason: NonNullable<CollectionSurfaceSnapshot["reason"]>) => collectionSurfaceSnapshotSchema.parse({ ...base, status: "unavailable", reason });
     if (signal?.aborted || Date.now() >= deadline || page.url() !== inventory.pageUrl || !form.fields.length || form.fields.some(f => f.controlIndex === undefined)) {
-      results.push(unavailable()); continue;
+      results.push(unavailable(signal?.aborted ? "capture_cancelled" : Date.now() >= deadline ? "capture_budget_exhausted" : page.url() !== inventory.pageUrl ? "document_changed" : "control_identity_unavailable")); continue;
     }
+    let stage: NonNullable<CollectionSurfaceSnapshot["reason"]> = "control_binding_changed";
     let target: Awaited<ReturnType<Page["evaluateHandle"]>> | undefined;
     try {
       // Resolve the exact retained controls, checking document/type/group binding before taking pixels.
@@ -49,20 +50,36 @@ export async function captureCollectionSurfaceSnapshots(page: Page, inventory: C
         return cropRoot;
       }, { fields: form.fields, structure: form.structure, url: inventory.pageUrl });
       const element = target.asElement();
-      if (!element) { results.push(unavailable()); continue; }
+      if (!element) { results.push(unavailable("control_binding_changed")); continue; }
       const bounds = await element.boundingBox();
-      if (!bounds || bounds.width * bounds.height > 40_000_000) { results.push(unavailable()); continue; }
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0 || bounds.width * bounds.height > 40_000_000) { results.push(unavailable(bounds && bounds.width * bounds.height > 40_000_000 ? "form_bounds_exceeded" : "form_not_visible")); continue; }
       const remaining = Math.max(1, deadline - Date.now());
-      const original = await element.screenshot({ type: "jpeg", quality: 45, scale: "css", timeout: Math.min(1000, remaining), mask: [page.locator('input, textarea, select, [role="checkbox"], [role="switch"], [contenteditable]')], maskColor: "#94a3b8", caret: "hide" });
-      if (signal?.aborted || page.url() !== inventory.pageUrl || Date.now() >= deadline) { results.push(unavailable()); continue; }
+      stage = "screenshot_failed";
+      const original = await element.screenshot({ animations: "disabled", type: "jpeg", quality: 45, scale: "css", timeout: Math.min(1000, remaining), mask: [page.locator('input, textarea, select, [role="checkbox"], [role="switch"], [contenteditable]')], maskColor: "#94a3b8", caret: "hide" });
+      if (signal?.aborted || page.url() !== inventory.pageUrl || Date.now() >= deadline) { results.push(unavailable(signal?.aborted ? "capture_cancelled" : page.url() !== inventory.pageUrl ? "document_changed" : "capture_budget_exhausted")); continue; }
+      stage = "image_processing_failed";
       const { data, info } = await sharp(original, { limitInputPixels: 40_000_000 }).resize({ width: 640, height: 960, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 45 }).toBuffer({ resolveWithObject: true });
-      if (data.byteLength > 96 * 1024) { results.push(unavailable()); continue; }
+      if (data.byteLength > 96 * 1024) { results.push(unavailable("image_size_exceeded")); continue; }
       const boundedSignal = AbortSignal.any([AbortSignal.timeout(Math.max(1, deadline - Date.now())), ...(signal ? [signal] : [])]);
-      results.push(review({ bytes: data, mimeType: "image/jpeg", signal: boundedSignal }).then(outcome => {
-        if (boundedSignal.aborted || page.url() !== inventory.pageUrl) return unavailable();
-        return collectionSurfaceSnapshotSchema.parse(outcome.safeForDisplay ? { ...base, status: "available", width: info.width, height: info.height, sizeBytes: data.byteLength, sha256: hash(data), data: data.toString("base64") } : { ...base, status: "withheld" });
-      }).catch(unavailable));
-    } catch { results.push(unavailable()); }
+      results.push((async () => {
+        let onAbort: (() => void) | undefined;
+        try {
+          const outcome = await Promise.race([
+            Promise.resolve().then(() => review({ bytes: data, mimeType: "image/jpeg", signal: boundedSignal })),
+            new Promise<never>((_, reject) => {
+              onAbort = () => reject(new Error("Form snapshot review deadline"));
+              boundedSignal.addEventListener("abort", onAbort, { once: true });
+              if (boundedSignal.aborted) onAbort();
+            }),
+          ]);
+          if (signal?.aborted) return unavailable("capture_cancelled");
+          if (boundedSignal.aborted) return unavailable("review_timed_out");
+          if (page.url() !== inventory.pageUrl) return unavailable("document_changed");
+          return collectionSurfaceSnapshotSchema.parse(outcome.safeForDisplay ? { ...base, status: "available", width: info.width, height: info.height, sizeBytes: data.byteLength, sha256: hash(data), data: data.toString("base64") } : { ...base, status: "withheld", reason: "review_withheld" });
+        } catch { return unavailable(signal?.aborted ? "capture_cancelled" : boundedSignal.aborted ? "review_timed_out" : "review_failed"); }
+        finally { if (onAbort) boundedSignal.removeEventListener("abort", onAbort); }
+      })());
+    } catch { results.push(unavailable(signal?.aborted ? "capture_cancelled" : page.url() !== inventory.pageUrl ? "document_changed" : stage)); }
     finally { await target?.dispose().catch(() => {}); }
   }
   return Promise.all(results);

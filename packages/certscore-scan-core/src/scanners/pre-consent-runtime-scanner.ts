@@ -1204,7 +1204,10 @@ export async function preConsentRuntimeScanner(
             // Await the reset commit before dispatching the next navigation.
             // Swallowing a reset timeout let its late commit abort that request.
             resetForNavigationRecovery(page, remainingModuleBudgetMs(), input.signal),
-          );
+          ).catch(error => {
+            runtimeErrors.push(`Target navigation failed before recovery reset: ${boundedVisualCaptureNote(errorMessageFromUnknown(lastError))}`);
+            throw error;
+          });
           input.signal?.throwIfAborted();
         }
         try {
@@ -2024,24 +2027,36 @@ export async function preConsentRuntimeScanner(
           : Promise.resolve(undefined),
       ]),
     );
-    // Sample semantic state at the end of the existing page work. The listener
-    // remains active while parallel evidence/readback tasks finish; no second
-    // ping, additional settle window or increased deadline is introduced.
-    const gpcOptOutObservation = (input.gpcOptOutPrototype && captureRuntimeEvidence) || impactSemanticBinding ? await recordBoundedTiming(timingBreakdown,
-      "GPC opt-out prototype", "Passive local-only terminal semantic readback inside the existing page-capture budget.",
-      Math.min(2_500, Math.max(1, remainingModuleBudgetMs())),
-      () => captureGpcOptOutObservation(page, { scanId: (input.gpcOptOutPrototype?.scanId ?? input.gpcImpactScanId)!, scanStartedAtMs: input.scanStartedAtMs, binding: prototypeBinding ?? impactSemanticBinding, monitorKey: gpcObservationSession?.monitorKey ?? impactMonitorKey, semanticOnly: Boolean(impactSemanticBinding), onMonitorFinished: value => { gpcMonitorResult = value; } }),
-      () => undefined) : undefined;
     retainedGpcSignalObservation = gpcSignalObservation;
     impactCapture?.finish(gpcSignalObservation);
-    retainedGpcOptOutObservation = prototypeBinding ? gpcOptOutObservation : undefined;
-    retainedImpactSemanticObservation = impactSemanticBinding ? gpcOptOutObservation : undefined;
-    if (gpcObservationSession) retainedGpcObservationSession = await recordTiming(timingBreakdown,
-      "GPC observation finalization", "Freeze retained evidence using overlapping terminal document proof; incomplete readback preserves a limited packet.",
-      () => gpcObservationSession.finish(gpcOptOutObservation, gpcMonitorResult, input.signal?.aborted === true));
-    if (retainedGpcObservationSession && retainedGpcSignalObservation) {
-      retainedGpcSignalObservation.prototypeSessionSha256 = createHash("sha256").update(JSON.stringify(retainedGpcObservationSession)).digest("hex");
-    }
+    // Sparse-page confirmation is already required later in this session. Keep
+    // its GPC listener alive through that work, then take the same single read.
+    // The overlapping document proof stays anchored here: navigation during the
+    // deferred interval invalidates it instead of being silently rebound.
+    const deferGpcFinalization = Boolean(gpcObservationSession && shouldConfirmSparsePageCandidate({
+      bodyText: pageEvidence.domText.replace(/\s+/g, " ").trim(),
+      hasSufficientFirstLayerControls: hasSufficientFirstLayerConsentControls(initialConsentObservation),
+    }));
+    let gpcFinalizationStarted = false;
+    const finalizeGpcEvidence = async () => {
+      if (gpcFinalizationStarted) return;
+      gpcFinalizationStarted = true;
+      const gpcOptOutObservation = !input.signal?.aborted && remainingModuleBudgetMs() > 0 &&
+        ((input.gpcOptOutPrototype && captureRuntimeEvidence) || impactSemanticBinding) ? await recordBoundedTiming(timingBreakdown,
+          "GPC opt-out prototype", "Single terminal semantic readback after existing page work, inside the unchanged module budget.",
+          Math.min(2_500, remainingModuleBudgetMs()),
+          () => captureGpcOptOutObservation(page, { scanId: (input.gpcOptOutPrototype?.scanId ?? input.gpcImpactScanId)!, scanStartedAtMs: input.scanStartedAtMs, binding: prototypeBinding ?? impactSemanticBinding, monitorKey: gpcObservationSession?.monitorKey ?? impactMonitorKey, semanticOnly: Boolean(impactSemanticBinding), onMonitorFinished: value => { gpcMonitorResult = value; } }),
+          () => undefined) : undefined;
+      retainedGpcOptOutObservation = prototypeBinding ? gpcOptOutObservation : undefined;
+      retainedImpactSemanticObservation = impactSemanticBinding ? gpcOptOutObservation : undefined;
+      if (gpcObservationSession) retainedGpcObservationSession = await recordTiming(timingBreakdown,
+        "GPC observation finalization", "Freeze retained evidence using overlapping terminal document proof; incomplete readback preserves a limited packet.",
+        () => gpcObservationSession.finish(gpcOptOutObservation, gpcMonitorResult, input.signal?.aborted === true));
+      if (retainedGpcObservationSession && retainedGpcSignalObservation) {
+        retainedGpcSignalObservation.prototypeSessionSha256 = createHash("sha256").update(JSON.stringify(retainedGpcObservationSession)).digest("hex");
+      }
+    };
+    if (!deferGpcFinalization) await finalizeGpcEvidence();
     const {
       apiAccesses,
       collectionSurfaceInventory,
@@ -3672,6 +3687,8 @@ export async function preConsentRuntimeScanner(
         notifyScreenshotCaptured(input, screenshot);
       }
     }
+
+    if (deferGpcFinalization) await finalizeGpcEvidence();
 
     const domPath = await recordTiming(
       timingBreakdown,
@@ -9761,6 +9778,7 @@ export function mergeConsentUiObservations(
             : candidate.inventoryOutcome ?? current.inventoryOutcome;
   return {
     ...candidate,
+    observedAtMs: Math.max(current.observedAtMs, candidate.observedAtMs),
     documentReadyState: candidate.documentReadyState ?? current.documentReadyState,
     boundedSameSessionRecoveryOutcome:
       candidate.boundedSameSessionRecoveryOutcome ?? current.boundedSameSessionRecoveryOutcome,
@@ -12689,6 +12707,10 @@ export function consentUiObservationFromConfirmedGeometryControls(input: {
       const actionType = candidate.actionType;
       if (
         !isAroGeometryAction(actionType) ||
+        // The bundle's simple control row cannot retain category-state proof.
+        // Composite selected-only observations stay in the verified geometry
+        // packet and are assessed there, never copied as an unqualified Reject.
+        candidate.classifierReasonCodes.includes("initial_necessary_only_selection_observed") ||
         candidate.layer !== "first_layer" ||
         candidate.decisionStatus !== "confirmed_visible" ||
         isCompositeConfirmedGeometryControl(candidate, input.geometry.candidates)
@@ -12729,6 +12751,11 @@ export function consentUiObservationFromConfirmedGeometryControls(input: {
       ...controls.map((control) => control.label),
     ].filter(Boolean).join(" ").slice(0, 12_000),
   });
+  const geometryCapturedAtMs = Date.parse(input.geometry.capturedAt);
+  if (Number.isFinite(geometryCapturedAtMs) && geometryCapturedAtMs >= input.scanStartedAtMs) {
+    // Materializing retained geometry is not a new browser observation.
+    observation.observedAtMs = geometryCapturedAtMs - input.scanStartedAtMs;
+  }
   observation.inventoryOutcome = hasUnresolvedConsentDecision(input.geometry) ? "partial" : "complete_with_controls";
   if (hasUnresolvedConsentDecision(input.geometry)) observation.basis.push(UNRESOLVED_CONSENT_DECISION);
   observation.captureDiagnostics = {
@@ -12914,6 +12941,10 @@ function mergeConsentGeometryCaptures(
   const cmp = after.cmp.confidence >= before.cmp.confidence ? after.cmp : before.cmp;
   return {
     ...after,
+    // A union of captures is not the exact inventory inspected by either
+    // packet. Preserve the existing whole-inventory assessment path without
+    // attaching one capture's per-control proof to a different candidate set.
+    controlInspection: undefined,
     cmp,
     containers: [...before.containers, ...after.containers]
       .filter((container, index, all) =>

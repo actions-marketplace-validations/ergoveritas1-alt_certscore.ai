@@ -12,7 +12,7 @@ test("every GPC snapshot status stays below twenty characters", () => {
 import { countNonNotObservedRows, countRowsRequiringReview } from "./evidence-directory-summary";
 import { buildRuntimeInventoryCopyPayload } from "./inventory-table-copy";
 import { buildRuntimeInventoryPurposeCounts } from "../runtime-observation-sections";
-import { getConsentControlSummaryLabel, getPolicySurfaceCoverageStatus } from "./timeline-report-model";
+import { getConsentControlSummaryLabel, getPolicySurfaceCoverageStatus, getPolicySurfaceLinkObserved } from "./timeline-report-model";
 
 test("evidence directory summaries exclude only Not observed rows", () => {
   assert.equal(countNonNotObservedRows([
@@ -70,7 +70,7 @@ test("consent control summary distinguishes unknown coverage from verified absen
     accept: "Observed",
     options: "Unknown",
     reject: "Not observed",
-  }), "1 observed · 1 not observed · 1 unknown");
+  }), "1 observed · 1 not observed · Inspection limited");
   assert.equal(getConsentControlSummaryLabel({
     accept: "Not observed",
     options: "Not observed",
@@ -218,7 +218,7 @@ test("report header actions and section spacing match the compact report treatme
   );
   assert.match(choicePathSource, /report\.acceptPath\.state !== "incomplete"/);
   assert.match(choicePathSource, /report\.rejectPath\.state !== "incomplete"/);
-  assert.match(choicePathSource, /if \(!acceptSucceeded && !rejectSucceeded\) return null/);
+  assert.match(choicePathSource, /if \(!acceptPathAvailable && !rejectPathAvailable\) return null/);
   const evidenceDirectorySource = source.slice(source.indexOf("function EvidenceDirectory"));
 
   assert.match(identitySource, /className="!h-7 !w-7 translate-y-0\.5 !rounded-md !border-zinc-200 !bg-zinc-50 !p-1 !shadow-sm"/);
@@ -405,4 +405,36 @@ test("control labels use typed inventory state independently of review or action
   assert.deepEqual(projectedConsentControlLabels({accept: {state: "not_observed"}, reject: {state: "not_observed"}, options: {state: "not_observed"}}), {accept: "Not observed", reject: "Not observed", options: "Not observed"});
   assert.equal(projectedConsentControlLabels({accept: {state: "observed"}, reject: {state: "unknown"}, options: {state: "not_observed"}}).reject, "Unknown");
   assert.equal(projectedConsentControlLabels().reject, "Unknown");
+});
+
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ControlStatusGrid } from "./shadow-scan-report";
+import type { ShadowReportData } from "./shadow-report-data";
+
+test("control grids show known binary results and one specific inspection limitation", () => {
+  for (const compact of [true, false]) {
+    const html = renderToStaticMarkup(createElement(ControlStatusGrid, { compact,
+      report: { controls: { accept: "Observed", reject: "Not observed", options: "Unknown" } } as ShadowReportData }));
+    assert.match(html, />Observed</);
+    assert.match(html, />Not observed</);
+    assert.doesNotMatch(html, />Unknown</);
+    assert.equal((html.match(/role="status"/g) ?? []).length, 1);
+    assert.match(html, /incomplete for Options/);
+    assert.match(html, /Initial visit/);
+  }
+  const blocked = renderToStaticMarkup(createElement(ControlStatusGrid, {
+    report: { controls: { accept: "Unknown", reject: "Unknown", options: "Unknown" },
+      consentInspectionNotice: "Consent inspection was blocked by an access restriction or challenge." } as ShadowReportData }));
+  assert.match(blocked, /blocked by an access restriction/);
+  assert.equal((blocked.match(/role="status"/g) ?? []).length, 1);
+  assert.doesNotMatch(blocked, />Unknown<|>Not observed</);
+});
+
+
+test("policy destination discovery requires the canonical inspection outcome", () => {
+  assert.equal(getPolicySurfaceLinkObserved({ policySurfaceInspection: { outcome: "privacy_policy_observed", privacyPolicyObserved: true, coverageStatus: "limited" } }), true);
+  assert.equal(getPolicySurfaceLinkObserved({ policySurfaceInspection: { outcome: "indeterminate_limited_coverage", privacyPolicyObserved: true } }), false);
+  assert.equal(getPolicySurfaceLinkObserved({ policySurfaceObservations: [{ url: "https://example.test/privacy" }] }), false);
+  assert.equal(getPolicySurfaceLinkObserved(null), false);
 });

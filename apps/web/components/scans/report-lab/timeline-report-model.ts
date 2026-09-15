@@ -1,3 +1,6 @@
+import { isAfterActionReportEligible, retainedConsentAssessment } from "../../../lib/scans/after-action-report-eligibility";
+import { readChoicePathExecution } from "../../../lib/scans/choice-path-execution";
+import { consentInspectionNotice } from "../../../lib/scans/consent-inspection-presentation";
 import type { ReviewedPolicy } from "../../../lib/scans/full-site-resource-context";
 import { buildRetainedRequestInventory } from "../../../lib/scans/retained-request-inventory";
 import { buildSinglePageResourceInventory } from "../../../lib/scans/single-page-resource-inventory";
@@ -99,6 +102,20 @@ function recordString(source: Record<string, unknown> | null, keys: string[]) {
   return null;
 }
 
+export function getPolicySurfaceLinkObserved(
+  runtimeArtifacts: Record<string, unknown> | null | undefined,
+): boolean {
+  const hybrid = getHybridRuntimeEvidence(runtimeArtifacts);
+  const inspection = record(
+    runtimeArtifacts?.policySurfaceInspection ?? runtimeArtifacts?.policy_surface_inspection ??
+    hybrid?.policySurfaceInspection ?? hybrid?.policy_surface_inspection,
+  );
+  // Present the persisted canonical inspection outcome; do not infer discovery
+  // from an arbitrary URL, page label, or incomplete document.
+  return inspection?.outcome === "privacy_policy_observed" &&
+    (inspection.privacyPolicyObserved ?? inspection.privacy_policy_observed) === true;
+}
+
 export function getPolicySurfaceCoverageStatus(
   runtimeArtifacts: Record<string, unknown> | null | undefined,
 ): ShadowReportData["policySurfaceCoverage"] {
@@ -148,7 +165,7 @@ export function getConsentControlSummaryLabel(
     return [
       observed > 0 ? `${observed} observed` : null,
       notObserved > 0 ? `${notObserved} not observed` : null,
-      `${unknown} unknown`,
+      "Inspection limited",
     ].filter(Boolean).join(" · ");
   }
   return `${observed} of ${values.length} observed`;
@@ -519,17 +536,20 @@ export function buildAcceptPathProjection(
   runtimeArtifacts: Record<string, unknown> | null,
   ownerUnifiedFindings: NonNullable<ReturnType<typeof getPersistedCanonicalReportProjection>>["ownerUnifiedFindings"],
 ): ShadowReportData["acceptPath"] {
+  if (!isAfterActionReportEligible(retainedConsentAssessment(runtimeArtifacts), "accept")) return null;
   const projection = record(runtimeArtifacts?.postAcceptEvidenceProjection);
   // Coverage-only outcomes do not establish that an Accept interaction occurred.
   // Keep them in retained diagnostics, not the After Accept report projection.
   if (!projection) return null;
 
   const captureCoverage = afterClickCoverage(projection, "accept");
+  const execution = readChoicePathExecution(projection, "accept");
   const click = record(record(projection.interactionDiagnostics)?.click);
   if (!captureCoverage && click?.outcome !== "completed" && projection.acceptanceExercised !== true) return null;
-  const registrationConfirmed = projection.registrationStatus === "confirmed" &&
+  const confirmedEvidenceUsable = projection.registrationStatus === "confirmed" &&
     projection.acceptanceExercised === true &&
     projection.productionProjectable === true;
+  const registrationConfirmed = execution?.consentConfirmed ?? confirmedEvidenceUsable;
   const activityRows = Array.isArray(projection.postAcceptActivity)
     ? projection.postAcceptActivity.map(record).filter((row): row is Record<string, unknown> => Boolean(row))
     : [];
@@ -546,7 +566,7 @@ export function buildAcceptPathProjection(
     storageCount > 0 ? `${storageCount} storage write${storageCount === 1 ? "" : "s"}` : null,
   ].filter((value): value is string => Boolean(value)).join(" and ");
 
-  const state = !registrationConfirmed
+  const state = !confirmedEvidenceUsable
     ? "incomplete" as const
     : contradiction
       ? "review_signal" as const
@@ -575,6 +595,7 @@ export function buildAcceptPathProjection(
     }).slice(0, 3),
     label,
     note,
+    execution,
     afterClickCoverage: captureCoverage,
     registrationConfirmed,
     observationWindowMs: recordNumber(projection, ["observationWindowMs"]),
@@ -716,7 +737,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
   const consentVendor = retainedConsentVendor(scanRecord);
   const runtimeArtifacts = record(scanRecord.runtimeArtifacts);
   const policySurfaceCoverage = getPolicySurfaceCoverageStatus(runtimeArtifacts);
-  const acceptPath = buildAcceptPathProjection(runtimeArtifacts, canonical.ownerUnifiedFindings);
+  const acceptPath = buildAcceptPathProjection({ ...runtimeArtifacts, consentControlAssessment: retainedConsentAssessment(scanRecord) }, canonical.ownerUnifiedFindings);
   const acceptContradictionRow = mapAcceptContradictionFinding(
     surfacedFinding(canonical.ownerUnifiedFindings, "acceptance_signal_contradicts_action"),
   );
@@ -744,7 +765,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
       at: formatTimelineTime(event.atMs),
       atMs: event.atMs,
       detail: event.label === "Consent banner"
-        ? `Accept ${controls.accept.toLowerCase()} · Reject ${controls.reject.toLowerCase()} · Options ${controls.options.toLowerCase()}`
+        ? Object.entries(controls).filter(([, state]) => state !== "Unknown").map(([name, state]) => `${name}: ${state}`).join(" · ") || "Consent inspection incomplete"
         : `${event.label} first observed`,
       label: event.label,
       tone: event.label === "Consent banner" ? "positive" as const : event.tone === "rose" || event.tone === "amber" ? "concern" as const : "neutral" as const,
@@ -825,6 +846,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
     collectionSurfaces,
     consentVendor,
     policySurfaceCoverage,
+    policySurfaceLinkObserved: getPolicySurfaceLinkObserved(runtimeArtifacts),
     gpcResponse,
     gpcLaneStatus,
     acceptPath,
@@ -834,6 +856,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
       ...(acceptContradictionRow ? [acceptContradictionRow] : []),
     ],
     controls,
+    consentInspectionNotice: consentInspectionNotice(controls, assessment.success ? assessment.data : undefined),
     coverage: {
       concern: summaryCounts.gap_observed,
       contextual: summaryCounts.neutral_signal,
@@ -855,7 +878,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
       const snapshot = Array.isArray(candidates) ? candidates.map(record).find(item => item?.formRef === form.formRef && item?.sourceInventoryHash === canonical.collectionSurfaceAssessment?.sourceHash && item?.pageUrl === form.pageUrl) : null;
       return { id: form.formRef, form, capturedAt: typeof snapshot?.capturedAt === "string" ? snapshot.capturedAt : "", snapshot: snapshot?.status === "available"
         ? { status: "available" as const, url: `/api/scans/${encodeURIComponent(scanRecord.scan.id)}/form-snapshot?formRef=${encodeURIComponent(form.formRef)}` }
-        : { status: snapshot?.status === "withheld" ? "withheld" as const : "unavailable" as const } };
+        : { status: snapshot?.status === "withheld" ? "withheld" as const : "unavailable" as const, ...(typeof snapshot?.reason === "string" ? { reason: snapshot.reason } : {}) } };
     }),
     metrics: {
       domains: vendorSurface.thirdPartyDomains.length,

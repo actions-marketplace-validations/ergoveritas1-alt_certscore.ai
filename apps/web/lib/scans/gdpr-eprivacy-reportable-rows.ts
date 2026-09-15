@@ -1,4 +1,4 @@
-import { consentControlAssessmentSchema } from "@certscore/contracts";
+import { isAfterActionReportEligible } from "./after-action-report-eligibility";
 
 import type { GdprEprivacyCoverageChecklistItem } from "./gdpr-eprivacy-coverage-checklist";
 
@@ -25,14 +25,6 @@ type GdprEprivacyReportabilityContext = {
   consentControlAssessment?: unknown;
 };
 
-function hasCompleteFirstLayerInventoryWithoutReject(candidate: unknown) {
-  const parsed = consentControlAssessmentSchema.safeParse(candidate);
-  return parsed.success &&
-    parsed.data.assessmentStatus === "complete" &&
-    parsed.data.coverage.status === "complete" &&
-    parsed.data.controls.reject.state === "not_observed";
-}
-
 function isIrrelevantPostRejectAssessment(
   item: GdprEprivacyCoverageChecklistItem,
   context?: GdprEprivacyReportabilityContext,
@@ -40,7 +32,9 @@ function isIrrelevantPostRejectAssessment(
   if (item.id !== "post_reject_tracking_reduction") return false;
   const retained = item.criticalEvidence.retainedEvidence;
   return retained.reportPresentation === "omit_no_actionable_reject_control" ||
-    hasCompleteFirstLayerInventoryWithoutReject(context?.consentControlAssessment);
+    (context?.consentControlAssessment !== undefined
+      ? !isAfterActionReportEligible(context.consentControlAssessment, "reject")
+      : retained.reportControlObserved !== true);
 }
 
 export function getReportableGdprEprivacyCoverageItems(
@@ -50,5 +44,11 @@ export function getReportableGdprEprivacyCoverageItems(
   return items.filter((item) =>
     isReportableGdprEprivacyCoverageRowId(item.id) &&
     !isIrrelevantPostRejectAssessment(item, context)
-  );
+  ).map(item => item.id === "post_reject_tracking_reduction" &&
+    isAfterActionReportEligible(context?.consentControlAssessment, "reject")
+    ? { ...item, criticalEvidence: { ...item.criticalEvidence, retainedEvidence: {
+        ...item.criticalEvidence.retainedEvidence, reportControlObserved: true,
+      } } }
+    : item);
+
 }

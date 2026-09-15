@@ -585,8 +585,8 @@ async function AdminMcpContent({ searchParams }: AdminMcpPageProps) {
           <div className="w-full max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200">
             <table className="table-fixed text-left text-xs" style={{ width: "4450px", minWidth: "4450px" }}>
               <colgroup>
-                <col style={{ width: "140px" }} /><col style={{ width: "140px" }} /><col style={{ width: "145px" }} /><col style={{ width: "150px" }} /><col style={{ width: "185px" }} /><col style={{ width: "155px" }} /><col style={{ width: "180px" }} /><col style={{ width: "300px" }} />
-                <col style={{ width: "150px" }} /><col style={{ width: "105px" }} /><col style={{ width: "230px" }} />
+                <col style={{ width: "140px" }} /><col style={{ width: "105px" }} /><col style={{ width: "230px" }} /><col style={{ width: "150px" }} /><col style={{ width: "180px" }} />
+                <col style={{ width: "140px" }} /><col style={{ width: "145px" }} /><col style={{ width: "150px" }} /><col style={{ width: "185px" }} /><col style={{ width: "155px" }} /><col style={{ width: "300px" }} />
                 <col style={{ width: "70px" }} /><col style={{ width: "65px" }} /><col style={{ width: "55px" }} />
                 <col style={{ width: "170px" }} /><col style={{ width: "80px" }} /><col style={{ width: "115px" }} />
                 <col style={{ width: "205px" }} /><col style={{ width: "140px" }} /><col style={{ width: "150px" }} />
@@ -597,8 +597,8 @@ async function AdminMcpContent({ searchParams }: AdminMcpPageProps) {
               </colgroup>
               <thead className="sticky top-0 z-20 bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
                 <tr>{[
-                  { label: "Call result", className: "sticky left-0 z-30 bg-slate-50" }, { label: "Response at call time" }, { label: "Agent next step" }, { label: "Retry" }, { label: "Failure source" }, { label: "Entrypoint" }, { label: "Client / channel" }, { label: "Caller activity" },
-                  { label: "Requester / caller IP" }, { label: "Requested" }, { label: "Page" }, { label: "Tranco" }, { label: "Score" }, { label: "Top" },
+                  { label: "Call result", className: "sticky left-0 z-30 bg-slate-50" }, { label: "Requested" }, { label: "Page" }, { label: "Requester / caller IP" }, { label: "Client / channel" },
+                  { label: "Response at call time" }, { label: "Agent next step" }, { label: "Retry" }, { label: "Failure source" }, { label: "Entrypoint" }, { label: "Caller activity" }, { label: "Tranco" }, { label: "Score" }, { label: "Top" },
                   { label: "Privacy / CMP" }, { label: "A/R/O" }, { label: "Access" }, { label: "Transparency" }, { label: "Transport" }, { label: "Runtime" },
                   { label: "Time" }, { label: "Caller attribution" }, { label: "Current scan outcome" }, { label: "From" }, { label: "Freshness" }, { label: "Language" }, { label: "Industry" },
                   { label: "Mode" }, { label: "Usage" }, { label: "Scan ID" }, { label: "Scanner egress" },
@@ -621,16 +621,16 @@ async function AdminMcpContent({ searchParams }: AdminMcpPageProps) {
                   return (
                     <tr className="group h-[52px] leading-4 hover:bg-slate-50/70" key={event.event_id}>
                       <td className="sticky left-0 z-10 bg-white px-2.5 py-1.5 group-hover:bg-slate-50"><span className={`inline-flex max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap font-semibold ${outcome.text}`}><span aria-hidden="true" className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${outcome.dot}`} />{outcome.label}</span>{event.error_code ? <p className="mt-0.5 truncate text-[10px] text-slate-500" title={event.error_code}>{validationLabel ?? limitationLabel ?? event.error_code}</p> : null}</td>
+                      <td className="px-2.5 py-1.5 text-[10px] leading-4" title={formatAdminDateTime(event.occurred_at)}><p>{requested.date}</p><p className="text-slate-500">{requested.time}</p></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold leading-4 text-slate-900" title={requestedResourceLabel(event)}>{requestedResourceLabel(event)}</p><McpRequestDetails event={event} traffic={trafficScope} period={activeTimeSpan} /></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px] font-medium text-slate-700" title={sourceIpLabel(event)}>{sourceIpLabel(event)}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{event.source_ip_source.replaceAll("_", " ")}</p></td>
+                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold text-slate-700" title={clientDetail(event)}>{event.client_name ? <Link className="hover:underline" href={mcpClientHref("discovery", { clientName: event.client_name, surface: event.surface, source: event.source, traffic: trafficScope, period: activeTimeSpan })} prefetch={false}>{clientDetail(event)}</Link> : clientDetail(event)}</p><McpCallerActivity event={event} traffic={trafficScope} period={activeTimeSpan}><p><strong>Client:</strong> {clientDetail(event)}</p><p><strong>Channel:</strong> {formatLabel(event.execution_channel)} · {formatLabel(event.client_family)}</p></McpCallerActivity></td>
                       <td className="px-2.5 py-1.5">{MCP_RESPONSE_CATEGORIES[event.response_category ?? "not_recorded"]}</td>
                       <td className="px-2.5 py-1.5">{MCP_AGENT_NEXT_STEPS[event.agent_next_step ?? "not_recorded"]}</td>
                       <td className="px-2.5 py-1.5">{event.response_retry ?? "Not recorded"}</td>
                       <td className="px-2.5 py-1.5">{MCP_FAILURE_SOURCES[event.failure_source ?? "not_recorded"]}</td>
                       <td className="px-2.5 py-1.5"><span className={`inline-flex max-w-full truncate whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${surfaceClass(event.surface)}`}>{surfaceLabels[event.surface]}</span><p className="mt-1 text-[10px] text-slate-500">{event.auth_class}</p></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold text-slate-700" title={clientDetail(event)}>{event.client_name ? <Link className="hover:underline" href={mcpClientHref("discovery", { clientName: event.client_name, surface: event.surface, source: event.source, traffic: trafficScope, period: activeTimeSpan })} prefetch={false}>{clientDetail(event)}</Link> : clientDetail(event)}</p><McpCallerActivity event={event} traffic={trafficScope} period={activeTimeSpan}><p><strong>Client:</strong> {clientDetail(event)}</p><p><strong>Channel:</strong> {formatLabel(event.execution_channel)} · {formatLabel(event.client_family)}</p></McpCallerActivity></td>
                       <td className="px-2.5 py-1.5 text-[11px]"><McpContextOnDemand eventId={event.event_id} traffic={trafficScope} kind="caller" /></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px] font-medium text-slate-700" title={sourceIpLabel(event)}>{sourceIpLabel(event)}</p><p className="mt-0.5 truncate text-[10px] text-slate-400">{event.source_ip_source.replaceAll("_", " ")}</p></td>
-                      <td className="px-2.5 py-1.5 text-[10px] leading-4" title={formatAdminDateTime(event.occurred_at)}><p>{requested.date}</p><p className="text-slate-500">{requested.time}</p></td>
-                      <td className="px-2.5 py-1.5"><p className="truncate font-semibold leading-4 text-slate-900" title={requestedResourceLabel(event)}>{requestedResourceLabel(event)}</p><McpRequestDetails event={event} traffic={trafficScope} period={activeTimeSpan} /></td>
                       <td className="px-2.5 py-1.5 font-medium text-slate-700">{event.tranco_rank ? `#${event.tranco_rank.toLocaleString()}` : "—"}</td>
                       <td className="px-2.5 py-1.5 font-semibold text-slate-900">{event.score !== null ? <><span>{event.score}</span><span className="text-[11px] font-normal text-slate-400">/100</span></> : "—"}</td>
                       <td className="px-2.5 py-1.5 font-semibold text-slate-900">{event.top_finding_count ?? "—"}</td>

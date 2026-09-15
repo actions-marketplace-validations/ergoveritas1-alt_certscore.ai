@@ -1,5 +1,5 @@
 import type { CanonicalEvidenceBundle } from "@certscore/contracts";
-import type { Page } from "playwright";
+import type { CDPSession, Frame, Page } from "playwright";
 
 /** Diagnostics only: never upgrades access, findings, scoring or GPC completion. */
 export function describeAccessReliability(bundle: CanonicalEvidenceBundle | null) {
@@ -15,7 +15,7 @@ export function describeAccessReliability(bundle: CanonicalEvidenceBundle | null
     (bundle?.runtimeCoverage?.coverageStatus === "limited_none" || bundle?.scanNoGoAssessment?.decision === "no_go"));
   const reason = !bundle ? "source_unverified" : positiveAccess ? "representative_page" :
     /renderer crash/i.test(errors) ? "renderer_crash" :
-    /interrupted by another navigation to ["']about:blank/.test(errors) ? "navigation_reset_interruption" :
+    /interrupted by another navigation to ["']about:blank|Navigation to ["']about:blank["'] is interrupted by another navigation to ["']chrome-error:\/\/chromewebdata\//.test(errors) ? "navigation_reset_interruption" :
     /ERR_BLOCKED_BY_CLIENT/.test(errors) ? "client_or_safety_block" :
     /ERR_HTTP2_PROTOCOL_ERROR/.test(errors) ? "http2_transport_failure" :
     /ERR_(NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED)/.test(errors) ? "dns_failure" :
@@ -53,11 +53,71 @@ export function passiveReadinessTimeout(navigationAllowanceMs: number, navigatio
   )));
 }
 
-export async function resetForNavigationRecovery(page: Pick<Page, "goto">, remainingMs: number, signal?: AbortSignal) {
+export async function resetForNavigationRecovery(page: Pick<Page, "goto" | "context" | "on" | "off" | "mainFrame">, remainingMs: number, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const timeout = recoveryNavigationTimeout(remainingMs, 1000);
   if (timeout <= 0) throw Error("Navigation budget exhausted before reset.");
-  const response = await page.goto("about:blank", { waitUntil: "commit", timeout });
-  signal?.throwIfAborted();
-  return response;
+  const deadline = Date.now() + timeout;
+  let ended = false, detached = false;
+  let session: CDPSession | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const detach = () => {
+    if (!session || detached) return;
+    detached = true;
+    void session.detach().catch(() => {});
+  };
+  const checkActive = () => {
+    signal?.throwIfAborted();
+    if (ended || Date.now() >= deadline) throw Error("Navigation recovery reset deadline exceeded.");
+  };
+  const interrupted = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(Error("Navigation recovery reset deadline exceeded.")), timeout);
+    onAbort = () => reject(signal?.reason ?? Error("Navigation recovery cancelled."));
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  let errorCommitted!: () => void;
+  const errorDocument = new Promise<void>(resolve => { errorCommitted = resolve; });
+  const onNavigated = (frame: Frame) => {
+    if (frame === page.mainFrame() && frame.url() === "chrome-error://chromewebdata/") errorCommitted();
+  };
+  page.on("framenavigated", onNavigated);
+  const reset = async () => {
+    try {
+      session = await page.context().newCDPSession(page as Page);
+      checkActive();
+      // Stop the failed navigation before resetting. Otherwise Chromium's late
+      // error-page commit can interrupt about:blank and kill transport recovery.
+      try {
+        await session.send("Page.stopLoading");
+      } catch (error) {
+        // Chromium briefly has no active page while committing a failed TLS/
+        // transport navigation. Await that exact error-document event, then
+        // stop once on the active page, inside the same reset allowance.
+        if (!(error instanceof Error) || !error.message.includes("Protocol error (Page.stopLoading): Not attached to an active page")) throw error;
+        if (page.mainFrame().url() !== "chrome-error://chromewebdata/") {
+          await Promise.race([errorDocument, interrupted]);
+        }
+        checkActive();
+        await session.send("Page.stopLoading");
+      }
+      checkActive();
+      const navigationTimeoutMs = deadline - Date.now();
+      if (navigationTimeoutMs <= 0) throw Error("Navigation recovery reset deadline exceeded.");
+      const response = await page.goto("about:blank", { waitUntil: "commit", timeout: navigationTimeoutMs });
+      checkActive();
+      return response;
+    } finally {
+      detach();
+    }
+  };
+  try {
+    return await Promise.race([reset(), interrupted]);
+  } finally {
+    ended = true;
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+    page.off("framenavigated", onNavigated);
+    detach();
+  }
 }

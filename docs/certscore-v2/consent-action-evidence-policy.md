@@ -501,3 +501,19 @@ This adds no browser reads, waits, lanes or model calls. The broader in-memory
 label checks are estimated below $1/month at 100,000 scans, within the prior
 owner-approved allowance. Additional successful action capture uses the previously
 approved existing observation windows.
+
+### Owner-approved after-action reporting prerequisite (September 15, 2026)
+
+Customer-facing After Accept and After Reject results require the corresponding
+control to be `observed` in the canonical persisted consent-control assessment.
+`unknown`, `not_observed`, missing and malformed assessments do not make the
+section reportable. A limited overall assessment may still positively observe
+one control and allow that control's after-action result. Omit independent-test
+incomplete notices when the corresponding control was not observed.
+
+This is a reporting rule, not a worker-dispatch change. Preserve independent
+worker execution, diagnostic artifacts, action evidence, normalized concerns,
+and existing finding/scoring policies. Apply the same eligibility to the canonical
+report checklist/presentation, Accept/Reject result cards and customer API action
+summaries/coverage notices. Historical records must not infer observed controls
+from a worker invocation, click status, or result text.

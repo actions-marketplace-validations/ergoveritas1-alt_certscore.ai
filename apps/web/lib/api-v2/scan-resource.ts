@@ -1,3 +1,5 @@
+import { isAfterActionReportEligible, retainedConsentAssessment } from "../scans/after-action-report-eligibility";
+import { readChoicePathExecution } from "../scans/choice-path-execution";
 import { deriveAfterActionSummary, afterActionInterpretation } from "./after-action-summary";
 import {
   CANONICAL_SCAN_ID_PATTERN,
@@ -534,6 +536,7 @@ export function projectedFindingsFromPulse(pulse: PulseResponse): PulseFindingLi
 }
 
 export function deriveApiV2PostRefusalObservation(scanRecord: ScanDetailResponse) {
+  if (!isAfterActionReportEligible(retainedConsentAssessment(scanRecord), "reject")) return undefined;
   const supportedStatuses = new Set([
     "confirmed_observation",
     "confirmed_clean",
@@ -558,6 +561,7 @@ export function deriveApiV2PostRefusalObservation(scanRecord: ScanDetailResponse
     metadata?.postRefusalReportProjection,
   );
   const afterAction = deriveAfterActionSummary(projection, "reject");
+  const execution = readChoicePathExecution(projection, "reject");
   const status = stringOrNull(projection?.status);
   if (!status || !supportedStatuses.has(status)) {
     const coverage = plainRecord(
@@ -673,6 +677,7 @@ export function deriveApiV2PostRefusalObservation(scanRecord: ScanDetailResponse
       | "unsupported"
       | "aborted",
     ...(afterAction ? { afterAction } : {}),
+    ...(execution ? { execution } : {}),
     refusalExercised: projection?.refusalExercised === true,
     observationCount: confirmed ? Math.max(0, finiteInt(projection?.observationCount) ?? 0) : 0,
     productionProjectable: confirmed,
@@ -714,6 +719,7 @@ export function deriveApiV2PostRefusalObservation(scanRecord: ScanDetailResponse
 }
 
 export function deriveApiV2PostAcceptObservation(scanRecord: ScanDetailResponse) {
+  if (!isAfterActionReportEligible(retainedConsentAssessment(scanRecord), "accept")) return undefined;
   const supportedStatuses = new Set([
     "confirmed_observation",
     "confirmed_clean",
@@ -732,6 +738,7 @@ export function deriveApiV2PostAcceptObservation(scanRecord: ScanDetailResponse)
     runtimeArtifacts?.post_accept_observation_coverage,
   );
   const afterAction = deriveAfterActionSummary(projection, "accept");
+  const execution = readChoicePathExecution(projection, "accept");
   const status = stringOrNull(projection?.status);
   const limitationCode = stringOrNull(coverage?.limitationCode);
   const projectionIndeterminateReason = stringOrNull(projection?.indeterminateReason);
@@ -769,6 +776,7 @@ export function deriveApiV2PostAcceptObservation(scanRecord: ScanDetailResponse)
     return {
       status: afterAction && status === "unconfirmed" ? "unconfirmed" as const : indeterminateReason === "accept_control_not_observed" ? "not_attempted" as const : "aborted" as const,
       ...(afterAction ? { afterAction } : {}),
+      ...(execution ? { execution } : {}),
       acceptanceExercised: false,
       observationCount: 0,
       productionProjectable: false,
@@ -856,6 +864,7 @@ export function deriveApiV2PostAcceptObservation(scanRecord: ScanDetailResponse)
       | "unsupported"
       | "aborted",
     ...(afterAction ? { afterAction } : {}),
+    ...(execution ? { execution } : {}),
     acceptanceExercised: projection?.acceptanceExercised === true,
     observationCount: confirmed ? Math.max(0, finiteInt(projection?.observationCount) ?? 0) : 0,
     productionProjectable: confirmed,
@@ -912,7 +921,7 @@ function deriveCoverage(scanRecord: ScanDetailResponse) {
     runtimeArtifacts?.post_refusal_observation_coverage,
   );
   const postRefusalLimitationCode = stringOrNull(postRefusalCoverage?.limitationCode);
-  const postRefusalLimitation = postRefusalCoverage?.status === "limited"
+  const postRefusalLimitation = isAfterActionReportEligible(retainedConsentAssessment(scanRecord), "reject") && postRefusalCoverage?.status === "limited"
     ? postRefusalLimitationCode === "reject_path_timeout"
       ? "Reject Path did not complete within the configured action-lane allowance."
       : "Reject Path worker failed before verified evidence could be joined."
@@ -922,7 +931,7 @@ function deriveCoverage(scanRecord: ScanDetailResponse) {
     runtimeArtifacts?.post_accept_observation_coverage,
   );
   const postAcceptLimitationCode = stringOrNull(postAcceptCoverage?.limitationCode);
-  const postAcceptLimitation = postAcceptCoverage?.status === "limited"
+  const postAcceptLimitation = isAfterActionReportEligible(retainedConsentAssessment(scanRecord), "accept") && postAcceptCoverage?.status === "limited"
     ? postAcceptLimitationCode === "accept_path_timeout"
       ? "Accept Path did not complete within the six-second post-primary allowance."
       : postAcceptLimitationCode === "accept_observation_window_truncated"

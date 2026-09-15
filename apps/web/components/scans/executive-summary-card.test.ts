@@ -82,11 +82,12 @@ test("compact A/R/O card renders persisted tri-state control projections without
   assert.match(html, /Consent controls/);
   assert.match(html, /Accept control: Observed/);
   assert.match(html, /Reject control: Not observed/);
-  assert.match(html, /Options control: Unknown/);
+  assert.doesNotMatch(html, /Options control: Unknown/);
+  assert.match(html, /Initial consent inspection is incomplete for Options/);
   assert.match(html, /data-consent-control-state="observed"/);
   assert.match(html, /data-consent-control-state="not_observed"/);
-  assert.match(html, /data-consent-control-state="unknown"/);
-  assert.match(html, /grid-cols-3/);
+  assert.doesNotMatch(html, /data-consent-control-state="unknown"/);
+  assert.match(html, /grid-flow-col auto-cols-fr/);
   assert.doesNotMatch(html, /<details/);
   assert.doesNotMatch(html, /finding|severity|violation/i);
 });
