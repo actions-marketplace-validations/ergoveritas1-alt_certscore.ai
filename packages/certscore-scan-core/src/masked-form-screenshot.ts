@@ -24,6 +24,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
       state.node.remove();
       if (state.previous === null) state.root.removeAttribute(state.attribute);
       else state.root.setAttribute(state.attribute, state.previous);
+      for (const entry of state.scrollPositions) entry.element.scrollTo({ left: entry.x, top: entry.y, behavior: "instant" });
       scrollTo({ left: state.position.x, top: state.position.y, behavior: "instant" });
     }).catch(() => {});
     await style?.dispose().catch(() => {});
@@ -34,6 +35,10 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
         style = await element.evaluateHandle((root, { deadlineAtMs, marker }) => {
           if (Date.now() >= deadlineAtMs || !(root instanceof Element)) return null;
           const position = { x: scrollX, y: scrollY };
+          const scrollPositions = [];
+          for (let parent = root.parentElement; parent; parent = parent.parentElement) {
+            scrollPositions.push({ element: parent, x: parent.scrollLeft, y: parent.scrollTop });
+          }
           const attribute = "data-certscore-form-capture";
           const previous = root.getAttribute(attribute);
           root.setAttribute(attribute, marker);
@@ -42,7 +47,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
           node.textContent = `${scope},${scope} *,${scope}::before,${scope}::after,${scope} *::before,${scope} *::after{animation-play-state:paused!important;transition-property:none!important;caret-color:transparent!important}`;
           document.documentElement.appendChild(node);
           root.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-          return { node, root, attribute, previous, position };
+          return { node, root, attribute, previous, position, scrollPositions };
         }, { deadlineAtMs: deadline, marker: randomUUID() });
         if (Date.now() >= deadline) {
           await cleanupStyle();
@@ -67,7 +72,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
         stage = "settle_scroll";
         // Allow scroll handlers and their layout update to run before binding pixels.
         // This is inside the existing capture deadline, never an extra attempt.
-        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.evaluate(() => new Promise<void>(resolve => setTimeout(() => requestAnimationFrame(() => resolve()), 500)));
         stage = "read_layout";
         const before = await readLayout();
         if (Date.now() >= deadline) throw new Error("Form screenshot deadline");

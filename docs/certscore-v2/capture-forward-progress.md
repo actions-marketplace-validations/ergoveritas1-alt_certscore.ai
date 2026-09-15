@@ -155,7 +155,7 @@ cannot invalidate the image; controls entering the crop, changed crop/viewport,
 document changes and in-crop movement still discard pixels before safety review.
 This optimization adds no cost or capture attempt.
 
-The capture also allows two animation frames for scroll handlers to update layout
+The capture also allows 500ms plus an animation frame for scroll-triggered layout to settle
 before recording crop geometry, inside the same two-second deadline. No image
 retry or budget extension is introduced; any subsequent geometry change still
 withholds the image.
