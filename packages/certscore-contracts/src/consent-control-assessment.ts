@@ -1,4 +1,4 @@
-import { CONTROL_INSPECTION_POLICY, consentControlInspectionSchema, initialConsentSelectionSchema, isControlInspectionComplete, type InitialConsentSelection, type ConsentControlInspection } from "./consent-control-inspection";
+import { CONTROL_INSPECTION_POLICY, LEGACY_CONTROL_INSPECTION_POLICY, consentControlInspectionSchema, initialConsentSelectionSchema, isControlInspectionComplete, type InitialConsentSelection, type ConsentControlInspection } from "./consent-control-inspection";
 import { z } from "zod";
 import { CONSENT_CONTROL_LABEL_REGISTRY_VERSION } from "./consent-control-label-classifier";
 import { CONSENT_CONTROL_CAPTURE_POLICY_VERSION } from "./consent-control-evidence-policy";
@@ -41,7 +41,7 @@ const assessmentChannelSchema = z.enum([
 export const consentControlAssessmentControlResultSchema = z.object({
   state: consentControlAssessmentTriStateSchema,
   inspection: z.object({
-    policy: z.literal(CONTROL_INSPECTION_POLICY),
+    policy: z.enum([LEGACY_CONTROL_INSPECTION_POLICY, CONTROL_INSPECTION_POLICY]),
     status: z.enum(["complete", "limited"]),
     evidenceRefs: z.array(z.string().max(240)).max(24),
   }).optional(),
@@ -630,7 +630,7 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
     const inspected = completeInventory || independentlyComplete(intent);
     const result = resultFor(intent, evidence, inspected, reasons);
     result.inspection = {
-      policy: CONTROL_INSPECTION_POLICY, status: inspected ? "complete" : "limited",
+      policy: inspection?.version ?? CONTROL_INSPECTION_POLICY, status: inspected ? "complete" : "limited",
       evidenceRefs: inspected ? bounded(independentlyComplete(intent)
         ? ["ConsentControlGeometryEvidence.json", ...(input.geometry?.evidenceRefs ?? [])]
         : ["CanonicalEvidenceBundle.json", ...observations.flatMap(o => o.evidenceRefs ?? [])]) : [],

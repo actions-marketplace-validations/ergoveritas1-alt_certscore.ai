@@ -1535,3 +1535,21 @@ test("same-URL navigation during geometry capture cannot prove a complete invent
     assert.equal(artifact.controlInspection?.structuralCoverage, "limited");
   } finally { await page.close(); }
 });
+
+test("OneTrust first-layer inspection excludes covered news and hidden preference overflow", async () => {
+  const artifact = await captureFixture(`
+    <a style="position:fixed;top:20px" href="/news">Court rejects new plan</a>
+    <div style="position:fixed;inset:0;background:#0008;z-index:9"></div>
+    <div id="onetrust-consent-sdk">
+      <div id="onetrust-banner-sdk" tabindex="-1" style="position:fixed;bottom:0;left:0;width:900px;background:white;z-index:10">
+        <div id="onetrust-policy"><p>We use cookies and personal data for analytics and advertising.</p><p class="ot-dpd-desc"><a href="#vendors">List of Partners (vendors)</a></p></div>
+        <div id="onetrust-button-group"><button id="onetrust-accept-btn-handler">Accept All</button><button id="onetrust-pc-btn-handler" aria-label="Show Purposes, Opens the preference center dialog">Show Purposes</button></div>
+      </div>
+      <div id="onetrust-pc-sdk" style="display:none">${Array.from({ length: 120 }, (_, i) => `<button>Cookie vendor preferences ${i}</button>`).join('')}</div>
+    </div>`);
+  assert.equal(artifact.controlInspection?.structuralCoverage, "complete", JSON.stringify(artifact.controlInspection));
+  assert.equal(artifact.summary.limitations.includes("unresolved_visible_consent_decision"), false, JSON.stringify({proof: artifact.controlInspection, candidates: artifact.candidates.slice(0, 8)}));
+  assert.equal(artifact.summary.firstLayerAccept, true);
+  assert.equal(artifact.summary.firstLayerReject, false);
+  assert.equal(artifact.controlInspection?.candidates.some(c => c.unresolvedIntents.includes("reject")), false, JSON.stringify({proof: artifact.controlInspection, candidates: artifact.candidates.slice(0, 8)}));
+});

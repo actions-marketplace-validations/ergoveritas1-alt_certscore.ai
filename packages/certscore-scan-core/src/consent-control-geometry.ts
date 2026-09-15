@@ -427,11 +427,11 @@ export async function captureConsentControlGeometry(
     },
     structuralCoverage: structuralComplete ? "complete" : "limited",
     reasonCodes: structuralComplete ? [] : ["structural_control_inventory_incomplete"],
-    candidates: candidates.filter(isRelevantConsentInspectionCandidate)
+    candidates: candidates.filter(c => isRelevantConsentInspectionCandidate(c))
       .slice(0, 160).map(c => ({ candidateId: c.candidateId, ...classifyConsentInspectionRole(c) })),
   };
   const summary = summarizeConsentControlGeometry(candidates, cmp);
-  if (hasUnresolvedConsentDecision({ candidates })) {
+  if (hasUnresolvedConsentDecision({ candidates, controlInspection })) {
     summary.limitations = [UNRESOLVED_CONSENT_DECISION, ...summary.limitations].slice(0, 12);
   }
   const mainFrameUnavailable = !mainFrameCapture ||
@@ -753,11 +753,16 @@ function mergeRawGeometryCaptures(
     })));
   }
   merged.containers = merged.containers.slice(0, limits.containerLimit * Math.max(1, captures.length));
-  if (merged.candidates.length > limits.candidateLimit) merged.inventoryLimited = true;
-  merged.candidates = merged.candidates
-    .sort((left, right) => candidateEvidencePriority(right) - candidateEvidencePriority(left))
-    .slice(0, limits.candidateLimit);
+  merged.candidates.sort((left, right) => candidateEvidencePriority(right) - candidateEvidencePriority(left));
+  if (merged.candidates.slice(limits.candidateLimit).some(candidateCouldAffectFirstLayer)) merged.inventoryLimited = true;
+  merged.candidates = merged.candidates.slice(0, limits.candidateLimit);
   return merged;
+}
+
+function candidateCouldAffectFirstLayer(candidate: RawGeometryCandidate): boolean {
+  return candidate.layer === "first_layer" && candidate.intersectsViewport && candidate.enabled &&
+    candidate.boundingBox.width > 0 && candidate.boundingBox.height > 0 &&
+    candidate.computedStyle.display !== "none" && candidate.computedStyle.visibility !== "hidden";
 }
 
 function candidateEvidencePriority(candidate: RawGeometryCandidate): number {
@@ -1335,7 +1340,18 @@ function collectConsentGeometryInPage(input: {
 
   const namedConsentRegions = deepQuerySelectorAll("section[aria-label], [role='region'][aria-label], [role='group'][aria-label]")
     .filter(element => consentPattern.test(element.getAttribute("aria-label") || ""));
-  const containers = [...new Set([...deepQuerySelectorAll(containerSelector), ...namedConsentRegions])]
+  const visibleElementCache = new WeakMap<Element, boolean>();
+  function potentiallyVisibleFirstLayer(element: Element): boolean {
+    const cached = visibleElementCache.get(element);
+    if (cached !== undefined) return cached;
+    const box = rectFor(element);
+    const style = getComputedStyle(element);
+    const visible = box.width > 0 && box.height > 0 && intersects(box, viewportRect()) &&
+      style.display !== "none" && style.visibility !== "hidden";
+    visibleElementCache.set(element, visible);
+    return visible;
+  }
+  const allContainerElements = [...new Set([...deepQuerySelectorAll(containerSelector), ...namedConsentRegions])]
     .filter((element) => {
       const tagName = element.tagName.toLowerCase();
       const role = (element.getAttribute("role") || "").toLowerCase();
@@ -1365,7 +1381,8 @@ function collectConsentGeometryInPage(input: {
       const box = rectFor(element);
       return box.width > 0 || box.height > 0 || index < Math.min(4, list.length);
     })
-    .slice(0, input.containerLimit)
+    .sort((a, b) => Number(potentiallyVisibleFirstLayer(b)) - Number(potentiallyVisibleFirstLayer(a)));
+  const containers = allContainerElements.slice(0, input.containerLimit)
     // Only retained containers need selector identities and sanitized clones.
     .map(containerFor);
 
@@ -1414,7 +1431,7 @@ function collectConsentGeometryInPage(input: {
       containers.push(containerFor(root));
     }
   }
-  const containerControlInventories = containers.map((container) => deepQuerySelectorAll(controlSelector, container.element));
+  const containerControlInventories = containers.map((container) => deepQuerySelectorAll(controlSelector, container.element).sort((a, b) => Number(potentiallyVisibleFirstLayer(b)) - Number(potentiallyVisibleFirstLayer(a))));
   const containerControls = containerControlInventories.flatMap(controls => controls.slice(0, 80));
   const seenControlElements = new Set<Element>();
   const controlElements = [...containerControls, ...documentControls].filter((element) => {
@@ -1440,8 +1457,12 @@ function collectConsentGeometryInPage(input: {
   });
 
   return {
-    inventoryLimited: unboundedCandidates.length > input.candidateLimit || containers.length >= input.containerLimit ||
-      documentControls.length >= 800 || containerControlInventories.some(controls => controls.length > 80),
+    inventoryLimited: unboundedCandidates.slice(input.candidateLimit).some(candidate =>
+        candidate.layer === "first_layer" && candidate.intersectsViewport && candidate.enabled &&
+        candidate.boundingBox.width > 0 && candidate.boundingBox.height > 0 &&
+        candidate.computedStyle.display !== "none" && candidate.computedStyle.visibility !== "hidden") ||
+      allContainerElements.slice(input.containerLimit).some(potentiallyVisibleFirstLayer) ||
+      documentControls.length >= 800 || containerControlInventories.some(controls => controls.slice(80).some(potentiallyVisibleFirstLayer)),
     documentReadyState: document.readyState,
     pageUrl: window.location.href,
     viewport,

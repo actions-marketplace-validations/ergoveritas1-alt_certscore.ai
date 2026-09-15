@@ -16,15 +16,18 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
     throw error;
   }).finally(() => { if (acquisitionTimer) clearTimeout(acquisitionTimer); });
   let stage = "pause_animation";
+  let originalScroll: { x: number; y: number } | undefined;
   let style: Awaited<ReturnType<Page["evaluateHandle"]>> | undefined;
   try {
     return await Promise.race([
       (async () => {
-        style = await page.evaluateHandle((deadlineAtMs) => {
+        originalScroll = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+        style = await element.evaluateHandle((root, deadlineAtMs) => {
           if (Date.now() >= deadlineAtMs) return null;
           const node = document.createElement("style");
           node.textContent = "*,*::before,*::after{animation-play-state:paused!important;transition-property:none!important;caret-color:transparent!important}";
           document.documentElement.appendChild(node);
+          if (root instanceof Element) root.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
           return node;
         }, deadline);
         const readLayout = () => element.evaluate(root => {
@@ -34,7 +37,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
           };
           const controls = document.querySelectorAll('input, textarea, select, [role="checkbox"], [role="switch"], [contenteditable]');
           if (!(root instanceof Element) || !root.isConnected || controls.length > 1000) throw new Error("Form screenshot binding unavailable");
-          return { url: location.href, bounds: rect(root), masks: Array.from(controls, rect) };
+          return { url: location.href, viewport: { x: scrollX, y: scrollY, width: innerWidth, height: innerHeight }, bounds: rect(root), masks: Array.from(controls, rect) };
         });
         stage = "read_layout";
         const before = await readLayout();
@@ -43,7 +46,8 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
         if (clip.width <= 0 || clip.height <= 0 || clip.width * clip.height > 40_000_000) throw new Error("Form screenshot bounds unavailable");
         stage = "capture_pixels";
         const captured = await session.send("Page.captureScreenshot", {
-          format: "jpeg", quality: 45, fromSurface: true, captureBeyondViewport: true,
+          format: "jpeg", quality: 45, fromSurface: true,
+          captureBeyondViewport: !(clip.x >= before.viewport.x && clip.y >= before.viewport.y && clip.x + clip.width <= before.viewport.x + before.viewport.width && clip.y + clip.height <= before.viewport.y + before.viewport.height),
           clip: { ...clip, scale: Math.min(1, 640 / clip.width, 960 / clip.height) },
         });
         stage = "verify_layout";
@@ -80,5 +84,6 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
     await session.detach().catch(() => {});
     await style?.evaluate((node: unknown) => { if (node instanceof Element) node.remove(); }).catch(() => {});
     await style?.dispose().catch(() => {});
+    if (originalScroll) await page.evaluate(position => scrollTo({ left: position.x, top: position.y, behavior: "instant" }), originalScroll).catch(() => {});
   }
 }

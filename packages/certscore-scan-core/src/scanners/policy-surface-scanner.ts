@@ -2277,7 +2277,7 @@ async function processPolicyCandidate({
           )
         : boundedSameOriginSupplement
           ? Math.min(
-              POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS,
+              POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS + POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS,
               remainingPolicyFetchMs(input, moduleStartedAtMs),
             )
           : remainingPolicyFetchMs(input, moduleStartedAtMs),
@@ -5373,7 +5373,7 @@ async function selectOneHopPolicyIndexChildren(input: {
         ...(candidate.selectionReasonCodes ?? []),
         "bounded_same_origin_policy_supplement",
         "single_supplement_fetch_limit",
-        "supplement_fetch_cap_2500ms",
+        "supplement_total_fetch_resolution_cap_5000ms",
         "supplement_rendered_fallback_disabled",
       ]),
     }));

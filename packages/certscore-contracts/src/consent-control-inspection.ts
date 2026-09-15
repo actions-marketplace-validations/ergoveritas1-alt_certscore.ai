@@ -1,10 +1,12 @@
 import { z } from "zod";
 
-export const CONTROL_INSPECTION_POLICY = "control_specific_inspection.v1" as const;
+export const LEGACY_CONTROL_INSPECTION_POLICY = "control_specific_inspection.v1" as const;
+export const CONTROL_INSPECTION_POLICY = "control_specific_inspection.v2" as const;
+type InspectionPolicy = typeof CONTROL_INSPECTION_POLICY | typeof LEGACY_CONTROL_INSPECTION_POLICY;
 const intents = ["accept", "reject", "options", "privacy_opt_out"] as const;
 export type InspectedConsentIntent = typeof intents[number];
 export const consentControlInspectionSchema = z.object({
-  version: z.literal(CONTROL_INSPECTION_POLICY),
+  version: z.enum([LEGACY_CONTROL_INSPECTION_POLICY, CONTROL_INSPECTION_POLICY]),
   structuralCoverage: z.enum(["complete", "limited"]),
   retainedCandidateCount: z.number().int().min(0).max(160),
   captureCoverage: z.object({
@@ -37,14 +39,14 @@ const inspectionCandidateSchema = z.object({
   candidateId: z.string().min(1).max(160), layer: z.string(), enabled: z.boolean(),
   intersectsViewport: z.boolean(), boundingBox: z.object({ width: z.number().nonnegative(), height: z.number().nonnegative() }),
   decisionStatus: z.string(), actionType: z.string().optional(), label: z.string().optional(),
-  selectorHint: z.string().optional(), containerSelectorHint: z.string().optional(),
+  selectorHint: z.string().optional(), containerSelectorHint: z.string().optional(), ariaLabel: z.string().optional(),
   classifierReasonCodes: z.array(z.string()).optional(), inputType: z.string().optional(), role: z.string().optional(),
   linkDestination: z.string().optional(), tagName: z.string().optional(), consentContextConfirmed: z.boolean().optional(),
   initialSelection: z.unknown().optional(),
 });
-export function isRelevantConsentInspectionCandidate(c: z.infer<typeof inspectionCandidateSchema>): boolean {
-  return c.layer === "first_layer" && c.intersectsViewport && c.enabled && c.boundingBox.width > 0 &&
-    c.boundingBox.height > 0 && !["hidden", "dom_present_not_visible"].includes(c.decisionStatus);
+export function isRelevantConsentInspectionCandidate(c: z.infer<typeof inspectionCandidateSchema>, policy: InspectionPolicy = CONTROL_INSPECTION_POLICY): boolean {
+  return (policy === LEGACY_CONTROL_INSPECTION_POLICY || c.consentContextConfirmed === true) && c.layer === "first_layer" && c.intersectsViewport && c.enabled && c.boundingBox.width > 0 &&
+    c.boundingBox.height > 0 && !["hidden", "dom_present_not_visible", ...(policy === CONTROL_INSPECTION_POLICY ? ["covered"] : [])].includes(c.decisionStatus);
 }
 
 /** Validate the producer's roles against the exact retained inventory. Missing,
@@ -56,11 +58,11 @@ export function verifyConsentControlInspection(value: unknown, candidates: unkno
   const inventory = z.array(inspectionCandidateSchema).max(160).safeParse(candidates);
   if (!proof.success || !inventory.success || proof.data.retainedCandidateCount !== inventory.data.length ||
     new Set(inventory.data.map(c => c.candidateId)).size !== inventory.data.length) return null;
-  const relevant = inventory.data.filter(isRelevantConsentInspectionCandidate);
+  const relevant = inventory.data.filter(c => isRelevantConsentInspectionCandidate(c, proof.data.version));
   if (relevant.length !== proof.data.candidates.length) return null;
   for (const candidate of relevant) {
     const row = proof.data.candidates.find(c => c.candidateId === candidate.candidateId);
-    const expected = classifyConsentInspectionRole(candidate);
+    const expected = classifyConsentInspectionRole(candidate, proof.data.version);
     if (!row || row.role !== expected.role || row.unresolvedIntents.length !== expected.unresolvedIntents.length ||
       !row.unresolvedIntents.every(intent => expected.unresolvedIntents.includes(intent))) return null;
   }
@@ -71,11 +73,11 @@ export function verifyConsentControlInspection(value: unknown, candidates: unkno
  * No domain exceptions. Vendor roles require a canonical CMP structure as well
  * as the label. Information navigation may limit Options without limiting Reject. */
 export function classifyConsentInspectionRole(c: {
-  actionType?: string; label?: string; selectorHint?: string; containerSelectorHint?: string;
+  actionType?: string; label?: string; selectorHint?: string; containerSelectorHint?: string; ariaLabel?: string;
   classifierReasonCodes?: string[]; inputType?: string; role?: string;
   linkDestination?: string; tagName?: string; consentContextConfirmed?: boolean;
   initialSelection?: unknown;
-}): Pick<ConsentControlInspection["candidates"][number], "role" | "unresolvedIntents"> {
+}, policy: InspectionPolicy = CONTROL_INSPECTION_POLICY): Pick<ConsentControlInspection["candidates"][number], "role" | "unresolvedIntents"> {
   if (c.consentContextConfirmed !== true) return { role: "unknown", unresolvedIntents: [...intents] };
   if (c.classifierReasonCodes?.some(r => ["conflicting_consent_decisions", "visible_accessible_intent_conflict", "negated_consent_choice"].includes(r))) {
     return { role: "unknown", unresolvedIntents: [...intents] };
@@ -93,6 +95,18 @@ export function classifyConsentInspectionRole(c: {
   if (["checkbox", "radio"].includes(c.inputType ?? "") || ["checkbox", "switch", "radio"].includes(c.role ?? "")) return { role: "category", unresolvedIntents: [] };
   const label = (c.label ?? "").trim().toLocaleLowerCase().replace(/[.!…]+$/u, "").trim();
   const scope = `${c.selectorHint ?? ""} ${c.containerSelectorHint ?? ""}`;
+  if (policy === CONTROL_INSPECTION_POLICY) {
+    if (c.classifierReasonCodes?.includes("unverified_preferences_navigation")) return { role: "information", unresolvedIntents: ["options"] };
+    if (c.tagName === "div" && !["button", "link"].includes(c.role ?? "") &&
+        c.selectorHint === "#onetrust-banner-sdk" && c.containerSelectorHint === "#onetrust-banner-sdk" &&
+        c.ariaLabel === "You must interact with the banner to dismiss it.") {
+      return { role: "information", unresolvedIntents: [] };
+    }
+    if (c.tagName === "a" && c.containerSelectorHint === "#onetrust-policy" &&
+        c.selectorHint === "p.ot-dpd-desc a" && label === "list of partners (vendors)") {
+      return { role: "vendor_list", unresolvedIntents: [] };
+    }
+  }
   if ((/didomi-popup-notice-text/.test(scope) && /^nasi partnerzy(?: \(\d+\))?$/.test(label)) ||
       (/qc-cmp2-summary-info/.test(scope) && label === "partners")) return { role: "vendor_list", unresolvedIntents: [] };
   if (c.actionType === "policy_link" || (c.tagName === "a" && c.linkDestination === "other_document")) {

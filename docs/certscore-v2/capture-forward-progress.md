@@ -42,10 +42,11 @@ provisioned-capacity or retention change is included.
 ## Approved declared-policy text allowance — September 15, 2026
 
 The product owner approved up to $15/month incremental compute at 100,000
-scans/month for this recovery. A selected supplemental policy child keeps its
-2,500ms HTML fetch cap. When that HTML explicitly declares OneTrust notice text,
+scans/month for this recovery. A selected supplemental policy child shares a 5,000ms total allowance across
+HTML and declared text. When that HTML explicitly declares OneTrust notice text,
 resolution receives up to 2,500ms from resolution start, capped at 5,000ms from
-document-fetch start and at the existing policy-lane deadline. The allowance
+document-fetch start and at the existing policy-lane deadline. A slow HTML fetch
+consumes the shared allowance; it never starts another full allowance for text. The allowance
 covers one declared notice and one unique metadata policy URL; existing locale,
 ownership, retained-text, and downstream eligibility checks remain unchanged.
 
@@ -56,3 +57,23 @@ documents. Approval ceiling is $15/month. The lower-cost alternative was the
 previous retention repair with the original shared 2,500ms child allowance.
 
 Capture diagnostics retain only fixed stage/code values for rapid-inventory timeouts and form capture failures. They contain no form values or raw browser errors, add no browser work, and are estimated below $1/month in bounded logging overhead.
+
+## First-layer inspection v2
+
+New geometry uses `control_specific_inspection.v2`. V1 verification retains its
+original candidate relevance and structural-role rules. V2 excludes occluded
+controls from the relevant first-layer inventory and recognizes the exact
+OneTrust banner wrapper and the registered vendor-list structure as information
+and vendor navigation. Conflicting labels, unregistered lookalikes, and genuine
+unresolved decision controls remain limited.
+
+Geometry prioritizes visible containers and controls before existing caps. It
+retains hidden candidates when space permits; dropping only inspected hidden or
+off-viewport candidates does not mark the first-layer inventory truncated.
+Dropping any potentially visible first-layer candidate still limits coverage.
+Uncaptured, changed or incomplete frames and document mismatches remain limited.
+No cap, browser, retry, or lane deadline increases.
+
+Form crops scroll the bound form into view and use viewport capture when it
+fits. Scroll is restored afterward. Masking, geometry consistency, safety review
+and the total existing capture deadline are unchanged.

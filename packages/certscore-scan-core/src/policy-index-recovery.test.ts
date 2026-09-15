@@ -39,7 +39,7 @@ for (const [delayedNotice, renderedRecovery, multilingual, slowHtml] of [[false,
       case "/index.json": res.end(JSON.stringify({ languages: { en: { policyUrl: `${baseUrl}/index-body.json` } } })); break;
       case "/index-body.json": res.end(JSON.stringify({ notices: [{ content: index }] })); break;
       case "/policycenter/b2c/en-emea": res.statusCode = 301; res.setHeader("location", "/policycenter/b2c/en-emea/"); res.end(); break;
-      case "/policycenter/b2c/en-emea/": if (slowHtml) setTimeout(() => res.end(notice("europe.json")), 2200).unref(); else res.end(notice("europe.json")); break;
+      case "/policycenter/b2c/en-emea/": if (slowHtml) setTimeout(() => res.end(notice("europe.json")), 3200).unref(); else res.end(notice("europe.json")); break;
       case "/english-body.json": { const send = () => res.end(JSON.stringify({ notices: [{ content: `<h1>Europe Privacy Policy</h1><p>${policy}</p>` }] })); if (slowHtml) setTimeout(send, 650).unref(); else send(); break; }
       case "/europe.json": {
         if (multilingual) { res.end(JSON.stringify({ languages: { de: { policyUrl: baseUrl + "/wrong-locale.json" }, "en-gb": { policyUrl: baseUrl + "/english-body.json" } } })); break; }

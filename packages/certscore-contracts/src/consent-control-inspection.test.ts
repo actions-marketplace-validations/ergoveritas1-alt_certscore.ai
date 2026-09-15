@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyConsentInspectionRole, isControlInspectionComplete, isInitialNecessaryOnlySelection, verifyConsentControlInspection, CONTROL_INSPECTION_POLICY } from "./consent-control-inspection";
+import { classifyConsentInspectionRole, isControlInspectionComplete, isInitialNecessaryOnlySelection, verifyConsentControlInspection, CONTROL_INSPECTION_POLICY, LEGACY_CONTROL_INSPECTION_POLICY, isRelevantConsentInspectionCandidate } from "./consent-control-inspection";
 
 test("information can leave Options limited while Reject inspection is complete", () => {
   const role = classifyConsentInspectionRole({ label: "More information", actionType: "other", tagName: "button", consentContextConfirmed: true });
@@ -48,4 +48,34 @@ test("complete structural proof is invalid when retained capture limits contradi
     { documentAndFramesStable: false }, { frameCount: 2 }, { capturedFrameCount: 0 }]) {
     assert.equal(verifyConsentControlInspection({ ...proof, captureCoverage: { ...captureCoverage, ...change } }, []), null);
   }
+});
+
+
+test("v2 identifies OneTrust container and vendor navigation without changing v1", () => {
+  const wrapper = { consentContextConfirmed: true, actionType: "other", tagName: "div", ariaLabel: "You must interact with the banner to dismiss it.", selectorHint: "#onetrust-banner-sdk", containerSelectorHint: "#onetrust-banner-sdk" };
+  const vendors = { consentContextConfirmed: true, actionType: "other", tagName: "a", label: "List of Partners (vendors)", selectorHint: "p.ot-dpd-desc a", containerSelectorHint: "#onetrust-policy" };
+  assert.deepEqual(classifyConsentInspectionRole(wrapper), { role: "information", unresolvedIntents: [] });
+  assert.deepEqual(classifyConsentInspectionRole(vendors), { role: "vendor_list", unresolvedIntents: [] });
+  for (const candidate of [wrapper, vendors]) {
+    assert.equal(classifyConsentInspectionRole(candidate, LEGACY_CONTROL_INSPECTION_POLICY).role, "unknown");
+    assert.equal(classifyConsentInspectionRole({ ...candidate, selectorHint: "#unregistered" }).role, "unknown");
+  }
+  assert.equal(classifyConsentInspectionRole({ ...wrapper, role: "button" }).role, "unknown");
+  assert.equal(classifyConsentInspectionRole({ ...wrapper, ariaLabel: undefined }).role, "unknown");
+  assert.equal(classifyConsentInspectionRole({ ...vendors, classifierReasonCodes: ["conflicting_consent_decisions"] }).role, "unknown");
+});
+
+test("v2 excludes occluded page controls while v1 verification keeps its original relevance", () => {
+  const candidate = { consentContextConfirmed: true, candidateId: "covered", layer: "first_layer", enabled: true, intersectsViewport: true, boundingBox: { width: 100, height: 30 }, decisionStatus: "covered" };
+  assert.equal(isRelevantConsentInspectionCandidate(candidate), false);
+  assert.equal(isRelevantConsentInspectionCandidate(candidate, LEGACY_CONTROL_INSPECTION_POLICY), true);
+  assert.equal(isRelevantConsentInspectionCandidate({ ...candidate, decisionStatus: "ambiguous" }), true);
+});
+
+test("historical v1 inspection roles verify unchanged and cannot be relabeled as v2", () => {
+  const candidate = { candidateId: "wrapper", layer: "first_layer", enabled: true, intersectsViewport: true, boundingBox: { width: 900, height: 200 }, decisionStatus: "ambiguous", consentContextConfirmed: true, actionType: "other", tagName: "div", ariaLabel: "You must interact with the banner to dismiss it.", selectorHint: "#onetrust-banner-sdk", containerSelectorHint: "#onetrust-banner-sdk" };
+  const proof = { version: LEGACY_CONTROL_INSPECTION_POLICY, structuralCoverage: "complete", retainedCandidateCount: 1, captureCoverage: { inventoryTruncated: false, documentReadyState: "complete", mainFrameAvailable: true, documentAndFramesStable: true, frameCount: 1, capturedFrameCount: 1 }, reasonCodes: [], candidates: [{ candidateId: "wrapper", ...classifyConsentInspectionRole(candidate, LEGACY_CONTROL_INSPECTION_POLICY) }] };
+  assert.ok(verifyConsentControlInspection(proof, [candidate]));
+  assert.equal(verifyConsentControlInspection({ ...proof, version: CONTROL_INSPECTION_POLICY }, [candidate]), null);
+  assert.ok(verifyConsentControlInspection({ ...proof, version: CONTROL_INSPECTION_POLICY, candidates: [{ candidateId: "wrapper", ...classifyConsentInspectionRole(candidate) }] }, [candidate]));
 });
