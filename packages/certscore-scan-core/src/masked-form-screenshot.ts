@@ -8,6 +8,7 @@ import type { ElementHandle, Page } from "playwright";
 export async function captureMaskedFormScreenshot(page: Page, element: ElementHandle, timeoutMs: number): Promise<Buffer> {
   const deadline = Date.now() + timeoutMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let pixelTimer: ReturnType<typeof setTimeout> | undefined;
   const acquisition = page.context().newCDPSession(page);
   let acquisitionTimer: ReturnType<typeof setTimeout> | undefined;
   const session = await Promise.race([acquisition, new Promise<never>((_, reject) => {
@@ -79,11 +80,13 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
         const clip = before.bounds;
         if (clip.width <= 0 || clip.height <= 0 || clip.width * clip.height > 40_000_000) throw new Error("Form screenshot bounds unavailable");
         stage = "capture_pixels";
-        const captured = await session.send("Page.captureScreenshot", {
+        const captured = await Promise.race([session.send("Page.captureScreenshot", {
           format: "jpeg", quality: 45, fromSurface: true, optimizeForSpeed: true,
           captureBeyondViewport: !(clip.x >= before.viewport.x && clip.y >= before.viewport.y && clip.x + clip.width <= before.viewport.x + before.viewport.width && clip.y + clip.height <= before.viewport.y + before.viewport.height),
           clip: { ...clip, scale: Math.min(1, 640 / clip.width, 960 / clip.height) },
-        });
+        }), new Promise<never>((_, reject) => {
+          pixelTimer = setTimeout(() => reject(new Error("Form screenshot pixel deadline")), Math.min(2000, Math.max(1, deadline - Date.now())));
+        })]).finally(() => { if (pixelTimer) clearTimeout(pixelTimer); });
         stage = "verify_layout";
         const after = await readLayout(clip);
         if (Date.now() >= deadline) throw new Error("Form screenshot deadline");
@@ -117,6 +120,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
     throw error;
   } finally {
     if (timer) clearTimeout(timer);
+    if (pixelTimer) clearTimeout(pixelTimer);
     // Detaching also stops a timed-out CDP operation; no late image is retained.
     await session.detach().catch(() => {});
     await cleanupStyle();

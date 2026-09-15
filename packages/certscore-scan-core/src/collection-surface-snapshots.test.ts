@@ -144,7 +144,7 @@ test("masked capture can finish after one second inside the unchanged total budg
     page.context().newCDPSession = async (...args) => {
       const session = await createSession(...args), send = session.send.bind(session);
       session.send = (async (method: string, params: unknown) => {
-        if (method === "Page.captureScreenshot") await new Promise(resolve => setTimeout(resolve, 1100));
+        if (method === "Page.captureScreenshot") await new Promise(resolve => setTimeout(resolve, 1600));
         return (send as Function)(method, params);
       }) as typeof session.send;
       return session;

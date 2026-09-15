@@ -156,6 +156,11 @@ document changes and in-crop movement still discard pixels before safety review.
 This optimization adds no cost or capture attempt.
 
 The capture also allows 500ms plus an animation frame for scroll-triggered layout to settle
-before recording crop geometry, inside the same two-second deadline. No image
+before recording crop geometry, inside the shared 2.5-second deadline. No image
 retry or budget extension is introduced; any subsequent geometry change still
 withholds the image.
+
+The two-second cap applies specifically to the CDP pixel operation. Settling,
+masking and review share the existing 2.5-second deadline; they do not reduce
+the nominal pixel cap except when the shared deadline has less time remaining.
+No total timeout is increased.
