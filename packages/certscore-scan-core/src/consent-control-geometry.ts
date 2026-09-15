@@ -1442,7 +1442,13 @@ function collectConsentGeometryInPage(input: {
     return true;
   });
 
-  const unboundedCandidates = controlElements
+  // Inspect visibility for every candidate, but bound detailed geometry for hidden
+  // preference-center controls. All potentially visible controls still participate
+  // in the retained-candidate coverage check below.
+  let hiddenDiagnosticCount = 0;
+  const detailedControlElements = controlElements.filter(element =>
+    potentiallyVisibleFirstLayer(element) || hiddenDiagnosticCount++ < 8);
+  const unboundedCandidates = detailedControlElements
     .map((element) => candidateFor(element, containers, viewport, consentPattern))
     .filter((candidate): candidate is RawGeometryCandidate => Boolean(candidate))
     .sort((left, right) => candidatePriority(right) - candidatePriority(left));

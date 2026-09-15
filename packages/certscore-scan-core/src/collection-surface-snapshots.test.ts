@@ -109,18 +109,24 @@ test("footer form capture uses visible viewport pixels and restores scroll", asy
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
-    await page.setContent('<main style="height:18000px"></main><form style="width:400px;height:100px"><label>Search<input type="text" value="private"></label></form>');
+    await page.setContent('<main style="height:18000px;animation-play-state:running"></main><form data-certscore-form-capture="existing" style="width:400px;height:100px"><label>Search<input type="text" value="private"></label></form>');
     const createSession = page.context().newCDPSession.bind(page.context());
     let beyond: boolean | undefined;
     page.context().newCDPSession = async (...args) => {
       const session = await createSession(...args), send = session.send.bind(session);
-      session.send = (async (method: string, params: any) => { if (method === "Page.captureScreenshot") beyond = params.captureBeyondViewport; return (send as Function)(method, params); }) as typeof session.send;
+      session.send = (async (method: string, params: any) => { if (method === "Page.captureScreenshot") {
+        beyond = params.captureBeyondViewport;
+        assert.equal(params.optimizeForSpeed, true);
+        assert.equal(await page.locator('main').evaluate(el => getComputedStyle(el).animationPlayState), 'running');
+        assert.equal(await page.locator('form').evaluate(el => getComputedStyle(el).animationPlayState), 'paused');
+      } return (send as Function)(method, params); }) as typeof session.send;
       return session;
     };
     const inventory = buildCollectionSurfaceInventory({ pageUrl: 'about:blank', inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: 'native_form_0', structure: 'native_form', elementType: 'input', inputType: 'text', label: 'Search', required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
     const result = await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true }));
     assert.equal(result[0]?.status, "available");
     assert.equal(beyond, false);
+    assert.equal(await page.locator("form").getAttribute("data-certscore-form-capture"), "existing");
     assert.equal(await page.evaluate(() => scrollY), 0);
     assert.equal(await page.locator("input").inputValue(), "private");
   } finally { await browser.close(); }

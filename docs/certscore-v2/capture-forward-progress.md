@@ -78,3 +78,22 @@ No cap, browser, retry, or lane deadline increases.
 Form crops scroll the bound form into view and use viewport capture when it
 fits. Scroll is restored afterward. Masking, geometry consistency, safety review
 and the total existing capture deadline are unchanged.
+
+## Browser capture work reduction (September 15 follow-up)
+
+The first deployed fix retained CNN's regional policy document, but a fresh
+EU-Ireland run still exhausted form pixel capture and consent geometry work.
+The follow-up keeps all existing time, lane, image-size, review and model budgets:
+
+- Rapid first-layer inventory executes as one self-contained browser call. It
+  does not depend on a mutable installed page function or extra probe round trips.
+- Geometry checks visibility for every candidate but retains only eight hidden
+  diagnostic candidates for expensive detailed geometry. Every potentially visible
+  candidate still participates in the existing truncation/coverage checks.
+- Form animation suppression is scoped to the crop subtree. Original attributes
+  and scroll are restored, and JPEG capture requests Chromium's speed optimization.
+  Masking, document/layout binding and fail-closed display review are unchanged.
+
+These optimizations add no recurring cost, browser invocation or capture time.
+Production effectiveness must be checked with fresh retained evidence; passing
+fixtures alone does not establish complete CNN capture.

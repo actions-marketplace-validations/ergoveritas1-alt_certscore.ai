@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import type { ElementHandle, Page } from "playwright";
 
@@ -16,20 +17,37 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
     throw error;
   }).finally(() => { if (acquisitionTimer) clearTimeout(acquisitionTimer); });
   let stage = "pause_animation";
-  let originalScroll: { x: number; y: number } | undefined;
   let style: Awaited<ReturnType<Page["evaluateHandle"]>> | undefined;
+  const cleanupStyle = async () => {
+    await style?.evaluate((state: any) => {
+      if (!state) return;
+      state.node.remove();
+      if (state.previous === null) state.root.removeAttribute(state.attribute);
+      else state.root.setAttribute(state.attribute, state.previous);
+      scrollTo({ left: state.position.x, top: state.position.y, behavior: "instant" });
+    }).catch(() => {});
+    await style?.dispose().catch(() => {});
+  };
   try {
     return await Promise.race([
       (async () => {
-        originalScroll = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
-        style = await element.evaluateHandle((root, deadlineAtMs) => {
-          if (Date.now() >= deadlineAtMs) return null;
+        style = await element.evaluateHandle((root, { deadlineAtMs, marker }) => {
+          if (Date.now() >= deadlineAtMs || !(root instanceof Element)) return null;
+          const position = { x: scrollX, y: scrollY };
+          const attribute = "data-certscore-form-capture";
+          const previous = root.getAttribute(attribute);
+          root.setAttribute(attribute, marker);
           const node = document.createElement("style");
-          node.textContent = "*,*::before,*::after{animation-play-state:paused!important;transition-property:none!important;caret-color:transparent!important}";
+          const scope = `[${attribute}="${marker}"]`;
+          node.textContent = `${scope},${scope} *,${scope}::before,${scope}::after,${scope} *::before,${scope} *::after{animation-play-state:paused!important;transition-property:none!important;caret-color:transparent!important}`;
           document.documentElement.appendChild(node);
-          if (root instanceof Element) root.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-          return node;
-        }, deadline);
+          root.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+          return { node, root, attribute, previous, position };
+        }, { deadlineAtMs: deadline, marker: randomUUID() });
+        if (Date.now() >= deadline) {
+          await cleanupStyle();
+          throw new Error("Form screenshot deadline");
+        }
         const readLayout = () => element.evaluate(root => {
           const rect = (el: Element) => {
             const r = el.getBoundingClientRect();
@@ -46,7 +64,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
         if (clip.width <= 0 || clip.height <= 0 || clip.width * clip.height > 40_000_000) throw new Error("Form screenshot bounds unavailable");
         stage = "capture_pixels";
         const captured = await session.send("Page.captureScreenshot", {
-          format: "jpeg", quality: 45, fromSurface: true,
+          format: "jpeg", quality: 45, fromSurface: true, optimizeForSpeed: true,
           captureBeyondViewport: !(clip.x >= before.viewport.x && clip.y >= before.viewport.y && clip.x + clip.width <= before.viewport.x + before.viewport.width && clip.y + clip.height <= before.viewport.y + before.viewport.height),
           clip: { ...clip, scale: Math.min(1, 640 / clip.width, 960 / clip.height) },
         });
@@ -82,8 +100,6 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
     if (timer) clearTimeout(timer);
     // Detaching also stops a timed-out CDP operation; no late image is retained.
     await session.detach().catch(() => {});
-    await style?.evaluate((node: unknown) => { if (node instanceof Element) node.remove(); }).catch(() => {});
-    await style?.dispose().catch(() => {});
-    if (originalScroll) await page.evaluate(position => scrollTo({ left: position.x, top: position.y, behavior: "instant" }), originalScroll).catch(() => {});
+    await cleanupStyle();
   }
 }

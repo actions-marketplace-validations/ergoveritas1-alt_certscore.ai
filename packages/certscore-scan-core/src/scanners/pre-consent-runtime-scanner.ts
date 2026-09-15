@@ -6998,13 +6998,9 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
     canonicalNecessaryPreferenceLabels: string[];
     canonicalOptionalPreferenceLabels: string[];
   };
-  const alreadyInstalled = await page.evaluate(() =>
-    typeof (window as typeof window & { __certscoreRapidConsentInventory?: unknown })
-      .__certscoreRapidConsentInventory === "function"
-  ).catch(() => false);
-  onStage("probe_install");
-  const installed = alreadyInstalled || await page.evaluate(String.raw`(() => {
-    window.__certscoreRapidConsentInventory = (input) => {
+  onStage("main_inventory");
+  // One self-contained browser call avoids installation/probe round trips and stale page globals.
+  const inventorySource = String.raw`(input) => {
     const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
     const canonicalLabels = new Set(input.canonicalConsentInventoryLabels.map((value) => normalize(value).toLowerCase().replace(/\u0307/g, "")));
     const embeddedLabels = [...canonicalLabels].filter((value) => value.length >= 8);
@@ -7260,41 +7256,15 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
       precheckedOptionalPurposeLabels: [...new Set(precheckedOptionalPreferenceRows.map((row) => row.label))].slice(0, 10),
       rejectedNoContextLabels: [...new Set(rejectedNoContextLabels)],
     };
-    };
-  })()`).then(() => true).catch(() => false);
-  if (!installed) {
-    return {
-      ...emptyConsentUiObservation(scanStartedAtMs, page.url()),
-      captureDiagnostics: {
-        completedChannels: [],
-        timedOutChannels: [],
-        failedChannels: ["dom_inventory"],
-      },
-      basis: ["inventory:rapid_dom_failed"],
-      inventoryDiagnostics: {
-        candidateContainerCount: 0,
-        candidateControlCount: 0,
-        retainedControlCount: 0,
-        inventorySources: [],
-        candidateLabels: [],
-        rejectionReasons: ["inventory_probe_failed"],
-        timingMarkers: [`rapid_inventory_${phase}_failed`],
-      },
-    };
-  }
-  onStage("main_inventory");
-  const snapshot = await page.evaluate<RapidConsentInventory, RapidConsentInventoryInput>((input) => {
-    const scope = window as typeof window & {
-      __certscoreRapidConsentInventory: (input: RapidConsentInventoryInput) => RapidConsentInventory;
-    };
-    return scope.__certscoreRapidConsentInventory(input);
-  }, {
+  }`;
+  const inventoryInput: RapidConsentInventoryInput = {
     canonicalCmpContainerSelectors: CANONICAL_CMP_CONTAINER_SELECTORS,
     canonicalConsentInventoryLabels: CANONICAL_CONSENT_INVENTORY_LABELS,
     canonicalConsentContextHints: CANONICAL_CONSENT_CONTEXT_HINTS,
     canonicalNecessaryPreferenceLabels: CANONICAL_NECESSARY_PREFERENCE_CATEGORY_LABELS,
     canonicalOptionalPreferenceLabels: CANONICAL_OPTIONAL_PREFERENCE_CATEGORY_LABELS,
-  });
+  };
+  const snapshot = await page.evaluate<RapidConsentInventory>(`(${inventorySource})(${JSON.stringify(inventoryInput)})`);
 
   onStage("control_classification");
   const classifiedControls = snapshot.controls.map(control => normalizeConsentControlLink(control, page.url())).map((control) => ({
