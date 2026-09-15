@@ -154,3 +154,30 @@ test("masked capture can finish after one second inside the unchanged total budg
     assert.equal(await page.locator("input").inputValue(), "private");
   } finally { await browser.close(); }
 });
+
+test("changes to controls outside retained pixels do not invalidate a form crop", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<form style="width:400px;height:150px"><label>Search<input type="text"></label></form><input id="outside" style="position:absolute;top:700px">');
+    let enterCrop = false;
+    const createSession = page.context().newCDPSession.bind(page.context());
+    page.context().newCDPSession = async (...args) => {
+      const session = await createSession(...args), send = session.send.bind(session);
+      session.send = (async (method: string, params: unknown) => {
+        const result = await (send as Function)(method, params);
+        if (method === "Page.captureScreenshot") await page.locator("#outside").evaluate((el, enter) => { (el as HTMLElement).style.left = "50px"; if (enter) (el as HTMLElement).style.top = "30px"; }, enterCrop);
+        return result;
+      }) as typeof session.send;
+      return session;
+    };
+    const inventory = buildCollectionSurfaceInventory({ pageUrl: "about:blank", inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: "native_form_0", structure: "native_form", elementType: "input", inputType: "text", label: "Search", required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
+    assert.equal((await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true })))[0]?.status, "available");
+    enterCrop = true;
+    let reviewed = false;
+    const changed = await captureCollectionSurfaceSnapshots(page, inventory, async () => { reviewed = true; return { safeForDisplay: true }; });
+    assert.equal(changed[0]?.status, "unavailable");
+    assert.equal(changed[0]?.data, undefined);
+    assert.equal(reviewed, false);
+  } finally { await browser.close(); }
+});

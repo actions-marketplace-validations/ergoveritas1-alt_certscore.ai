@@ -48,15 +48,22 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
           await cleanupStyle();
           throw new Error("Form screenshot deadline");
         }
-        const readLayout = () => element.evaluate(root => {
+        const readLayout = (captureBounds?: { x: number; y: number; width: number; height: number }) => element.evaluate((root, captureBounds) => {
           const rect = (el: Element) => {
             const r = el.getBoundingClientRect();
             return { x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height };
           };
           const controls = document.querySelectorAll('input, textarea, select, [role="checkbox"], [role="switch"], [contenteditable]');
           if (!(root instanceof Element) || !root.isConnected || controls.length > 1000) throw new Error("Form screenshot binding unavailable");
-          return { url: location.href, viewport: { x: scrollX, y: scrollY, width: innerWidth, height: innerHeight }, bounds: rect(root), masks: Array.from(controls, rect) };
-        });
+          const bounds = rect(root);
+          const crop = captureBounds ?? bounds;
+          // Only rectangles that can affect retained pixels participate in binding.
+          // Reuse the original crop after capture so newly entering controls fail closed.
+          const masks = Array.from(controls, rect).filter(r => r.width > 0 && r.height > 0
+            && r.x - 2 < crop.x + crop.width && r.y - 2 < crop.y + crop.height
+            && r.x + r.width + 2 > crop.x && r.y + r.height + 2 > crop.y);
+          return { url: location.href, viewport: { x: scrollX, y: scrollY, width: innerWidth, height: innerHeight }, bounds, masks };
+        }, captureBounds);
         stage = "read_layout";
         const before = await readLayout();
         if (Date.now() >= deadline) throw new Error("Form screenshot deadline");
@@ -69,8 +76,11 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
           clip: { ...clip, scale: Math.min(1, 640 / clip.width, 960 / clip.height) },
         });
         stage = "verify_layout";
-        const after = await readLayout();
-        if (JSON.stringify(before) !== JSON.stringify(after) || Date.now() >= deadline) throw new Error("Form screenshot layout changed");
+        const after = await readLayout(clip);
+        if (Date.now() >= deadline) throw new Error("Form screenshot deadline");
+        for (const key of ["url", "viewport", "bounds", "masks"] as const) {
+          if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) throw new Error(`Form screenshot layout changed: ${key}`);
+        }
         stage = "mask_pixels";
         const raw = Buffer.from(captured.data, "base64");
         const metadata = await sharp(raw, { limitInputPixels: 40_000_000 }).metadata();

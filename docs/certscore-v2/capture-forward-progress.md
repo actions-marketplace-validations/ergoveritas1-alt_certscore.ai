@@ -147,3 +147,10 @@ budget. Input masking, document/layout binding, safety review and image size
 limits remain required. This adds no lane, retry or model call. A regression
 covers pixel capture taking longer than the former one-second limit; stalled
 review remains bounded by the original total budget.
+
+Fresh production verification reached pixel capture but exposed page-wide layout
+invalidation. Mask geometry now includes only controls intersecting the original
+crop (including mask padding), on both readbacks. Unrelated off-crop movement
+cannot invalidate the image; controls entering the crop, changed crop/viewport,
+document changes and in-crop movement still discard pixels before safety review.
+This optimization adds no cost or capture attempt.
