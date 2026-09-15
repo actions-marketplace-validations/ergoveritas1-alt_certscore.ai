@@ -2224,6 +2224,15 @@ async function processPolicyCandidate({
     };
   }
   const boundedSameOriginSupplement = isBoundedSameOriginPolicySupplement(candidate);
+  const approvedRegionalIndexChild = boundedSameOriginSupplement &&
+    candidate.selectionReasonCodes?.includes("linked_from_retained_privacy_policy_index") &&
+    candidate.selectionReasonCodes?.includes("scan_region_policy_route_match");
+  const supplementalDocumentBudgetMs = POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS +
+    (approvedRegionalIndexChild ? POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS : 0);
+  if (approvedRegionalIndexChild) candidate = { ...candidate, selectionReasonCodes: [
+    ...(candidate.selectionReasonCodes ?? []).filter(reason => reason !== "supplement_fetch_cap_2500ms"),
+    "supplement_total_fetch_resolution_cap_5000ms",
+  ] };
   const hasPrefetchedDirectDocument = fetchCaches.direct.has(
     policyDocumentFetchCacheKey(candidate.normalizedUrl),
   );
@@ -2277,7 +2286,7 @@ async function processPolicyCandidate({
           )
         : boundedSameOriginSupplement
           ? Math.min(
-              POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS + POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS,
+              supplementalDocumentBudgetMs,
               remainingPolicyFetchMs(input, moduleStartedAtMs),
             )
           : remainingPolicyFetchMs(input, moduleStartedAtMs),
@@ -2406,7 +2415,7 @@ async function processPolicyCandidate({
       !shouldUseDirectPolicyDocumentText(visibleText)) {
     const deadlineAtMs = Math.min(
       input.absoluteDeadlineAtMs ?? Infinity,
-      documentFetchStartedAtMs + POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS + POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS,
+      documentFetchStartedAtMs + supplementalDocumentBudgetMs,
       Date.now() + POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS,
       Date.now() + remainingPolicyFetchMs(input, moduleStartedAtMs),
     );
@@ -5373,7 +5382,7 @@ async function selectOneHopPolicyIndexChildren(input: {
         ...(candidate.selectionReasonCodes ?? []),
         "bounded_same_origin_policy_supplement",
         "single_supplement_fetch_limit",
-        "supplement_total_fetch_resolution_cap_5000ms",
+        "supplement_fetch_cap_2500ms",
         "supplement_rendered_fallback_disabled",
       ]),
     }));

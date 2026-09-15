@@ -42,11 +42,12 @@ provisioned-capacity or retention change is included.
 ## Approved declared-policy text allowance — September 15, 2026
 
 The product owner approved up to $15/month incremental compute at 100,000
-scans/month for this recovery. A selected supplemental policy child shares a 5,000ms total allowance across
+scans/month for this recovery. Only the selected regional policy-index child shares a 5,000ms total allowance across
 HTML and declared text. When that HTML explicitly declares OneTrust notice text,
 resolution receives up to 2,500ms from resolution start, capped at 5,000ms from
 document-fetch start and at the existing policy-lane deadline. A slow HTML fetch
-consumes the shared allowance; it never starts another full allowance for text. The allowance
+consumes the shared allowance; it never starts another full allowance for text.
+Ordinary material GDPR supplements retain their original 2,500ms shared cap. The allowance
 covers one declared notice and one unique metadata policy URL; existing locale,
 ownership, retained-text, and downstream eligibility checks remain unchanged.
 
