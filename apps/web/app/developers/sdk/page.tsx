@@ -71,7 +71,7 @@ const completed = await certscore.scans.wait(created);
 const scanId = completed.scanId;
 
 console.log(
-  completed.gpcResponse?.observation?.status, // bounded capture
+  completed.gpcResponse?.observation?.status, // capture completion
   completed.gpcResponse?.status, // paired response
   completed.postAcceptObservation?.afterAction,
   completed.postRefusalObservation?.afterAction,
