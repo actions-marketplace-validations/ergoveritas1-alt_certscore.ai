@@ -110,6 +110,9 @@ test("footer form capture uses visible viewport pixels and restores scroll", asy
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
     await page.setContent('<main style="height:18000px;animation-play-state:running"></main><form data-certscore-form-capture="existing" style="width:400px;height:100px"><label>Search<input type="text" value="private"></label></form>');
+    await page.evaluate(() => addEventListener("scroll", () => {
+      document.querySelector("form")!.style.width = "420px";
+    }, { once: true }));
     const createSession = page.context().newCDPSession.bind(page.context());
     let beyond: boolean | undefined;
     page.context().newCDPSession = async (...args) => {

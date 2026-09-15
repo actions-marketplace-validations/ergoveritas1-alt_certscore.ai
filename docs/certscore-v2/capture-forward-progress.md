@@ -154,3 +154,8 @@ crop (including mask padding), on both readbacks. Unrelated off-crop movement
 cannot invalidate the image; controls entering the crop, changed crop/viewport,
 document changes and in-crop movement still discard pixels before safety review.
 This optimization adds no cost or capture attempt.
+
+The capture also allows two animation frames for scroll handlers to update layout
+before recording crop geometry, inside the same two-second deadline. No image
+retry or budget extension is introduced; any subsequent geometry change still
+withholds the image.
