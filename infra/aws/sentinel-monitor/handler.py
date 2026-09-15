@@ -7,6 +7,8 @@ MCP = "https://mcp.certscore.ai/mcp"
 ROOT = "https://ergoveritas.com"
 LOCATIONS = ["eu_ie", "eu_de", "california"]
 TRANSPORTS = ["api", "sdk", "mcp"]
+SLOT_SECONDS = 20 * 60
+MAX_DELIVERY_DELAY_SECONDS = 180
 ACTIVE_SCAN_STATUSES = {"queued", "running", "finalizing"}
 USABLE_SCAN_STATUSES = {"completed", "completed_limited", "complete", "limited"}
 ssm = boto3.client("ssm", region_name=REGION)
@@ -66,11 +68,11 @@ def mcp_tool_payload(call):
 def html_escape(value):
     return (str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;"))
 
-def acquire_hour_lock(hour, run_id):
-    """Prevent overlapping hourly runs from consuming duplicate scan quota."""
+def acquire_slot_lock(slot, run_id):
+    """Claim the scheduled slot once, including asynchronous delivery retries."""
     try:
         ddb.put_item(
-            Item={"pk": "lock#hour#" + str(hour), "runId": run_id, "expiresAt": int(time.time()) + 2 * 3600},
+            Item={"pk": "lock#slot#" + str(slot), "runId": run_id, "expiresAt": int(time.time()) + 2 * 3600},
             ConditionExpression="attribute_not_exists(pk)"
         )
         return True
@@ -286,7 +288,7 @@ def rest_scan(url, loc, client, key):
             created = request(API + "/api/v2/scans", "POST", headers, {"url": url, "freshness": "refresh", "scanFrom": loc})
             break
         except RuntimeError as e:
-            if not any(code in str(e) for code in ("429", "502", "503", "504")) or attempt == 5:
+            if not str(e).startswith("429 ") or attempt == 5:
                 raise
             time.sleep(10 + attempt * 10)
     sid = scan_id(created)
@@ -312,7 +314,7 @@ def rest_scan(url, loc, client, key):
     return sid, st, bundle, created
 
 def mcp_scan(url, loc, secret):
-    # Exercise the authenticated Streamable HTTP MCP lane so hourly monitoring
+    # Exercise the authenticated Streamable HTTP MCP lane so scheduled monitoring
     # is not constrained by the anonymous daily allowance.
     headers = {"authorization": "Bearer " + jwt(secret), "content-type": "application/json", "accept": "application/json, text/event-stream", "mcp-protocol-version": "2025-03-26"}
     def decode_mcp_response(raw, content_type):
@@ -401,29 +403,43 @@ def signals(value):
     aliases = {"pre_consent_storage":["pre_consent","pre-consent","storage"],"fingerprinting":["fingerprint"],"policy_runtime_comparison":["policy/runtime","policy_runtime","comparison"],"consent_controls":["consent","accept","reject"],"responsive_geometry":["geometry","viewport"],"aria_controls":["aria"],"shadow_dom":["shadow"],"split_labels":["split_label","nested span"],"false_positive_decoy":["false_positive","decoy"],"truncated_policy":["truncated"],"wrong_domain_supplement":["wrong-domain","wrong_domain"],"missing_topics":["missing_topics","insufficient"],"third_party_iframe":["iframe"],"canvas_fingerprinting":["canvas"],"rtl_layout":["rtl"],"mixed_scripts":["mixed-script","cjk","arabic"],"necessary_only":["necessary-only","essential only"],"localized_controls":["localized","locale"]}
     return {k: any(w in text for w in ws) for k, ws in aliases.items()}
 
-def build_hourly_jobs(pages, hour):
-    """Choose three scans while maximizing coverage across the stable lanes.
+def scheduled_slot(event, now):
+    """Reject late/legacy events rather than spending a later slot's scan quota.
 
-    Every hour exercises all transports, all locations, and three distinct
-    pages. Each transport covers every location over three hours, every page
-    over five hours, and every page/location combination over 15 hours.
+    A three-minute delivery allowance plus Lambda's existing fifteen-minute
+    timeout is shorter than the twenty-minute interval, preventing overlap.
     """
-    return [
-        {
-            "page": pages[(hour + transport_index) % len(pages)],
-            "location": LOCATIONS[(hour + transport_index) % len(LOCATIONS)],
-            "transport": transport,
-        }
-        for transport_index, transport in enumerate(TRANSPORTS)
-    ]
+    scheduled = parse_utc_timestamp((event or {}).get("scheduledTime"))
+    if scheduled is None:
+        return None
+    timestamp = scheduled.timestamp()
+    if not 0 <= now - timestamp <= MAX_DELIVERY_DELAY_SECONDS:
+        return None
+    return int(timestamp // SLOT_SECONDS)
+
+
+def build_slot_job(pages, slot):
+    """One scan per slot; every page/location/transport tuple once in 45 slots.
+
+    Pages repeat every five slots. Transport repeats every three, while the
+    location pairing shifts each three-slot round (a nine-slot cycle).
+    """
+    if len(pages) != 5:
+        raise ValueError("sentinel rotation requires exactly five pages")
+    return {
+        "page": pages[slot % len(pages)],
+        "location": LOCATIONS[(slot + slot // len(TRANSPORTS)) % len(LOCATIONS)],
+        "transport": TRANSPORTS[slot % len(TRANSPORTS)],
+    }
+
 
 def handler(event, context):
     run_id, started = str(uuid.uuid4()), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     scanner_failures = []
     corpus_issues = []
-    hour = int(time.time() // 3600)
-    if not acquire_hour_lock(hour, run_id):
-        result = {"runId": run_id, "startedAt": started, "hour": hour, "jobs": 0, "failures": 0, "scannerFailures": 0, "corpusIssues": 0, "skipped": "overlapping_hourly_run"}
+    slot = scheduled_slot(event, time.time())
+    if slot is None or not acquire_slot_lock(slot, run_id):
+        result = {"runId": run_id, "startedAt": started, "slot": slot, "jobs": 0, "failures": 0, "scannerFailures": 0, "corpusIssues": 0, "skipped": "stale_or_missing_schedule" if slot is None else "duplicate_slot"}
         print(json.dumps(result))
         return result
     try:
@@ -454,19 +470,14 @@ def handler(event, context):
         ]}}
     pages = manifest.get("sentinelCorpus", {}).get("pages", [])
     if len(pages) != 5: raise RuntimeError("sentinel manifest does not contain exactly five pages")
-    corpus_issues.extend(corpus_preflight(pages))
-    key = ssm.get_parameter(Name="/certscore/sentinel/api-key", WithDecryption=True)["Parameter"]["Value"]
-    jwt_secret = get_secret("certscore/oauth-jwt-secret")
-    # Three scans per hour cover all three transports and all three locations.
-    # The coprime five-page and three-location rotations yield complete
-    # page/location/transport coverage once per 15-hour cycle.
-    jobs = build_hourly_jobs(pages, hour)
+    jobs = [build_slot_job(pages, slot)]
     selected_pages = [job["page"] for job in jobs]
+    corpus_issues.extend(corpus_preflight(selected_pages))
+    key = ssm.get_parameter(Name="/certscore/sentinel/api-key", WithDecryption=True)["Parameter"]["Value"]
+    jwt_secret = get_secret("certscore/oauth-jwt-secret") if jobs[0]["transport"] == "mcp" else None
     results = []
-    for job_index, job in enumerate(jobs):
-        throttle_seconds = 0 if job_index == 0 else 8 + ((hour + job_index * 7) % 8)
-        if throttle_seconds:
-            time.sleep(throttle_seconds)
+    for job in jobs:
+        throttle_seconds = 0
         t = time.time(); p, loc, transport = job["page"], job["location"], job["transport"]
         try:
             fn = mcp_scan if transport == "mcp" else rest_scan
@@ -506,7 +517,7 @@ def handler(event, context):
                 variance.append({"page": page.get("key"), "signal": signal, "present": present, "missing": absent})
     scanner_failures, reconciled_incidents = reconcile_scanner_incidents(scanner_failures, key, started)
     failures = corpus_issues + scanner_failures
-    run = {"runId": run_id, "startedAt": started, "hour": hour, "jobs": len(results), "selectedPages": [p["key"] for p in selected_pages], "failures": len(failures), "scannerFailures": len(scanner_failures), "reconciledScannerIncidents": len(reconciled_incidents), "reconciledScannerIncidentIds": [row.get("scanId") for row in reconciled_incidents if row.get("scanId")], "corpusIssues": len(corpus_issues), "regionalVariance": variance, "results": results}
+    run = {"runId": run_id, "startedAt": started, "slot": slot, "cycleSlot": slot % 45, "scheduledTime": event["scheduledTime"], "cadenceMinutes": 20, "jobs": len(results), "selectedPages": [p["key"] for p in selected_pages], "failures": len(failures), "scannerFailures": len(scanner_failures), "reconciledScannerIncidents": len(reconciled_incidents), "reconciledScannerIncidentIds": [row.get("scanId") for row in reconciled_incidents if row.get("scanId")], "corpusIssues": len(corpus_issues), "regionalVariance": variance, "results": results}
     ddb.put_item(Item={"pk": "run#" + run_id, **run, "expiresAt": int(time.time()) + 90 * 86400})
     if scanner_failures:
         summary = f"{len(scanner_failures)} scanner execution issue(s) detected across {len(results)} sentinel scans. {len(corpus_issues)} expected canary-signal mismatch(es) were recorded for diagnostics but are not alert conditions."
@@ -518,7 +529,7 @@ def handler(event, context):
         body_lines = [
             "EXECUTIVE SUMMARY: " + summary,
             "",
-            "Hourly ErgoVeritas sentinel run " + run_id,
+            "Rotating ErgoVeritas sentinel run " + run_id,
             "Started: " + started,
             "",
             *[failure_line(f) for f in scanner_failures]
@@ -531,7 +542,7 @@ def handler(event, context):
         html = (
             "<html><body>"
             "<p><strong>EXECUTIVE SUMMARY</strong><br>" + html_escape(summary) + "</p>"
-            "<p>Hourly ErgoVeritas sentinel run <code>" + html_escape(run_id) + "</code><br>Started: " + html_escape(started) + "</p>"
+            "<p>Rotating ErgoVeritas sentinel run <code>" + html_escape(run_id) + "</code><br>Started: " + html_escape(started) + "</p>"
             "<h3>Details</h3><ul>" + html_rows + "</ul>"
             "</body></html>"
         )

@@ -292,59 +292,100 @@ class McpIdentityTests(unittest.TestCase):
         self.assertTrue(all(call.args[0] >= 20 for call in sleep.call_args_list))
 
 
-class HourlyJobRotationTests(unittest.TestCase):
+class SlotRotationTests(unittest.TestCase):
     pages = [{"key": f"page-{index}"} for index in range(5)]
 
-    def test_each_hour_covers_every_transport_and_location_with_distinct_pages(self):
-        for hour in range(15):
-            jobs = handler.build_hourly_jobs(self.pages, hour)
+    def test_every_rolling_fifteen_hours_covers_all_45_combinations_once(self):
+        expected = {(p["key"], loc, transport) for p in self.pages
+                    for loc in handler.LOCATIONS for transport in handler.TRANSPORTS}
+        for start in range(90):
+            jobs = [handler.build_slot_job(self.pages, slot) for slot in range(start, start + 45)]
+            self.assertEqual(len(jobs), 45)
+            self.assertEqual({(j["page"]["key"], j["location"], j["transport"]) for j in jobs}, expected)
 
-            self.assertEqual(len(jobs), 3)
-            self.assertEqual({job["transport"] for job in jobs}, set(handler.TRANSPORTS))
-            self.assertEqual({job["location"] for job in jobs}, set(handler.LOCATIONS))
-            self.assertEqual(len({job["page"]["key"] for job in jobs}), 3)
+    def test_pages_rotate_every_five_slots_and_transports_every_three(self):
+        for start in range(45):
+            jobs = [handler.build_slot_job(self.pages, slot) for slot in range(start, start + 5)]
+            self.assertEqual({j["page"]["key"] for j in jobs}, {p["key"] for p in self.pages})
+            self.assertEqual({j["transport"] for j in jobs[:3]}, set(handler.TRANSPORTS))
 
-    def test_each_transport_covers_every_page_over_five_hours(self):
-        jobs = [
-            job
-            for hour in range(5)
-            for job in handler.build_hourly_jobs(self.pages, hour)
-        ]
+    def test_missing_pages_fail_closed(self):
+        with self.assertRaises(ValueError):
+            handler.build_slot_job(self.pages[:4], 1)
 
-        for transport in handler.TRANSPORTS:
-            transport_pages = {
-                job["page"]["key"]
-                for job in jobs
-                if job["transport"] == transport
-            }
-            self.assertEqual(transport_pages, {page["key"] for page in self.pages})
+    def test_schedule_time_anchors_slot_and_rejects_stale_future_or_legacy_events(self):
+        event = {"scheduledTime": "2026-09-15T17:20:00Z"}
+        timestamp = handler.parse_utc_timestamp(event["scheduledTime"]).timestamp()
+        self.assertEqual(handler.scheduled_slot(event, timestamp + 60), int(timestamp // 1200))
+        self.assertEqual(handler.scheduled_slot(event, timestamp + 180), int(timestamp // 1200))
+        for now in (timestamp - 1, timestamp + 181, timestamp + 1200):
+            self.assertIsNone(handler.scheduled_slot(event, now))
+        for invalid in ({}, {"scheduledTime": "bad"}, None):
+            self.assertIsNone(handler.scheduled_slot(invalid, timestamp))
 
-    def test_fifteen_hour_cycle_covers_every_page_location_transport_tuple_once(self):
-        tuples = [
-            (job["page"]["key"], job["location"], job["transport"])
-            for hour in range(15)
-            for job in handler.build_hourly_jobs(self.pages, hour)
-        ]
+    def test_slot_lock_is_conditional_and_stable_across_retries(self):
+        table = mock.MagicMock()
+        with mock.patch.object(handler, "ddb", table):
+            self.assertTrue(handler.acquire_slot_lock(123, "run-1"))
+        args = table.put_item.call_args.kwargs
+        self.assertEqual(args["Item"]["pk"], "lock#slot#123")
+        self.assertEqual(args["ConditionExpression"], "attribute_not_exists(pk)")
 
-        expected = {
-            (page["key"], location, transport)
-            for page in self.pages
-            for location in handler.LOCATIONS
-            for transport in handler.TRANSPORTS
-        }
-        self.assertEqual(len(tuples), 45)
-        self.assertEqual(set(tuples), expected)
+    def test_stale_delivery_does_no_network_work(self):
+        with mock.patch.object(handler, "request") as request, mock.patch.object(handler, "acquire_slot_lock") as lock:
+            result = handler.handler({}, None)
+        self.assertEqual(result["jobs"], 0)
+        request.assert_not_called()
+        lock.assert_not_called()
 
-    def test_mcp_target_does_not_repeat_the_previous_hour_api_target(self):
-        for hour in range(15):
-            previous = handler.build_hourly_jobs(self.pages, hour - 1)
-            current = handler.build_hourly_jobs(self.pages, hour)
-            previous_api = next(job for job in previous if job["transport"] == "api")
-            current_mcp = next(job for job in current if job["transport"] == "mcp")
-            self.assertNotEqual(
-                (current_mcp["page"]["key"], current_mcp["location"]),
-                (previous_api["page"]["key"], previous_api["location"]),
-            )
+    def test_duplicate_delivery_does_no_network_work(self):
+        with mock.patch.object(handler, "scheduled_slot", return_value=123), mock.patch.object(handler, "acquire_slot_lock", return_value=False), mock.patch.object(handler, "request") as request:
+            result = handler.handler({}, None)
+        self.assertEqual(result["skipped"], "duplicate_slot")
+        request.assert_not_called()
+
+    def test_handler_preflights_and_scans_exactly_one_selected_page(self):
+        pages = [{"key": f"page-{i}", "url": f"/page-{i}.html", "expectedSignals": []} for i in range(5)]
+        for slot in range(3):
+            job = handler.build_slot_job(pages, slot)
+            with mock.patch.object(handler, "scheduled_slot", return_value=slot), mock.patch.object(handler, "acquire_slot_lock", return_value=True), mock.patch.object(handler, "request", return_value={"sentinelCorpus": {"pages": pages}}), mock.patch.object(handler, "corpus_preflight", return_value=[]) as preflight, mock.patch.object(handler, "ssm") as ssm, mock.patch.object(handler, "get_secret", return_value="test") as secret, mock.patch.object(handler, "rest_scan", return_value=("scan", {"status": "completed"}, {}, {})) as rest, mock.patch.object(handler, "mcp_scan", return_value=("scan", {"status": "completed"}, {}, {})) as mcp, mock.patch.object(handler, "load_authoritative_scan", return_value={}), mock.patch.object(handler, "assess_authoritative_freshness", return_value={"freshnessIssue": False}), mock.patch.object(handler, "ddb"), mock.patch.object(handler, "ses") as ses, mock.patch("builtins.print"):
+                ssm.get_parameter.return_value = {"Parameter": {"Value": "test"}}
+                result = handler.handler({"scheduledTime": "2026-09-15T17:20:00Z"}, None)
+            preflight.assert_called_once_with([job["page"]])
+            self.assertEqual(rest.call_count + mcp.call_count, 1)
+            self.assertEqual(mcp.call_count, int(job["transport"] == "mcp"))
+            self.assertEqual(secret.call_count, mcp.call_count)
+            self.assertEqual(result["jobs"], 1)
+            self.assertEqual(result["cycleSlot"], slot)
+            self.assertEqual(result["results"][0]["location"], job["location"])
+            ses.send_email.assert_not_called()
+
+    def test_ambiguous_rest_submission_is_not_retried(self):
+        with mock.patch.object(handler, "request", side_effect=RuntimeError("504 upstream timeout")) as request:
+            with self.assertRaises(RuntimeError):
+                handler.rest_scan("https://example.com", "eu_ie", "api", "test")
+        self.assertEqual(request.call_count, 1)
+
+
+class ScheduleConfigurationTests(unittest.TestCase):
+    def test_preserves_resource_properties_and_sets_bounded_schedule(self):
+        spec = importlib.util.spec_from_file_location("schedule_config", module_path.with_name("configure_schedule.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        current = {"Name": module.NAME, "GroupName": "default", "State": "DISABLED",
+                   "Description": "Existing monitor", "KmsKeyArn": "key",
+                   "Target": {"Arn": module.FUNCTION_ARN, "RoleArn": module.ROLE_ARN,
+                              "DeadLetterConfig": {"Arn": "queue"}}}
+        result = module.schedule_update(current)
+        self.assertEqual(result["State"], "DISABLED")
+        self.assertEqual(result["KmsKeyArn"], "key")
+        self.assertEqual(result["Target"]["DeadLetterConfig"], {"Arn": "queue"})
+        self.assertEqual(result["ScheduleExpression"], "cron(0/20 * * * ? *)")
+        self.assertIn("<aws.scheduler.scheduled-time>", result["Target"]["Input"])
+        self.assertEqual(result["Target"]["RetryPolicy"]["MaximumRetryAttempts"], 0)
+        self.assertNotIn("RetryPolicy", current["Target"])
+        with self.assertRaises(ValueError):
+            module.schedule_update({**current, "Name": "another-schedule"})
 
 
 if __name__ == "__main__":
