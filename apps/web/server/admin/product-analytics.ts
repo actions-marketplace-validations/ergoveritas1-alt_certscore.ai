@@ -182,7 +182,7 @@ function unifiedEventsCte(
            events.occurred_at,
            case when events.event_name ~ '^mcp_' then 'MCP' else 'Web' end::text as event_route,
            ${activityTrafficSql("events")} as traffic_class,
-           events.event_name,
+           case when events.feature='server_route' then 'page_requested' else events.event_name end as event_name,
            events.feature,
            events.outcome,
            events.normalized_route,

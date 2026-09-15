@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { fullSitePolicy } from "@website-signal-risk-scanner/shared";
-import { sitemapEntries, stopCrawlsWithoutDispatchQueues } from "./scheduler";
+import { fullSitePolicy, crawlDiscoveryDiagnosticsSchema } from "@website-signal-risk-scanner/shared";
+import { sitemapEntries, stopCrawlsWithoutDispatchQueues, fetchDiscoveryDocument, discoveryDiagnostic } from "./scheduler";
 
 test("sitemap indexes and URL sets are bounded parse inputs without entity expansion", () => {
   assert.deepEqual(
@@ -23,6 +23,36 @@ test("sitemap indexes and URL sets are bounded parse inputs without entity expan
       '<!DOCTYPE x [<!ENTITY y SYSTEM "file:///etc/passwd">]><urlset/>',
     ),
   );
+});
+
+test("discovery fetch returns redirects without following them and releases the response body", async () => {
+  const original = globalThis.fetch;
+  const opened: string[] = [];
+  let cancelled = false;
+  globalThis.fetch = (async input => {
+    opened.push(String(input));
+    return new Response(new ReadableStream({ cancel() { cancelled = true; } }), {
+      status: 301, headers: { location: "https://example.test/sitemap_index.xml" },
+    });
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await fetchDiscoveryDocument("https://example.test/sitemap.xml", 1024), {status: 301, text: "", retryAfter: null});
+    assert.deepEqual(opened, ["https://example.test/sitemap.xml"]);
+    assert.equal(cancelled, true);
+  } finally { globalThis.fetch = original; }
+});
+
+test("sitemap parsing rejects HTML, malformed XML, and unsafe declarations", () => {
+  for (const input of ["<!DOCTYPE html><html><body>Not found</body></html>", "<html><body>Not found</body></html>", "<urlset><url></urlset>", "", "null"]) {
+    assert.throws(() => sitemapEntries(input));
+  }
+});
+
+test("discovery diagnostics omit credentials, query values, fragments, and bound paths", () => {
+  assert.deepEqual(discoveryDiagnostic("sitemap", "https://user:secret@example.test/map.xml?token=secret#secret", "fetch_failed"), {
+    stage: "sitemap", path: "/map.xml", status: null, reason: "fetch_failed",
+  });
+  assert.equal(discoveryDiagnostic("sitemap", `https://example.test/${"a".repeat(300)}`, "timeout").path?.length, 256);
 });
 
 const databaseUrl = process.env.FULL_SITE_TEST_DATABASE_URL;
@@ -109,6 +139,59 @@ test(
         );
         return { id, userId, organizationId: org };
       }
+      // Exercise the actual discovery fetch + guard, not a mock of their boundary.
+      for (const scenario of ["redirect", "html", "malformed", "timeout", "oversized", "http_error", "rate_limit"] as const) {
+        const host = `sitemap-${scenario.replaceAll("_", "-")}.test`;
+        const candidate = await parent(host, 3);
+        await db.query(`update full_site_crawls set discovery_complete=false where scan_id=$1`, [candidate.id]);
+        const opened: string[] = [];
+        const original = globalThis.fetch;
+        globalThis.fetch = (async input => {
+          const url = String(input);
+          opened.push(url);
+          if (url.endsWith("robots.txt")) return new Response("");
+          if (scenario === "timeout") throw new DOMException("sensitive exception text", "TimeoutError");
+          if (scenario === "redirect") return new Response(null, {status: 301, headers: {location: `https://${host}/sitemap_index.xml`}});
+          if (scenario === "rate_limit") return new Response(null, {status: 429, headers: {"retry-after": "120"}});
+          if (scenario === "http_error") return new Response(null, {status: 503});
+          return new Response(scenario === "html" ? "<!DOCTYPE html><html><body>Not found</body></html>" :
+            scenario === "malformed" ? "<urlset><url></urlset>" : "x".repeat(2097153));
+        }) as typeof fetch;
+        try { await discoverSitemaps((await db.loadFullSiteCrawl(candidate.id))!); }
+        finally { globalThis.fetch = original; }
+        assert.deepEqual(opened, [`https://${host}/robots.txt`, `https://${host}/sitemap.xml`]);
+        const result = (await db.loadFullSiteCrawl(candidate.id))!;
+        assert.equal(result.status, "running");
+        assert.equal(result.discovery_complete, true);
+        assert.equal(result.stop_reason, "sitemap_discovery_limited");
+        const diagnostic = crawlDiscoveryDiagnosticsSchema.parse((result.policy_json as Record<string, unknown>).discoveryDiagnostics)[0]!;
+        assert.equal(diagnostic.stage, "sitemap");
+        assert.equal(diagnostic.reason, {redirect: "redirect_not_followed", html: "invalid_sitemap", malformed: "invalid_sitemap", timeout: "timeout", oversized: "byte_limit", http_error: "http_error", rate_limit: "rate_limited"}[scenario]);
+        const queued = (await db.loadFullSitePages(candidate.id)).filter(p => p.status === "queued");
+        assert.equal(queued.length, 10, "Optional sitemap failure must preserve rendered links");
+        const queuedIds = new Set(queued.map(p => p.id));
+        const dispatches = (await db.reserveFullSiteDispatches()).filter(p => queuedIds.has(p.pageId));
+        assert.equal(dispatches.length > 0, scenario !== "rate_limit", "Admission must continue unless shared backoff applies");
+        await db.query(`update full_site_crawls set status='completed',completed_at=now() where scan_id=$1`, [candidate.id]);
+      }
+      const redirectRobots = await parent("robots-redirect.test");
+      await db.query(`update full_site_crawls set discovery_complete=false where scan_id=$1`, [redirectRobots.id]);
+      const redirectRobotsCrawl = (await db.loadFullSiteCrawl(redirectRobots.id))!;
+      const originalFetch = globalThis.fetch;
+      const robotsOpened: string[] = [];
+      globalThis.fetch = (async input => {
+        robotsOpened.push(String(input));
+        return new Response(null, {status: 302, headers: {location: "https://robots-redirect.test/other-robots.txt"}});
+      }) as typeof fetch;
+      try {
+        await assert.rejects(() => discoverSitemaps(redirectRobotsCrawl), /robots_unavailable_or_blocked/);
+      } finally { globalThis.fetch = originalFetch; }
+      assert.deepEqual(robotsOpened, ["https://robots-redirect.test/robots.txt"]);
+      const robotsResult = (await db.loadFullSiteCrawl(redirectRobots.id))!;
+      assert.equal(robotsResult.discovery_complete, false);
+      assert.equal(crawlDiscoveryDiagnosticsSchema.parse((robotsResult.policy_json as Record<string, unknown>).discoveryDiagnostics)[0]!.reason, "redirect_not_followed");
+      assert.equal((await db.reserveFullSiteDispatches()).length, 0);
+      await db.query(`update full_site_crawls set status='stopped',completed_at=now() where scan_id=$1`, [redirectRobots.id]);
       const unavailable = await parent("missing-queue.test", 3, 2, "eu-central-1");
       await stopCrawlsWithoutDispatchQueues({ "eu-west-1": "https://queue.example.test" });
       const stopped = await db.loadFullSiteCrawl(unavailable.id);

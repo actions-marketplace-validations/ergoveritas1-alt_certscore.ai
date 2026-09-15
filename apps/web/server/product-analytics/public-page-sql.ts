@@ -1,6 +1,6 @@
 export function pageViewPredicateSql(prefix = "") {
   if (prefix !== "" && prefix !== "events.") throw new Error("Invalid event SQL prefix");
-  return `(${prefix}event_name in ('page_viewed', 'scan_viewed', 'report_viewed') or (${prefix}event_name = 'page_requested' and ${prefix}feature = 'public_page_browser_confirmed'))`;
+  return `((${prefix}event_name in ('page_viewed', 'scan_viewed', 'report_viewed') and ${prefix}feature <> 'server_route') or (${prefix}event_name = 'page_requested' and ${prefix}feature in ('public_page_browser_confirmed', 'authenticated_page_browser_confirmed')))`;
 }
 
 // Both writers use a server-issued identity. Browser confirmation can repair a

@@ -67,3 +67,21 @@ test("guarded fetch validates a redirect before opening the destination", async 
   }), PublicNetworkGuardError);
   assert.deepEqual(opened, ["https://example.com/"]);
 });
+
+test("explicit redirect responses validate the source and never open the destination", async () => {
+  const opened: string[] = [];
+  const fetchImpl = (async (input: RequestInfo | URL) => {
+    opened.push(String(input));
+    return new Response(null, { status: 301, headers: { location: "http://169.254.169.254/" } });
+  }) as typeof fetch;
+  const options = {
+    env: { CERTSCORE_PUBLIC_NETWORK_GUARD_FORCE: "true" }, fetchImpl,
+    resolver: async () => [{ address: "93.184.216.34", family: 4 }],
+    maxRedirects: 0, returnRedirectResponse: true,
+  };
+  assert.equal((await guardedPublicFetch("https://example.com/sitemap.xml", {}, options)).status, 301);
+  assert.deepEqual(opened, ["https://example.com/sitemap.xml"]);
+  await assert.rejects(() => guardedPublicFetch("http://127.0.0.1/", {}, options), PublicNetworkGuardError);
+  assert.equal(opened.length, 1);
+  await assert.rejects(() => guardedPublicFetch("https://example.com/", {}, { ...options, returnRedirectResponse: false }), PublicNetworkGuardError);
+});

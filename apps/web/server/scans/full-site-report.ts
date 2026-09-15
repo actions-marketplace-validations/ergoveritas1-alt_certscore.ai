@@ -9,10 +9,11 @@ import { identifyCrawlService, describeCrawlService } from "../../lib/scans/full
 import { loadFullSiteReviewedPolicies } from "./full-site-reviewed-policies";
 import { loadFullSiteRelationshipCounts } from "./full-site-relationship-counts";
 import { loadFullSiteScore } from "./full-site-score";
-import { wasPageNotScannedForRobots } from "../../lib/scans/full-site-crawl-limitation";
+import { unscannedCrawlPageLimitation } from "../../lib/scans/full-site-crawl-limitation";
 import { classifyCrawlInventoryResource } from "../../lib/scans/full-site-inventory-classification";
 import {
   aggregateFullSite,
+  crawlDiscoveryDiagnosticsSchema,
   robotsRestrictionMessage,
   type RobotsPolicy,
   crawlDisplayUrl,
@@ -51,6 +52,9 @@ export async function loadFullSiteReport(
       : null,
     homepageDurationMs: crawl.homepage_duration_ms,
     stopReason: crawl.stop_reason,
+    discoveryDiagnostics: crawlDiscoveryDiagnosticsSchema.safeParse(
+      (crawl.policy_json as { discoveryDiagnostics?: unknown }).discoveryDiagnostics,
+    ).data ?? [],
     robotsRestriction:
       crawl.stop_reason === "robots_unavailable_or_blocked"
         ? "robots.txt could not be verified. Additional crawling was stopped."
@@ -78,10 +82,9 @@ export async function loadFullSiteReport(
         ? `sitemap:${crawlDisplayUrl(source.slice(8))}`
         : source,
     ),
-    status: wasPageNotScannedForRobots(crawl, row)
+    status: unscannedCrawlPageLimitation(crawl, row)
       ? "excluded" : row.status as CrawlPage["status"],
-    limitation: wasPageNotScannedForRobots(crawl, row)
-      ? "not_scanned_crawl_permission_unverified" : row.limitation,
+    limitation: unscannedCrawlPageLimitation(crawl, row) ?? row.limitation,
     attemptCount: row.attempt_count,
     observation: row.compact_json
       ? crawlObservationSchema.parse(row.compact_json)

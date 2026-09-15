@@ -1,6 +1,6 @@
 import type { NextFetchEvent, NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { isPublicDocumentRequest, PUBLIC_PAGE_TIMING_NAME } from "./lib/product-analytics/public-page-request";
+import { isPublicDocumentRequest, isDocumentNavigation, PUBLIC_PAGE_TIMING_NAME } from "./lib/product-analytics/public-page-request";
 import { issuePublicPageToken } from "./server/product-analytics/public-page-token";
 
 const sessionCookieNames = new Set([
@@ -40,7 +40,14 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   }
   if (hasSessionCookie(request)) {
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-certscore-operational-event-id", crypto.randomUUID());
+    // Only real document requests receive server page identities. Soft navigation
+    // is observed by the browser tracker; prefetch/RSC requests are not visits.
+    requestHeaders.delete("x-certscore-operational-event-id");
+    requestHeaders.delete("x-certscore-operational-requested-at");
+    if (request.method === "POST" || isDocumentNavigation(request.method, request.headers)) {
+      requestHeaders.set("x-certscore-operational-event-id", crypto.randomUUID());
+      requestHeaders.set("x-certscore-operational-requested-at", String(Date.now()));
+    }
     requestHeaders.set("x-certscore-operational-method", request.method);
     requestHeaders.set("x-certscore-operational-route", request.nextUrl.pathname);
     return NextResponse.next({

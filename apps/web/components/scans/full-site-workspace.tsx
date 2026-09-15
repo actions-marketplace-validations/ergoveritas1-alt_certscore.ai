@@ -19,7 +19,7 @@ import { CollectionSurfacesTable } from "./collection-surfaces-table";
 import { describeFullSitePageFailure } from "../../lib/scans/full-site-page-failure";
 import { fullSiteFinalizationDelayed } from "../../lib/scans/full-site-finalization";
 import { scanFailureExplanation } from "../../lib/scans/scan-failure-explanation";
-import { isRobotsCrawlLimitation } from "../../lib/scans/full-site-crawl-limitation";
+import { isRetainedCrawlLimitation } from "../../lib/scans/full-site-crawl-limitation";
 import React, { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   FULL_SITE_CONDITION,
@@ -332,8 +332,10 @@ export function FullSiteWorkspace({
   // Never imply completion while the crawl is active.
   const pageProgress = pageLimit > 0 ? Math.min(99, finishedPages / pageLimit * 100) : 0;
   const completed = state?.status === "completed" && !running;
-  const robotsLimited = isRobotsCrawlLimitation(state?.status, state?.stopReason);
-  const retainedAssessment = robotsLimited && Boolean(data?.score);
+  const crawlLimited = isRetainedCrawlLimitation(state?.status, state?.stopReason);
+  const sitemapLimited = ["sitemap_discovery_limited", "sitemap_document_limit"].includes(state?.stopReason ?? "") ||
+    (state?.discoveryDiagnostics?.some(diagnostic => diagnostic.stage === "sitemap") ?? false);
+  const retainedAssessment = crawlLimited && Boolean(data?.score);
   const reportActionsAvailable = completed || retainedAssessment;
   const finalizing = valuesUpdating && Boolean(data?.finalizationStartedAt);
   const finalizationDelayed = finalizing && fullSiteFinalizationDelayed(data?.finalizationStartedAt, now);
@@ -379,6 +381,7 @@ export function FullSiteWorkspace({
                   ["Robots-blocked", data?.coverage ? data.coverage.unknown === data.coverage.discovered && data.coverage.unknown > 0 ? "Not verified" : data.coverage.blocked : "Loading…"],
                   ...(data?.coverage?.unknown ? [["Robots not verified", data.coverage.unknown]] : []),
                   ["Page limit", requested.maxPages],
+                  ...(sitemapLimited ? [["Sitemap discovery", "Limited — using discovered page links"]] : []),
                   ["Pages with capture limitations", data ? failedPages.length : "Loading…"],
                   ["Excluded links", counts?.excluded ?? 0],
                   ["Stop reason", state?.stopReason === "max_pages" ? "Page limit reached" : state?.stopReason?.replaceAll("_", " ") ?? (running ? "In progress" : "Not stopped")],
@@ -398,7 +401,7 @@ export function FullSiteWorkspace({
               ]}
     started={timestamp(state?.startedAt)} completed={timestamp(state?.completedAt)}
   />;
-  const reportStatus = running ? progressLabel : !state ? "Loading report…" : retainedAssessment ? "Starting page completed · Crawl limited" : robotsLimited ? "Crawl limited" : state?.status === "cancelled" ? "Cancelled" : state?.status === "stopped" ? "Unsuccessful" : state?.status === "completed" && (counts?.blockedFailed || counts?.partial) ? "Completed with limitations" : state?.status === "completed" ? "Completed" : state?.status.replaceAll("_", " ") ?? "Loading";
+  const reportStatus = running ? progressLabel : !state ? "Loading report…" : retainedAssessment ? "Starting page completed · Crawl limited" : crawlLimited ? "Crawl limited" : state?.status === "cancelled" ? "Cancelled" : state?.status === "stopped" ? "Unsuccessful" : state?.status === "completed" && (counts?.blockedFailed || counts?.partial || sitemapLimited) ? "Completed with limitations" : state?.status === "completed" ? "Completed" : state?.status.replaceAll("_", " ") ?? "Loading";
   const previewMetrics = initialPending && valuesUpdating && !data?.score && (scannedPages ?? 0) === 0
     ? preliminarySiteInventoryMetrics(preConsentPreview) : null;
   const inventorySummary = <ReportInventorySummary updating={valuesUpdating} metrics={previewMetrics ?? [
@@ -428,11 +431,14 @@ export function FullSiteWorkspace({
           Site crawl cancelled. Captured evidence is preserved.{running ? " Active page visits are finishing; no additional visits will start." : ""}
         </p> : null}
 
+        {sitemapLimited ? <p role="status" className="mt-3 rounded-lg border border-amber-200/70 bg-amber-50/50 px-4 py-3 text-sm text-zinc-600">
+          Sitemap discovery was limited. This report covers captured pages; additional pages may not have been found.
+        </p> : null}
         {captureLimitations}
         {stopError ? <p role="alert" className="mt-3 text-sm text-rose-700">{stopError}</p> : null}
         {state?.status === "stopped" ? <div role="status" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200/70 bg-amber-50/50 px-4 py-3">
           <div className="min-w-0 text-sm">
-            <p className="font-semibold text-zinc-900">{retainedAssessment ? "Starting page completed · Additional crawling unavailable" : robotsLimited ? "Additional crawling unavailable" : "Full-site scan couldn’t finish"}</p>
+            <p className="font-semibold text-zinc-900">{retainedAssessment ? "Starting page completed · Additional crawling unavailable" : crawlLimited ? "Additional crawling unavailable" : "Full-site scan couldn’t finish"}</p>
             <p className="mt-1 max-w-2xl text-zinc-600">{state.stopReason === "dispatch_queue_unavailable" ? "Full site scan was unsuccessful. Partial results of the scan are shown below. Try to scan the site again. Contact support@certscore.ai if you encounter more issues." : scanFailureExplanation(state.stopReason).detail}</p>
           </div>
         </div> : null}

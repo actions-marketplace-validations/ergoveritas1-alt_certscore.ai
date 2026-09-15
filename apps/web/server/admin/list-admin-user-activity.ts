@@ -51,6 +51,22 @@ export type AdminUserEvent = {
   hostname: string | null;
   element_id: string | null;
   browser_family: string;
+  page_path: string | null;
+  target_path: string | null;
+  previous_route: string | null;
+  entry_route: string | null;
+  form_id: string | null;
+  os_family: string;
+  device_class: string;
+  viewport_band: string | null;
+  language: string | null;
+  country_code: string | null;
+  referring_domain: string | null;
+  duration_ms: number | null;
+  numeric_value: string | number | null;
+  consent_state: string;
+  is_authenticated: boolean;
+  browser_confirmed_at: string | null;
 };
 
 type AdminUserActivityUserRow = {
@@ -202,7 +218,11 @@ export async function loadAdminUserActivity(userId: string, limit = 10, offset =
     ).then((result) => result.rows),
     query<AdminUserEvent>(
       `select e.event_id, e.occurred_at, e.event_name, e.normalized_route,
-              e.feature, e.outcome, e.scan_id, e.element_id, e.browser_family, d.hostname
+              e.feature, e.outcome, e.scan_id, e.element_id, e.browser_family, d.hostname,
+              e.page_path, e.target_path, e.previous_route, e.entry_route, e.form_id,
+              e.os_family, e.device_class, e.viewport_band, e.language, e.country_code,
+              e.referring_domain, e.duration_ms, e.numeric_value, e.consent_state,
+              e.is_authenticated, e.browser_confirmed_at
          from product_analytics_events e
          left join scans s on s.id = e.scan_id
          left join domains d on d.id = s.domain_id

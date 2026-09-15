@@ -7,7 +7,7 @@ import sharp from "sharp";
 
 const outputRoot = resolve("outputs/microsoft-mcp-certification-v2");
 const packageDir = join(outputRoot, "package");
-const packageVersion = "1.0.1";
+const packageVersion = "1.0.2";
 const zipPath = join(outputRoot, `certscore-microsoft-mcp-package-v${packageVersion}.zip`);
 const templateKeyVaultUri = "https://REPLACE-WITH-CERTSCORE-MCP-KEY-VAULT.vault.azure.net/";
 const keyVaultUri = process.env.CERTSCORE_MICROSOFT_KEY_VAULT_URI?.trim() || templateKeyVaultUri;
@@ -59,7 +59,7 @@ const manifest = {
   agentConnectors: [{
     id: "certscore-microsoft-mcp",
     displayName: "CertScore.ai Website Privacy Scanner MCP",
-    description: "Scan or reuse a public-website assessment, check status, and retrieve its bounded evidence-backed report bundle, including confirmed Reject Path observations when eligible.",
+    description: "Scan or reuse a public-website assessment, check status, retrieve its bounded report bundle, and page through retained report evidence when needed.",
     toolSource: {
       remoteMcpServer: {
         mcpServerUrl: "https://mcp.certscore.ai/mcp/microsoft",
@@ -81,11 +81,12 @@ CertScore.ai provides evidence-backed website privacy scanning for public websit
 
 This is the Microsoft-authenticated edition of CertScore.ai MCP Light. Microsoft authenticates service-to-service with a tenant-bound Microsoft Entra application token. End users do not need separate CertScore credentials.
 
-## Three-tool lifecycle
+## Four-tool lifecycle
 
 1. Use \`certscore_scan_site\` to request a scan or reuse an eligible recent completed scan. Keep the stable \`scanId\` returned by the tool. The default \`freshness=latest\` avoids unnecessary new scans; use \`refresh\` only when a fresh run is explicitly required.
 2. Use \`certscore_get_scan_status\` with that \`scanId\` while the scan is queued, running, or finalizing. Follow the returned retry guidance and stop at a terminal state.
 3. For \`completed\` or \`completed_limited\`, use \`certscore_get_scan_bundle\` to retrieve the bounded canonical findings, evidence summaries and references, provenance, coverage limitations, score metadata, and public report URL.
+4. When a reviewer needs the fuller retained report projection, use \`certscore_get_report_evidence_page\` with the same \`scanId\`. Continue with the returned cursor until pagination reports completion. Keep pages from the same snapshot together and preserve coverage limitations.
 
 The Microsoft endpoint retains MCP Light's bounded anonymous-style scan and read quotas. Eligible recent-result reuse does not consume a new-scan allowance. Current automated-access policy and retry guidance are published at https://certscore.ai/developers/reference. For higher-volume use, contact support@certscore.ai.
 
@@ -99,6 +100,7 @@ Results are evidence-backed automated observations of public websites for human 
 
 - Scans cover observable public-web behavior from the selected execution region and time; site behavior can vary by location, session, account state, personalization, and later changes.
 - \`completed_limited\` is usable but has explicit coverage limitations. Read those limitations before interpreting findings.
+- Report-evidence pages are bounded. Follow the returned cursor to retrieve the complete available projection; a single page is not the complete report.
 - Reject Path observation is available only for eligible scans with a supported, deterministically resolved first-layer refusal control. Unsupported, unconfirmed, failed, or timed-out observations remain explicit, score-neutral coverage limitations.
 - A confirmed Reject Path observation may stop intentionally after qualifying evidence is retained. This establishes the returned observation, but it does not establish behavior outside the measured post-refusal window.
 - Missing consent-action evidence does not establish Accept, Reject, Decline, or deeper preference behavior.

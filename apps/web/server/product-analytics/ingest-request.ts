@@ -1,3 +1,6 @@
+import { verifyAuthenticatedPageToken } from "./authenticated-page-token";
+import { persistAuthenticatedPageRequest } from "./authenticated-page-repository";
+import { classifyUserAgent, requestTechnicalContext } from "./technical-context";
 import { resolveActivityAttribution } from "../../lib/product-analytics/operational-activity";
 import { NextResponse } from "next/server";
 import { isPlatformAdminEmail } from "../admin/platform-admin";
@@ -8,14 +11,6 @@ import { verifyPublicPageToken } from "./public-page-token";
 import { persistPublicPageRequest } from "./public-page-repository";
 import { isPublicPagePath, PUBLIC_PAGE_CONFIRMED_FEATURE, PUBLIC_PAGE_REQUEST_FEATURE, PUBLIC_PAGE_UNLINKED_FEATURE } from "../../lib/product-analytics/public-page-request";
 
-function classifyUserAgent(userAgent: string) {
-  const lower = userAgent.toLowerCase();
-  const isBot = /bot|crawler|spider|headless|lighthouse|synthetic/.test(lower);
-  const browserFamily = lower.includes("edg/") ? "edge" : lower.includes("firefox/") ? "firefox" : lower.includes("chrome/") ? "chrome" : lower.includes("safari/") ? "safari" : "other";
-  const osFamily = lower.includes("iphone") || lower.includes("ipad") ? "ios" : lower.includes("android") ? "android" : lower.includes("mac os") ? "macos" : lower.includes("windows") ? "windows" : lower.includes("linux") ? "linux" : "other";
-  const deviceClass = lower.includes("ipad") || lower.includes("tablet") ? "tablet" : lower.includes("mobile") || lower.includes("iphone") || lower.includes("android") ? "mobile" : userAgent ? "desktop" : "unknown";
-  return { browserFamily, deviceClass: deviceClass as "desktop" | "mobile" | "tablet" | "unknown", isBot, osFamily };
-}
 
 function referringDomain(request: Request) {
   const value = request.headers.get("referer");
@@ -28,7 +23,12 @@ function referringDomain(request: Request) {
   }
 }
 
-export async function handleOperationalEventPost(request: Request) {
+const authenticatedPageServices = {
+  getUser: getBetterAuthSessionUser,
+  findOrganization: findOrganizationIdForUser,
+  persist: persistAuthenticatedPageRequest,
+};
+export async function handleOperationalEventPost(request: Request, confirmationServices = authenticatedPageServices) {
   if (request.headers.get("sec-fetch-site") === "cross-site") {
     return NextResponse.json({ error: "cross_origin_event" }, { status: 403 });
   }
@@ -37,6 +37,27 @@ export async function handleOperationalEventPost(request: Request) {
 
   const payload = parseProductAnalyticsPayload(await request.json().catch(() => null));
   if (!payload) return NextResponse.json({ error: "invalid_event" }, { status: 400 });
+
+  if (payload.authenticatedPageToken) {
+    if (payload.pageRequestToken || !payload.pagePath || !["page_viewed", "scan_viewed", "report_viewed"].includes(payload.eventName)) {
+      return NextResponse.json({ error: "invalid_page_confirmation" }, { status: 400 });
+    }
+    try {
+      const user = await confirmationServices.getUser();
+      if (!user) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
+      const identity = verifyAuthenticatedPageToken(payload.authenticatedPageToken, payload.pagePath, user.id, process.env.BETTER_AUTH_SECRET ?? "");
+      if (!identity) return NextResponse.json({ error: "invalid_page_confirmation" }, { status: 400 });
+      await confirmationServices.persist(identity, {
+        ...requestTechnicalContext(request.headers),
+        userId: user.id, organizationId: await confirmationServices.findOrganization(user.id),
+        isStaff: isPlatformAdminEmail(user.email), consentState: "operational", referringDomain: null,
+      }, true, { language: payload.language, viewportBand: payload.viewportBand });
+      return new NextResponse(null, { status: 201 });
+    } catch {
+      console.error(JSON.stringify({event: "authenticated_page_confirmation.write_failed"}));
+      return NextResponse.json({ error: "event_persistence_failed" }, { status: 503 });
+    }
+  }
 
   if (payload.pageRequestToken) {
     const identity = verifyPublicPageToken(payload.pageRequestToken, payload.route, process.env.BETTER_AUTH_SECRET ?? "");
@@ -53,7 +74,7 @@ export async function handleOperationalEventPost(request: Request) {
     }
   }
   // Request provenance is minted only by middleware, never by arbitrary browser payloads.
-  if (payload.eventName === "page_requested" || [PUBLIC_PAGE_REQUEST_FEATURE, PUBLIC_PAGE_CONFIRMED_FEATURE].includes(payload.feature)) {
+  if (payload.eventName === "page_requested" || [PUBLIC_PAGE_REQUEST_FEATURE, PUBLIC_PAGE_CONFIRMED_FEATURE, "authenticated_page_request", "authenticated_page_browser_confirmed", "server_route", "server_action"].includes(payload.feature)) {
     return NextResponse.json({ error: "invalid_event" }, { status: 400 });
   }
 

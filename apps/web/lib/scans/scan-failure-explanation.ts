@@ -1,5 +1,12 @@
 /** Translate known execution failures without exposing internal error payloads. */
 export function scanFailureExplanation(error: string | null | undefined) {
+  if (error === "discovery_unavailable_or_blocked") {
+    return {
+      title: "Additional crawling unavailable",
+      detail: "Page discovery could not finish, so additional pages were not scanned. Captured page results are retained below.",
+      nextStep: "Review the retained page assessment. This crawl has stopped and will not resume automatically.",
+    };
+  }
   if (error === "robots_unavailable_or_blocked" || error === "robots_delay_exceeds_crawl_budget") {
     return {
       title: "Additional crawling unavailable",

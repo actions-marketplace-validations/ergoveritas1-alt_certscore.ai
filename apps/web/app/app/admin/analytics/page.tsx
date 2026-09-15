@@ -30,8 +30,8 @@ type Props = { searchParams?: Promise<{ audienceFilters?: string; event?: string
 
 function count(value: number) { return new Intl.NumberFormat("en-US").format(value); }
 function label(value: string) {
-  if (value === "public_page_browser_confirmed") return "Browser-confirmed view";
-  if (value === "public_page_request") return "Not browser-confirmed";
+  if (["public_page_browser_confirmed", "authenticated_page_browser_confirmed"].includes(value)) return "Browser-confirmed view";
+  if (["public_page_request", "authenticated_page_request", "server_route"].includes(value)) return "Not browser-confirmed";
   if (value === "initial_browser_view_unlinked") return "Browser view · request not linked";
   return value.replace(/[_.]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -99,7 +99,7 @@ export default async function ProductAnalyticsPage({ searchParams }: Props) {
   const rates = [
     { label: "Authenticated", value: percentage(dashboard.metrics.events > 0 ? dashboard.metrics.authenticated / dashboard.metrics.events : null) },
     { label: "Errors", value: percentage(dashboard.metrics.events > 0 ? dashboard.metrics.errors / dashboard.metrics.events : null), anomaly: errorDelta.anomaly, href: snapshotHref({ outcome: "failure" }) },
-    { label: "Public page requests", value: count(dashboard.metrics.pageRequests), href: snapshotHref({ event: "page_requested" }) },
+    { label: "Page requests", value: count(dashboard.metrics.pageRequests), href: snapshotHref({ event: "page_requested" }) },
     { label: "Page views", value: count(dashboard.metrics.pageViews), href: snapshotHref({ event: "page_viewed" }) },
     { label: "Opt-outs", value: count(dashboard.metrics.optedOut), href: snapshotHref({ event: "analytics_opted_out" }) },
     { label: "Events / session", value: dashboard.metrics.sessions > 0 ? (dashboard.metrics.events / dashboard.metrics.sessions).toFixed(2) : "—" },
@@ -111,7 +111,7 @@ export default async function ProductAnalyticsPage({ searchParams }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">First-party operational telemetry</p><h2 className="text-2xl font-semibold tracking-tight text-slate-950">Events</h2><p className="mt-1 text-sm text-slate-500">Privacy-bounded activity across Web, API, Pulse, SDK, MCP, and scan lifecycle routes. Public page requests are recorded without JavaScript; browser confirmation updates the same request. A request alone does not establish a rendered view.</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">First-party operational telemetry</p><h2 className="text-2xl font-semibold tracking-tight text-slate-950">Events</h2><p className="mt-1 text-sm text-slate-500">Privacy-bounded activity across Web, API, Pulse, SDK, MCP, and scan lifecycle routes. Page requests are recorded without JavaScript; browser confirmation updates the same request. A request alone does not establish a rendered view.</p></div>
         <AdminTrafficFilters basePath="/app/admin/analytics" scope={trafficScope} searchParams={resolved} />
       </div>
 

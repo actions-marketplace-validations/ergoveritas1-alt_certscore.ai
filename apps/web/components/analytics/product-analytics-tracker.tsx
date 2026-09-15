@@ -69,6 +69,7 @@ export function ProductAnalyticsTracker() {
         category: isLink ? "navigation" : "interaction",
         feature: target.dataset.analyticsFeature ?? "ui_control",
         elementId: stableElementId(target),
+        targetPath: isLink ? target.getAttribute("href") ?? undefined : undefined,
         outcome: "observed"
       });
     }

@@ -242,6 +242,36 @@ states that coverage is restricted. Discovery redirects are not followed (fail
 closed), and unavailable/unverifiable robots policy or excessive crawl delay stops
 additional crawling with an explicit report limitation.
 
+### September 15 discovery reliability repair
+
+Discovery explicitly requests an unfollowed redirect response from the public
+network guard. The source is still validated; no redirect destination is opened.
+An optional sitemap redirect, HTTP failure, timeout, oversized response or invalid
+XML limits discovery and does not discard rendered links or abort the crawl.
+Robots verification still precedes all sitemap work and page admission. A sitemap
+429 ends the current discovery pass and applies shared Retry-After backoff before
+page admission. There are no additional discovery retries, redirects, candidates,
+timeouts or page-budget increases. Internal/database errors remain terminal.
+
+At most 32 typed discovery diagnostics are retained in the existing crawl policy
+JSON, including stage, bounded path (no credentials/query/fragment), HTTP status
+when available, and an enumerated failure category. They are operational coverage
+metadata only and cannot create findings or deductions. Reports disclose limited
+sitemap discovery. Historical `discovery_unavailable_or_blocked` runs may display
+their verified canonical retained assessment, while unvisited pages remain
+explicitly unscanned. No historical crawl is reopened or rescanned.
+
+Validation includes the real fetch/guard boundary, disposable PostgreSQL admission
+tests for sitemap redirect/HTML/XML/timeout/size/HTTP/rate-limit failures and robots
+redirect rejection, network safety regression tests, and the PostgreSQL/browser
+report harness. Recovered visits stay within the previously approved per-page
+crawl envelope above; bounded diagnostic retention is estimated below $1/month
+at the approved 100-crawl planning volume. Local verification adds no cloud cost.
+The focused report check runs with `scripts/test-full-site-report.ts --discovery-only`;
+it also verifies canonical score parity across completed/stopped discovery status
+and rejects a corrupted projection checksum. The broader legacy UI scenario has
+stale selectors for removed controls and is not part of this focused check.
+
 September 6 visibility restriction: use “Full site” only on the private scan option for eligible admin/advanced sessions. Site pages, report headings, accessible labels, PDFs and errors use neutral scan/report wording. Do not add marketing, navigation, pricing, help, API or MCP promotion for this capability. Internal identifiers and crawl behavior are unchanged.
 
 

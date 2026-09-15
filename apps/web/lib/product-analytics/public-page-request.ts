@@ -16,8 +16,11 @@ export function isPublicPagePath(pathname: string) {
 
 /** RSC fetches/prefetches are not document views; client navigation is tracked separately. */
 export function isPublicDocumentRequest(method: string, pathname: string, headers: Headers) {
-  return method === "GET" && isPublicPagePath(pathname)
-    && !headers.has("rsc") && !headers.has("next-router-prefetch")
+  return isPublicPagePath(pathname) && isDocumentNavigation(method, headers);
+}
+
+export function isDocumentNavigation(method: string, headers: Headers) {
+  return method === "GET" && !headers.has("rsc") && !headers.has("next-router-prefetch")
     && !headers.has("next-router-segment-prefetch")
     && !/prefetch|prerender/i.test(`${headers.get("purpose") ?? ""} ${headers.get("sec-purpose") ?? ""}`)
     && (/^(document|iframe)$/.test(headers.get("sec-fetch-dest") ?? "")

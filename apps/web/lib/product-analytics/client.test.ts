@@ -94,3 +94,26 @@ test("delivery retries reuse the original event UUID and body", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("authenticated proof confirmation uses existing retry transport without creating tracking identities", () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis,"window");
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis,"navigator");
+  const originalFetch = globalThis.fetch;
+  let payload: Record<string,unknown> | undefined;
+  const forbidden = () => { throw new Error("Tracking storage accessed"); };
+  Object.defineProperty(globalThis,"window",{configurable:true,value:{
+    localStorage:{getItem:(key:string)=>key===ANALYTICS_CONSENT_STORAGE_KEY?"granted":forbidden(),setItem:forbidden},
+    sessionStorage:{getItem:forbidden,setItem:forbidden},location:{pathname:"/app",search:"?secret=value"},innerWidth:1200,
+  }});
+  Object.defineProperty(globalThis,"navigator",{configurable:true,value:{language:"en"}});
+  globalThis.fetch=async(_url,init)=>{payload=JSON.parse(String(init?.body));return new Response(null,{status:201});};
+  try {
+    trackProductEvent({eventName:"page_viewed",category:"navigation",feature:"route",outcome:"observed",authenticatedPageToken:"a1.signed-proof"});
+    assert.equal(payload?.authenticatedPageToken,"a1.signed-proof");
+    for(const key of ["actorId","sessionId","campaignSource"]) assert.equal(payload?.[key],undefined);
+  } finally {
+    if(originalWindow)Object.defineProperty(globalThis,"window",originalWindow);else Reflect.deleteProperty(globalThis,"window");
+    if(originalNavigator)Object.defineProperty(globalThis,"navigator",originalNavigator);else Reflect.deleteProperty(globalThis,"navigator");
+    globalThis.fetch=originalFetch;
+  }
+});

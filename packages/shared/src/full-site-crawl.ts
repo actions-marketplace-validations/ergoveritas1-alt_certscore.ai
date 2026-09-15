@@ -10,6 +10,17 @@ export const FULL_SITE_ARTIFACT_LIMITS = {
 export const FULL_SITE_CONTRACT = "certscore.full-site-inventory.v1" as const;
 export const FULL_SITE_CONDITION = "Fresh visit, no consent action." as const;
 
+/** Operational coverage diagnostics only; never evidence for findings or scoring. */
+export const crawlDiscoveryDiagnosticsSchema = z.array(z.object({
+  stage: z.enum(["robots", "sitemap", "discovery"]),
+  // Never retain query values, response bodies, or arbitrary exception text.
+  path: z.string().max(256).nullable(),
+  status: z.number().int().min(100).max(599).nullable(),
+  reason: z.enum(["redirect_not_followed", "http_error", "rate_limited", "network_guard",
+    "timeout", "byte_limit", "fetch_failed", "invalid_sitemap", "invalid_robots", "crawl_delay_exceeds_budget", "internal_error"]),
+})).max(32);
+export type CrawlDiscoveryDiagnostic = z.infer<typeof crawlDiscoveryDiagnosticsSchema>[number];
+
 /** One policy is serialized to forms and used again at every admission boundary. */
 export function fullSitePolicy(env: Record<string, string | undefined> = {}) {
   function bounded(name: string, fallback: number, min: number, max: number) {
@@ -237,6 +248,7 @@ export type CrawlState = {
   homepageDurationMs: number | null;
   stopReason: string | null;
   robotsRestriction?: string | null;
+  discoveryDiagnostics?: CrawlDiscoveryDiagnostic[];
   discoveryExhausted: boolean;
   discovered: number;
   peakWorkers: number | null;

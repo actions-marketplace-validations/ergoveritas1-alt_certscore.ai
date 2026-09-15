@@ -66,7 +66,7 @@ async function main() {
     await db.query(`create table if not exists scan_snapshots (
       scan_id uuid primary key references scans(id) on delete cascade,
       report_projection_payload jsonb, report_projection_payload_sha256 text,
-      report_projection_payload_size_bytes bigint, report_projection_status text,
+      report_projection_payload_size_bytes integer, report_projection_status text,
       report_projection_version text, report_projection_computed_at timestamptz
     )`);
     await db.query(`insert into users(id) values($1)`, [userId]);
@@ -270,6 +270,7 @@ async function main() {
     page.on("pageerror", (error) => errors.push(error.message));
     const fixtureUrl = `http://127.0.0.1:${address.port}`;
     await page.goto(fixtureUrl);
+    if (!process.argv.includes("--discovery-only")) {
     await page
       .getByRole("switch", { name: "Full site", exact: true })
       .waitFor();
@@ -333,6 +334,65 @@ async function main() {
       false,
       "Mobile document must not overflow horizontally",
     );
+    }
+    // Operational sitemap diagnostics must survive the DB -> report -> UI path.
+    const diagnostics = [{stage: "sitemap", path: "/sitemap.xml", status: 301, reason: "redirect_not_followed"}];
+    await db.query(`update full_site_crawls set status='completed',completed_at=now(),stop_reason='sitemap_discovery_limited',
+      policy_json=jsonb_set(policy_json,'{discoveryDiagnostics}',$2::jsonb) where scan_id=$1`, [scanId, JSON.stringify(diagnostics)]);
+    const discoveryLimited = await loadFullSiteReport(scanId);
+    assert.deepEqual(discoveryLimited?.summary.state.discoveryDiagnostics, diagnostics);
+    assert.deepEqual(discoveryLimited?.summary.totals, report.summary.totals, "Coverage diagnostics must not alter evidence inventories");
+    await page.goto(fixtureUrl);
+    await page.getByText(/Sitemap discovery was limited/).waitFor();
+    assert.equal(await page.getByText("Full-site scan couldn’t finish", {exact:true}).count(), 0);
+    await page.screenshot({path: "/tmp/certscore-sitemap-discovery-limited.png", fullPage: true});
+
+    // Historical incident: retained homepage plus an unvisited discovery queue.
+    const unvisitedId = randomUUID();
+    await db.query(`insert into full_site_pages(id,scan_id,target_url,source,selection_reason,section,status,limitation)
+      values($1,$2,'https://example.test/unvisited','homepage_rendered_link','Fixture','/','cancelled','discovery_unavailable_or_blocked')`, [unvisitedId, scanId]);
+    await db.query(`update full_site_pages set status='cancelled',limitation='discovery_unavailable_or_blocked',
+      compact_json=null,observation_json=null,scheduled=false where scan_id=$1 and source<>'homepage'`, [scanId]);
+    await db.query(`update full_site_crawls set status='stopped',stop_reason='discovery_unavailable_or_blocked',
+      discovery_complete=false,crawl_started_at=null,peak_workers=0,policy_json=policy_json-'discoveryDiagnostics' where scan_id=$1`, [scanId]);
+    const historical = await loadFullSiteReport(scanId, new URLSearchParams(), true);
+    assert.equal(historical?.pages.rows.find(p => p.id === unvisitedId)?.status, "excluded");
+    assert.equal(historical?.pages.rows.find(p => p.id === unvisitedId)?.limitation, "not_scanned_discovery_unavailable");
+    assert.equal(historical?.score, null, "Missing canonical homepage projection must still fail closed");
+    await page.goto(fixtureUrl);
+    await page.getByText("Additional crawling unavailable", {exact:true}).waitFor();
+    await page.getByText(/Captured page results are retained below/).waitFor();
+    assert.equal(await page.getByText(/scanner stopped before it could produce/).count(), 0);
+    await page.screenshot({path: "/tmp/certscore-historical-discovery-limited.png", fullPage: true});
+
+    // A checksum-verified historical canonical projection remains the score source.
+    const { buildPersistedScanReportProjection, SCAN_REPORT_PROJECTION_VERSION } = await import("../apps/web/server/scans/scan-report-projection-contract");
+    const { deriveGdprEprivacyCoverageChecklist } = await import("../apps/web/lib/scans/gdpr-eprivacy-coverage-checklist");
+    const checklistRows = deriveGdprEprivacyCoverageChecklist({scanCompleted: true, coverageLimited: false, unifiedFindings: []});
+    const persisted = buildPersistedScanReportProjection({
+      scan: {id: scanId, status: "completed", completedAt: date}, snapshot: null, runtimeArtifacts: {}, events: [],
+    } as any, {canonicalReportProjection: {
+      artifactVersion: "persisted-canonical-report-projection-v6", checklistRows,
+      derivedContext: {}, evidenceIndex: {}, globalUnifiedFindings: [], ownerUnifiedFindingIds: [],
+      ownerUnifiedFindings: [], normalizedConcerns: [], topFindingIds: [], legacyScoreAssessmentInput: {scanId},
+    } as any});
+    await db.query(`insert into scan_snapshots(scan_id,report_projection_payload,report_projection_payload_sha256,
+      report_projection_payload_size_bytes,report_projection_status,report_projection_version,report_projection_computed_at)
+      values($1,$2,$3,$4,'ready',$5,now())`, [scanId, persisted.payload, persisted.sha256, persisted.sizeBytes, SCAN_REPORT_PROJECTION_VERSION]);
+    const retained = await loadFullSiteReport(scanId);
+    assert.ok(retained?.score);
+    assert.equal(typeof retained.score.value, "number");
+    assert.equal(retained.score.scoredPages, 1);
+    assert.equal(retained.score.limitedPages, 0, "Unvisited pages are coverage limits, not assessed evidence");
+    await page.goto(fixtureUrl);
+    await page.getByText("Starting page completed · Additional crawling unavailable", {exact:true}).waitFor();
+    await page.screenshot({path: "/tmp/certscore-historical-discovery-retained-score.png", fullPage: true});
+    await db.query(`update full_site_crawls set status='completed' where scan_id=$1`, [scanId]);
+    const completedWithSameEvidence = await loadFullSiteReport(scanId);
+    assert.equal(completedWithSameEvidence?.score?.value, retained.score.value, "Discovery status must not change canonical deductions");
+    await db.query(`update scan_snapshots set report_projection_payload_sha256=$2 where scan_id=$1`, [scanId, "0".repeat(64)]);
+    assert.equal((await loadFullSiteReport(scanId))?.score, null, "Unverifiable projection must never retain a score through cache");
+
     for (role of ["admin", "member", "anonymous"]) {
       await Promise.all([
         page.waitForResponse((r) => r.url().includes("full-scan/options")),
@@ -348,7 +408,9 @@ async function main() {
     }
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: real PostgreSQL report aggregation, filters, export parity, lazy evidence, 201 pages, role visibility, form validation, service expansion and live UI state, desktop/mobile layout.",
+      process.argv.includes("--discovery-only")
+        ? "PASS: PostgreSQL report aggregation, 201-page evidence, discovery diagnostics, historical unscanned coverage, canonical retained-score parity, checksum rejection, browser failure/limited states and role visibility."
+        : "PASS: real PostgreSQL report aggregation, filters, export parity, lazy evidence, 201 pages, role visibility, form validation, service expansion and live UI state, desktop/mobile layout, discovery limitations and retained scoring.",
     );
   } finally {
     await browser?.close();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canAssessRetainedCrawl, isRobotsCrawlLimitation, wasPageNotScannedForRobots } from "./full-site-crawl-limitation";
+import { canAssessRetainedCrawl, isRobotsCrawlLimitation, wasPageNotScannedForRobots, isRetainedCrawlLimitation, unscannedCrawlPageLimitation } from "./full-site-crawl-limitation";
 import { scanFailureExplanation } from "./scan-failure-explanation";
 
 for (const reason of ["robots_unavailable_or_blocked", "robots_delay_exceeds_crawl_budget"]) {
@@ -27,4 +27,22 @@ test("unrelated failures and unfinished scans do not become assessable", () => {
   }
   assert.equal(canAssessRetainedCrawl({status: "completed", stop_reason: null, completed_at: "2026-09-12"}), true);
   assert.equal(isRobotsCrawlLimitation("completed", "robots_unavailable_or_blocked"), false);
+});
+
+test("historical discovery failure preserves canonical assessment eligibility and honest unscanned coverage", () => {
+  const crawl = {status: "stopped", stop_reason: "discovery_unavailable_or_blocked", completed_at: "2026-09-15T17:21:22Z"};
+  assert.equal(canAssessRetainedCrawl(crawl), true);
+  assert.equal(canAssessRetainedCrawl({...crawl, completed_at: null}), false);
+  assert.equal(isRetainedCrawlLimitation(crawl.status, crawl.stop_reason), true);
+  assert.equal(isRobotsCrawlLimitation(crawl.status, crawl.stop_reason), false);
+  for (const status of ["queued", "cancelled"]) {
+    assert.equal(unscannedCrawlPageLimitation(crawl, {status, compact_json: null, limitation: crawl.stop_reason}), "not_scanned_discovery_unavailable");
+  }
+  for (const status of ["completed", "partial", "active", "failed"]) {
+    assert.equal(unscannedCrawlPageLimitation(crawl, {status, compact_json: null, limitation: crawl.stop_reason}), null);
+  }
+  assert.equal(unscannedCrawlPageLimitation(crawl, {status: "cancelled", compact_json: null, limitation: "user_cancelled"}), null);
+  assert.equal(unscannedCrawlPageLimitation(crawl, {status: "queued", compact_json: {}, limitation: null}), null);
+  assert.match(scanFailureExplanation(crawl.stop_reason).detail, /Captured page results are retained/);
+  assert.doesNotMatch(scanFailureExplanation(crawl.stop_reason).detail, /could produce a completed report/);
 });

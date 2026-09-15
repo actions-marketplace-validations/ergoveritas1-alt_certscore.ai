@@ -2,7 +2,7 @@ import { dispatchLocalInventory, localInventoryEnabled } from "./local-dispatch"
 import { startFullSiteCompletionEmails } from "./completion-emails";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { randomUUID } from "node:crypto";
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { getDomain } from "tldts";
 import { canonicalEvidenceBundleSchema } from "@certscore/contracts";
 import {
@@ -19,6 +19,7 @@ import {
   robotsDisallowAll,
   getCrawlerProductToken,
   getCrawlerUserAgent,
+  type CrawlDiscoveryDiagnostic,
   type FullSitePolicy,
   type RobotsPolicy,
 } from "@website-signal-risk-scanner/shared";
@@ -39,7 +40,7 @@ export async function fetchDiscoveryDocument(url: string, maxBytes: number) {
       signal: AbortSignal.timeout(10000),
       redirect: "manual",
     },
-    { maxRedirects: 0 },
+    { maxRedirects: 0, returnRedirectResponse: true },
   );
   const status = response.status;
   if (status >= 300) {
@@ -74,11 +75,14 @@ export async function fetchDiscoveryDocument(url: string, maxBytes: number) {
 export function sitemapEntries(xml: string) {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml))
     throw new Error("Unsupported sitemap entity declaration.");
+  if (XMLValidator.validate(xml) !== true) throw new Error("Invalid sitemap XML.");
   const parsed = new XMLParser({
     ignoreAttributes: true,
     parseTagValue: false,
     trimValues: true,
   }).parse(xml);
+  if (!parsed || typeof parsed !== "object" || !("sitemapindex" in parsed || "urlset" in parsed))
+    throw new Error("Unsupported sitemap document.");
   const list = (v: unknown): Array<{ loc?: unknown }> =>
     Array.isArray(v)
       ? v
@@ -93,6 +97,33 @@ export function sitemapEntries(xml: string) {
       typeof v.loc === "string" ? [v.loc] : [],
     ),
   };
+}
+
+export function discoveryDiagnostic(
+  stage: CrawlDiscoveryDiagnostic["stage"],
+  url: string | null,
+  reason: CrawlDiscoveryDiagnostic["reason"],
+  status: number | null = null,
+): CrawlDiscoveryDiagnostic {
+  let path: string | null = null;
+  try { path = url ? new URL(url).pathname.slice(0, 256) : null; } catch { /* no unsafe URL text */ }
+  return { stage, path, status, reason };
+}
+
+function discoveryFetchFailure(error: unknown): CrawlDiscoveryDiagnostic["reason"] {
+  const e = error as { name?: string; code?: string; message?: string } | null;
+  if (e?.code === "unsafe_target_blocked") return "network_guard";
+  if (e?.name === "TimeoutError" || e?.name === "AbortError") return "timeout";
+  if (e?.message === "discovery_byte_limit") return "byte_limit";
+  return "fetch_failed";
+}
+
+async function retainDiscoveryDiagnostics(scanId: string, diagnostics: CrawlDiscoveryDiagnostic[]) {
+  if (!diagnostics.length) return;
+  const retained = diagnostics.slice(-32);
+  console.warn(JSON.stringify({event: "full_site.discovery_limited", scanId, diagnostics: retained}));
+  await query(`update full_site_crawls set policy_json=jsonb_set(policy_json,'{discoveryDiagnostics}',$2::jsonb) where scan_id=$1`,
+    [scanId, JSON.stringify(retained)]);
 }
 export async function addFullSiteCandidates(
   scanId: string,
@@ -341,6 +372,23 @@ export async function discoverSitemaps(
   c: FullSiteCrawlRow,
   fetchDocument = fetchDiscoveryDocument,
 ) {
+  const diagnostics: CrawlDiscoveryDiagnostic[] = [];
+  try {
+    await discoverSitemapsWithDiagnostics(c, fetchDocument, diagnostics);
+  } catch (error) {
+    if (!(error instanceof Error && ["robots_unavailable_or_blocked", "robots_delay_exceeds_crawl_budget"].includes(error.message)))
+      diagnostics.push(discoveryDiagnostic("discovery", null, "internal_error"));
+    throw error;
+  } finally {
+    await retainDiscoveryDiagnostics(c.scan_id, diagnostics);
+  }
+}
+
+async function discoverSitemapsWithDiagnostics(
+  c: FullSiteCrawlRow,
+  fetchDocument: typeof fetchDiscoveryDocument,
+  diagnostics: CrawlDiscoveryDiagnostic[],
+) {
   const policy = c.policy_json as FullSitePolicy;
   const base = `https://${c.hosts[0]}/`;
   const byHost: Record<string, RobotsPolicy> = {};
@@ -348,7 +396,8 @@ export async function discoverSitemaps(
     const robots = await fetchDocument(
       `https://${host}/robots.txt`,
       policy.discoveryBytes,
-    ).catch(() => {
+    ).catch((error) => {
+      diagnostics.push(discoveryDiagnostic("robots", `https://${host}/robots.txt`, discoveryFetchFailure(error)));
       throw new Error("robots_unavailable_or_blocked");
     });
     if (
@@ -358,6 +407,8 @@ export async function discoverSitemaps(
       robots.status === 401 ||
       robots.status === 403
     ) {
+      diagnostics.push(discoveryDiagnostic("robots", `https://${host}/robots.txt`,
+        robots.status === 429 ? "rate_limited" : robots.status < 400 ? "redirect_not_followed" : "http_error", robots.status));
       if (robots.status === 429)
         await pauseDiscoveryRateLimit(c, robots.retryAfter);
       throw new Error("robots_unavailable_or_blocked");
@@ -365,6 +416,7 @@ export async function discoverSitemaps(
     try {
       byHost[host] = parseCrawlRobots(robots.text, getCrawlerProductToken());
     } catch {
+      diagnostics.push(discoveryDiagnostic("robots", `https://${host}/robots.txt`, "invalid_robots", robots.status));
       throw new Error("robots_unavailable_or_blocked");
     }
   }
@@ -377,8 +429,10 @@ export async function discoverSitemaps(
     ),
     sitemaps: Object.values(byHost).flatMap((p) => p.sitemaps),
   };
-  if (robotPolicy.crawlDelaySeconds > 300)
+  if (robotPolicy.crawlDelaySeconds > 300) {
+    diagnostics.push(discoveryDiagnostic("robots", null, "crawl_delay_exceeds_budget"));
     throw new Error("robots_delay_exceeds_crawl_budget");
+  }
   const retainedRobots = await query(
     `update full_site_crawls set robots_json=$2,effective_wait_seconds=greatest(effective_wait_seconds,$3) where scan_id=$1 and status='running'`,
     [c.scan_id, robotPolicy, robotPolicy.crawlDelaySeconds],
@@ -424,13 +478,34 @@ export async function discoverSitemaps(
       [c.scan_id],
     );
     if (!active.rowCount) return;
-    const document = await fetchDocument(url, policy.discoveryBytes);
-    if (document.status === 429) {
-      await pauseDiscoveryRateLimit(c, document.retryAfter);
-      throw new Error("sitemap_rate_limited");
+    // Sitemaps are optional discovery inputs. Fetch/parse failures must not
+    // invalidate the retained robots permission or already-discovered links.
+    // Keep database/state failures outside these recoverable boundaries.
+    let document: Awaited<ReturnType<typeof fetchDiscoveryDocument>>;
+    try {
+      document = await fetchDocument(url, policy.discoveryBytes);
+    } catch (error) {
+      diagnostics.push(discoveryDiagnostic("sitemap", url, discoveryFetchFailure(error)));
+      continue;
     }
-    if (document.status >= 300) continue;
-    const parsed = sitemapEntries(document.text);
+    if (document.status === 429) {
+      diagnostics.push(discoveryDiagnostic("sitemap", url, "rate_limited", document.status));
+      await pauseDiscoveryRateLimit(c, document.retryAfter);
+      // Stop discovery requests now; normal page admission honors shared backoff.
+      break;
+    }
+    if (document.status >= 300) {
+      diagnostics.push(discoveryDiagnostic("sitemap", url,
+        document.status < 400 ? "redirect_not_followed" : "http_error", document.status));
+      continue;
+    }
+    let parsed: ReturnType<typeof sitemapEntries>;
+    try {
+      parsed = sitemapEntries(document.text);
+    } catch {
+      diagnostics.push(discoveryDiagnostic("sitemap", url, "invalid_sitemap", document.status));
+      continue;
+    }
     queue.push(...parsed.indexes.slice(0, policy.sitemapDocuments));
     await addFullSiteCandidates(
       c.scan_id,
@@ -438,8 +513,10 @@ export async function discoverSitemaps(
     );
   }
   await query(
-    `update full_site_crawls set discovery_complete=true,stop_reason=case when $2 then coalesce(stop_reason,'sitemap_document_limit') else stop_reason end where scan_id=$1 and status='running'`,
-    [c.scan_id, queue.length > 0],
+    `update full_site_crawls set discovery_complete=true,stop_reason=coalesce(stop_reason,
+      case when $2 then 'sitemap_document_limit' when $3 then 'sitemap_discovery_limited' else null end)
+      where scan_id=$1 and status='running'`,
+    [c.scan_id, queue.length > 0 && seen.size >= policy.sitemapDocuments, diagnostics.length > 0],
   );
 }
 async function pauseDiscoveryRateLimit(

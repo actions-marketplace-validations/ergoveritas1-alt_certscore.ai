@@ -1,3 +1,8 @@
+import { AuthenticatedPageConfirmation } from "../../components/analytics/authenticated-page-confirmation";
+import { retainedActivityPagePath } from "../../lib/product-analytics/activity-page-context";
+import { issueAuthenticatedPageToken } from "../../server/product-analytics/authenticated-page-token";
+import { persistAuthenticatedPageRequest } from "../../server/product-analytics/authenticated-page-repository";
+import { requestTechnicalContext } from "../../server/product-analytics/technical-context";
 import { after } from "next/server";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
@@ -23,28 +28,31 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   const eventId = requestHeaders.get("x-certscore-operational-event-id");
   const method = requestHeaders.get("x-certscore-operational-method") ?? "GET";
   const route = requestHeaders.get("x-certscore-operational-route");
+  let confirmation: {path: string; token: string} | null = null;
   if (eventId && route && (method === "GET" || method === "POST")) {
     const operationalEvent = method === "POST"
       ? { category: "form" as const, eventName: "form_submitted" as const, feature: "server_action", outcome: "submitted" as const }
-      : { category: "navigation" as const, eventName: "page_viewed" as const, feature: "server_route", outcome: "observed" as const };
+      : { category: "navigation" as const, eventName: "page_requested" as const, feature: "authenticated_page_request", outcome: "observed" as const };
+    const pagePath = retainedActivityPagePath(route);
+    const requestedAt = Number(requestHeaders.get("x-certscore-operational-requested-at"));
+    const identity = method === "GET" && pagePath && Number.isSafeInteger(requestedAt) && requestedAt > 0
+      ? {id: eventId, requestedAt, path: pagePath, userId: user.id} : null;
+    if (identity) {
+      try { confirmation = {path: identity.path, token: issueAuthenticatedPageToken(identity, process.env.BETTER_AUTH_SECRET ?? "")}; }
+      catch { console.error(JSON.stringify({event: "authenticated_page_confirmation.configuration_failed"})); }
+    }
+    const context = {
+      ...requestTechnicalContext(requestHeaders),
+      consentState: "operational" as const, isStaff: isPlatformAdmin,
+      organizationId: organization?.id ?? null, referringDomain: null, userId: user.id,
+    };
     after(async () => {
       try {
-        await persistProductAnalyticsEvent({
-          ...operationalEvent,
-          route: normalizeAnalyticsRoute(route),
-          scanId: extractScanIdFromPath(route)
-        }, {
-          browserFamily: "server",
-          consentState: "operational",
-          countryCode: null,
-          deviceClass: "unknown",
-          isBot: false,
-          isStaff: isPlatformAdmin,
-          osFamily: "server",
-          organizationId: organization?.id ?? null,
-          referringDomain: null,
-          userId: user.id
-        }, eventId);
+        if (identity) await persistAuthenticatedPageRequest(identity, context, false, {language: context.language});
+        else await persistProductAnalyticsEvent({
+          ...operationalEvent, route: normalizeAnalyticsRoute(route), pagePath: pagePath ?? undefined,
+          scanId: extractScanIdFromPath(route),
+        }, context, eventId);
       } catch (error) {
         console.error(JSON.stringify({
           event: "operational_event.write_failed",
@@ -67,6 +75,7 @@ export default async function AppLayout({ children }: AppLayoutProps) {
       plan={organization?.plan ?? "free"}
       userEmail={user.email ?? "Unknown user"}
     >
+      {confirmation ? <AuthenticatedPageConfirmation {...confirmation} /> : null}
       {!hasWorkspace && !isPlatformAdmin ? (
         <div className="mx-auto w-full max-w-2xl px-6 py-16">
           <div className="rounded-2xl border border-sky-100 bg-white p-8 text-slate-900 shadow-sm">

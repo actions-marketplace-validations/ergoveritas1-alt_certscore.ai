@@ -60,7 +60,7 @@ function campaignValue(name: string) {
 export function trackProductEvent(input: Omit<ProductAnalyticsPayload, "actorId" | "entryRoute" | "language" | "route" | "scanId" | "sessionId" | "viewportBand"> & { route?: string; anonymousAggregate?: boolean }) {
   if (typeof window === "undefined") return;
   const choice = getStoredAnalyticsConsent();
-  const privacyBounded = input.anonymousAggregate || choice === "denied" || Boolean(input.pageRequestToken);
+  const privacyBounded = input.anonymousAggregate || choice === "denied" || Boolean(input.pageRequestToken) || Boolean(input.authenticatedPageToken);
   const actualRoute = input.route ?? window.location.pathname;
   const entryRoute = privacyBounded ? actualRoute : safeStorage(window.sessionStorage, ENTRY_ROUTE_KEY) ?? actualRoute;
   if (!privacyBounded) setSafeStorage(window.sessionStorage, ENTRY_ROUTE_KEY, entryRoute);
