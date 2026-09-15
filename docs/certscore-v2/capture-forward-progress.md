@@ -182,3 +182,13 @@ capture timing evidence, not a production safety-review result. The duplicate
 Playwright bounding-box read was removed; the helper still validates positive,
 bounded geometry and document/mask binding before and after pixels. The one-off
 diagnostic cost was below $1 and does not increase recurring capacity.
+
+## Approved shared budget revision — September 15, 2026
+
+After production scan c97592d6-ebc3-44d4-848a-f401895acb02 completed pixel
+capture but exhausted the shared budget, the owner explicitly approved a
+$20/month ceiling at 100,000 affected scans (estimated $12–$14/month incremental).
+The shared form capture, masking and safety-review deadline is now four seconds.
+The CDP pixel operation remains capped at two seconds. This supersedes the earlier
+2.5-second shared limit only; no retries, lanes, extra model calls, image limits
+or evidence-safety requirements change. Production success must still be checked.

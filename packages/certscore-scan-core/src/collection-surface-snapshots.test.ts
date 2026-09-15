@@ -3,7 +3,7 @@ import test from "node:test";
 import { chromium } from "playwright";
 import sharp from "sharp";
 import { buildCollectionSurfaceInventory } from "./collection-surface-inventory";
-import { captureCollectionSurfaceSnapshots } from "./collection-surface-snapshots";
+import { captureCollectionSurfaceSnapshots, FORM_SNAPSHOT_BUDGET_MS } from "./collection-surface-snapshots";
 
 test("form crops retain binding, mask inputs, resize, and fail closed on unsafe or mismatched documents", async () => {
   const browser = await chromium.launch({ headless: true });
@@ -54,7 +54,7 @@ test("animated forms capture within the existing budget and stalled review termi
     const stalled = await captureCollectionSurfaceSnapshots(page, inventory, () => new Promise(() => {}));
     assert.equal(stalled[0]?.reason, "review_timed_out");
     assert.equal(stalled[0]?.data, undefined);
-    assert.ok(Date.now() - started < 4500, "review must not hang beyond the existing 2.5s budget plus scheduling tolerance");
+    assert.ok(Date.now() - started < FORM_SNAPSHOT_BUDGET_MS + 1500, "review must not hang beyond the shared budget plus scheduling tolerance");
     await page.locator('form').evaluate(el => (el as HTMLElement).style.display = 'none');
     const hidden = await captureCollectionSurfaceSnapshots(page, inventory, async () => { throw new Error('must not review'); });
     assert.equal(hidden[0]?.reason, "form_not_visible");
