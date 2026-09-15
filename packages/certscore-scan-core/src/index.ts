@@ -5,7 +5,7 @@ import type { FormSnapshotReviewer } from "./collection-surface-snapshots";
 import { inventoryConfiguration, inventoryHash } from "./full-site-inventory";
 import path from "node:path";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
   type CanonicalEvidenceBundle,
   type CmpRuntimeObservation,
@@ -36,6 +36,7 @@ import {
   deriveConsentSurfaceInspectionOutcome,
   derivePolicySurfaceInspectionOutcome,
   isVerifiedTerminalConsentPacket,
+  verifyConsentControlInspection,
 } from "@certscore/contracts";
 import { resolveCanonicalVendor, resolveVendorObservations } from "@certscore/vendor-resolver";
 import type { ScanNoGoReasonCode } from "@website-signal-risk-scanner/shared";
@@ -714,9 +715,11 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       });
     }
   }
-  const shouldCaptureIncompleteConsentVisualFallback = preConsentEnabled &&
+  const retainedStructuredConsentComplete = preConsentEnabled &&
+    await hasVerifiedRetainedStructuredConsentEvidence(preConsentResult, artifactWriter.artifactPath("ConsentControlGeometryEvidence.json"));
+  const shouldCaptureIncompleteConsentVisualFallback = preConsentEnabled && !retainedStructuredConsentComplete &&
     shouldAttemptIncompleteConsentVisualFallback(preConsentResult, effectivePreConsentScreenshotMode);
-  const shouldCaptureScreenshotOnlyFallback = preConsentEnabled &&
+  const shouldCaptureScreenshotOnlyFallback = preConsentEnabled && !retainedStructuredConsentComplete &&
     shouldAttemptScreenshotOnlyFallback(preConsentResult, effectivePreConsentScreenshotMode);
   const visualFallbackDeadlineMs = boundedPreConsentVisualFallbackDeadlineMs({
     absoluteDeadlineAtMs:
@@ -759,28 +762,19 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
           // evidence capture or projection when a consumer fails locally.
         }
       }
-      const fallbackConsentUiObservations = screenshotFallback.consentUiObservation
-        ? [screenshotFallback.consentUiObservation]
+      // Screenshot-only work is a different browser session and cannot replace
+      // the retained typed inventory or its geometry evidence.
+      const recoveryConsentObservation = shouldCaptureIncompleteConsentVisualFallback
+        ? screenshotFallback.consentUiObservation : undefined;
+      const fallbackConsentUiObservations = recoveryConsentObservation
+        ? [recoveryConsentObservation]
         : [];
       const fallbackDomSnapshots = screenshotFallback.domSnapshot ? [screenshotFallback.domSnapshot] : [];
       const currentConsentObservation = preConsentResult.consentUiObservations.at(-1);
-      const recoveryResolution = currentConsentObservation && screenshotFallback.consentUiObservation
-        ? reconcileConsentUiRecapture({
-          current: currentConsentObservation,
-          candidate: screenshotFallback.consentUiObservation,
-          strongerBasis: "recovery:independent_consent_capture_stronger_controls",
-          completedWithoutControlsBasis: "recovery:independent_consent_capture_completed_without_first_layer_controls",
-        })
-        : null;
-      const typedCompletedNegativeRecovery =
-        currentConsentObservation?.captureStatus === "incomplete" &&
-        currentConsentObservation.controls.length === 0 &&
-        screenshotFallback.consentRecoveryCompleted &&
-        screenshotFallback.consentUiObservation?.captureStatus === "no_evidence";
-      const baseReconciledConsentObservation = typedCompletedNegativeRecovery
-        ? screenshotFallback.consentUiObservation
-        : recoveryResolution?.observation ?? screenshotFallback.consentUiObservation;
-      const recoveryGeometryPath = screenshotFallback.consentUiObservation?.evidenceRefs.find((reference) =>
+      const baseReconciledConsentObservation = screenshotFallback.consentRecoveryCompleted
+        ? recoveryConsentObservation
+        : currentConsentObservation;
+      const recoveryGeometryPath = recoveryConsentObservation?.evidenceRefs.find((reference) =>
         reference.artifactId === "consent_control_geometry"
       )?.path;
       const reconciledConsentObservation = baseReconciledConsentObservation &&
@@ -3139,6 +3133,37 @@ function uniqueStrings<T extends string>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
+/** A missing visual cannot replace verified structured 2.1 evidence with a
+ * fresh-session recovery. This gate preserves evidence; it creates no finding. */
+export async function hasVerifiedRetainedStructuredConsentEvidence(
+  result: Pick<PreConsentRuntimeScannerResult, "consentUiObservations">,
+  geometryPath: string,
+): Promise<boolean> {
+  try {
+    if (statSync(geometryPath).size > 1_000_000) return false;
+    const geometry = JSON.parse(await readFile(geometryPath, "utf8"));
+    const proof = verifyConsentControlInspection(geometry.controlInspection, geometry.candidates);
+    if (proof?.structuralCoverage !== "complete" || !geometry.documentIdentity?.token ||
+      !proof.captureCoverage.documentAndFramesStable || proof.captureCoverage.documentReadyState !== "complete") return false;
+    return result.consentUiObservations.some(observation => {
+      const diagnostics = observation.captureDiagnostics;
+      const coherent = observation.inventoryOutcome === "complete_with_controls"
+        ? observation.captureStatus === "observed" && observation.controls.length > 0
+        : observation.inventoryOutcome === "complete_empty" && observation.captureStatus === "no_evidence" && observation.controls.length === 0;
+      return coherent && observation.layerInspected === "first_layer" && observation.documentReadyState === "complete" &&
+        observation.documentIdentity?.token === geometry.documentIdentity.token &&
+        observation.documentIdentity?.source === geometry.documentIdentity.source &&
+        observation.documentUrl === geometry.pageUrl &&
+        diagnostics?.completedChannels.includes("dom_inventory") === true &&
+        diagnostics.completedChannels.includes("geometry") &&
+        !diagnostics.timedOutChannels.some(channel => channel !== "screenshot") &&
+        !diagnostics.failedChannels.some(channel => channel !== "screenshot") &&
+        (observation.inventoryDiagnostics?.blockingInaccessibleFrameCount ?? 0) === 0 &&
+        observation.evidenceRefs.some(ref => ref.artifactId === "consent_control_geometry" && ref.path === geometryPath);
+    });
+  } catch { return false; }
+}
+
 export function shouldAttemptScreenshotOnlyFallback(
   result: Awaited<ReturnType<typeof preConsentRuntimeScanner>>,
   screenshotMode: RunScanInput["preConsentScreenshotMode"],
@@ -3383,6 +3408,20 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
       await installWebBotAuthRoute(context);
       await installPublicNetworkGuardRoute(context);
       const page = await context.newPage();
+      const recoveryCdp = input.recoverConsentEvidence ? await context.newCDPSession(page) : undefined;
+      const readRecoveryDocument = async () => {
+        if (!recoveryCdp) return undefined;
+        const timeoutMs = optionalTimeoutForStep(250);
+        if (timeoutMs === null) return undefined;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const tree = await Promise.race([
+          recoveryCdp.send("Page.getFrameTree").catch(() => undefined),
+          new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), timeoutMs); }),
+        ]).finally(() => { if (timer) clearTimeout(timer); });
+        const frame = tree?.frameTree.frame;
+        return frame?.loaderId ? { url: frame.url, identity: { source: "cdp_loader_id" as const, token: frame.loaderId } } : undefined;
+      };
+
       const navigationUrls = input.navigationUrls?.length
         ? input.navigationUrls
         : [input.navigationUrl ?? input.normalizedUrl];
@@ -3465,6 +3504,7 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
         )
         : undefined;
       const documentLanguage = await readDeclaredDocumentLanguage(page);
+      const recoveryDocumentBefore = await readRecoveryDocument();
       const consentUiTimeoutMs = optionalTimeoutForStep(input.recoverConsentEvidence ? 1_250 : 1_500);
       let consentUiObservation = consentUiTimeoutMs === null
         ? undefined
@@ -3495,17 +3535,23 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
             supplementalBodyText: domText,
           });
           const geometry = await captureConsentControlGeometry(page, {
-            screenshotArtifactRef: input.retainedScreenshotArtifactRef,
+            documentIdentity: recoveryDocumentBefore?.identity,
             timeoutMs: geometryTimeoutMs,
           });
+          const recoveryDocumentAfter = await readRecoveryDocument();
+          const recoveryDocumentStable = recoveryDocumentBefore && recoveryDocumentAfter &&
+            recoveryDocumentBefore.url === geometry.pageUrl && recoveryDocumentAfter.url === geometry.pageUrl &&
+            recoveryDocumentBefore.identity.token === recoveryDocumentAfter.identity.token;
           const geometryDocumentMatches = normalizedDocumentIdentity(geometry.pageUrl) === normalizedDocumentIdentity(page.url());
           const geometryComplete =
+            Boolean(recoveryDocumentStable) &&
             access.status === "loaded" &&
             geometryDocumentMatches &&
             geometry.pageUrl !== "about:blank" &&
             geometry.viewport.width > 0 &&
             geometry.viewport.height > 0 &&
-            geometry.summary.confidence > 0;
+            geometry.summary.confidence > 0 &&
+            verifyConsentControlInspection(geometry.controlInspection, geometry.candidates)?.structuralCoverage === "complete";
           const geometryArtifactPath = await input.artifactWriter.writeJsonArtifact(
             geometryComplete
               ? "ConsentControlGeometryEvidence.json"
@@ -3539,6 +3585,7 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
             consentUiObservation.captureDiagnostics?.completedChannels.includes("dom_inventory") === true;
           consentRecoveryCompleted = inventoryComplete && geometryComplete;
           if (consentRecoveryCompleted) {
+            consentUiObservation = { ...consentUiObservation, documentIdentity: recoveryDocumentBefore!.identity };
             consentUiObservation = markConsentRecoveryCompleted(consentUiObservation, geometryArtifactPath);
           }
         }

@@ -117,3 +117,24 @@ needed geometry. The scheduling correction:
 No recurring-cost increase, deadline increase, new lane or model call is introduced.
 The separate proposed form screenshot slice increase remains unimplemented
 pending explicit approval of its incremental compute/storage allowance.
+
+## Preserve structured evidence across independent recovery
+
+Production scan 8e1ab877-0930-47a8-81f5-e7c8d15dcdd9 exposed an additional
+retention defect: an independent recovery wrote interactive-document geometry
+over the primary artifact, while merged controls and coverage implied completion.
+Recovery now requires verified complete structural inspection and matching actual
+CDP loader readbacks before/after capture. An incomplete recovery writes only its
+diagnostic artifact. Completed recovery replaces the typed observation as a whole;
+it cannot merge controls or document identity from another session.
+
+Before independent fallback, the scanner verifies the retained geometry proof,
+candidate inventory, document token and typed observation binding. A complete
+structured packet suppresses a fresh-browser fallback even if same-session visual
+capture failed. Visual availability remains separate under contract 2.1. A
+screenshot-only fallback cannot alter the retained consent observation. No image
+from an earlier session is bound to a new recovery document.
+
+This preserves evidence and reduces redundant browser work. Local proof validation
+and bounded CDP readbacks stay within existing budgets and add no paid API calls
+or storage policy changes; no net recurring-cost increase is expected.
