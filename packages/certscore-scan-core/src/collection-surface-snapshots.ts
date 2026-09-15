@@ -56,7 +56,7 @@ export async function captureCollectionSurfaceSnapshots(page: Page, inventory: C
       if (!bounds || bounds.width <= 0 || bounds.height <= 0 || bounds.width * bounds.height > 40_000_000) { results.push(unavailable(bounds && bounds.width * bounds.height > 40_000_000 ? "form_bounds_exceeded" : "form_not_visible")); continue; }
       const remaining = Math.max(1, deadline - Date.now());
       stage = "screenshot_failed";
-      const original = await captureMaskedFormScreenshot(page, element, Math.min(1000, remaining));
+      const original = await captureMaskedFormScreenshot(page, element, Math.min(2000, remaining));
       if (signal?.aborted || page.url() !== inventory.pageUrl || Date.now() >= deadline) { results.push(unavailable(signal?.aborted ? "capture_cancelled" : page.url() !== inventory.pageUrl ? "document_changed" : "capture_budget_exhausted")); continue; }
       stage = "image_processing_failed";
       const { data, info } = await sharp(original, { limitInputPixels: 40_000_000 }).resize({ width: 640, height: 960, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 45 }).toBuffer({ resolveWithObject: true });

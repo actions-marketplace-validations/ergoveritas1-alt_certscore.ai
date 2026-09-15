@@ -115,8 +115,7 @@ needed geometry. The scheduling correction:
   need geometry; geometry-driven below-fold capture remains available.
 
 No recurring-cost increase, deadline increase, new lane or model call is introduced.
-The separate proposed form screenshot slice increase remains unimplemented
-pending explicit approval of its incremental compute/storage allowance.
+The form screenshot slice increase was subsequently approved as described below.
 
 ## Preserve structured evidence across independent recovery
 
@@ -138,3 +137,13 @@ from an earlier session is bound to a new recovery document.
 This preserves evidence and reduces redundant browser work. Local proof validation
 and bounded CDP readbacks stay within existing budgets and add no paid API calls
 or storage policy changes; no net recurring-cost increase is expected.
+
+## Approved form pixel capture allowance — September 15, 2026
+
+The product owner approved a $10/month incremental allowance, with expected
+compute/storage of $5–$6/month at 100,000 affected scans. The masked screenshot
+slice is now at most two seconds, within the unchanged shared 2.5-second form
+budget. Input masking, document/layout binding, safety review and image size
+limits remain required. This adds no lane, retry or model call. A regression
+covers pixel capture taking longer than the former one-second limit; stalled
+review remains bounded by the original total budget.

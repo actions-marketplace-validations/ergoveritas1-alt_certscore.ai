@@ -131,3 +131,26 @@ test("footer form capture uses visible viewport pixels and restores scroll", asy
     assert.equal(await page.locator("input").inputValue(), "private");
   } finally { await browser.close(); }
 });
+
+test("masked capture can finish after one second inside the unchanged total budget", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<form style="width:400px;height:150px"><label>Search<input type="text" value="private"></label></form>');
+    const createSession = page.context().newCDPSession.bind(page.context());
+    page.context().newCDPSession = async (...args) => {
+      const session = await createSession(...args), send = session.send.bind(session);
+      session.send = (async (method: string, params: unknown) => {
+        if (method === "Page.captureScreenshot") await new Promise(resolve => setTimeout(resolve, 1100));
+        return (send as Function)(method, params);
+      }) as typeof session.send;
+      return session;
+    };
+    const inventory = buildCollectionSurfaceInventory({ pageUrl: "about:blank", inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: "native_form_0", structure: "native_form", elementType: "input", inputType: "text", label: "Search", required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
+    const result = await captureCollectionSurfaceSnapshots(page, inventory, async () => ({ safeForDisplay: true }));
+    assert.equal(result[0]?.status, "available");
+    assert.equal(result[0]?.valuesMasked, true);
+    assert.ok(result[0]?.data);
+    assert.equal(await page.locator("input").inputValue(), "private");
+  } finally { await browser.close(); }
+});
