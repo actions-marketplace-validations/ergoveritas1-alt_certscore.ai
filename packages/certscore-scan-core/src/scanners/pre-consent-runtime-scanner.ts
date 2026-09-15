@@ -6909,9 +6909,10 @@ export async function readRapidFirstLayerConsentUiObservation(
 ): Promise<ConsentUiObservation> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const boundedTimeoutMs = Math.max(100, Math.min(timeoutMs, 1_500));
+  let captureStage = "probe_presence";
   try {
     return await Promise.race([
-      readRapidFirstLayerConsentUiObservationUnbounded(page, scanStartedAtMs, phase, Date.now() + boundedTimeoutMs - 25),
+      readRapidFirstLayerConsentUiObservationUnbounded(page, scanStartedAtMs, phase, Date.now() + boundedTimeoutMs - 25, (stage) => { captureStage = stage; }),
       new Promise<ConsentUiObservation>((resolve) => {
         timer = setTimeout(() => {
           resolve({
@@ -6921,7 +6922,7 @@ export async function readRapidFirstLayerConsentUiObservation(
               timedOutChannels: ["dom_inventory"],
               failedChannels: [],
             },
-            basis: ["inventory:rapid_dom_timed_out"],
+            basis: ["inventory:rapid_dom_timed_out", `inventory:rapid_timeout_stage:${captureStage}`],
             inventoryDiagnostics: {
               candidateContainerCount: 0,
               candidateControlCount: 0,
@@ -6966,6 +6967,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
   scanStartedAtMs: number,
   phase: "initial" | "post_accessibility" | "post_settle" | "retry",
   deadlineAtMs: number,
+  onStage: (stage: string) => void,
 ): Promise<ConsentUiObservation> {
   type RapidConsentInventory = {
     documentReadyState: DocumentReadyState;
@@ -7000,6 +7002,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
     typeof (window as typeof window & { __certscoreRapidConsentInventory?: unknown })
       .__certscoreRapidConsentInventory === "function"
   ).catch(() => false);
+  onStage("probe_install");
   const installed = alreadyInstalled || await page.evaluate(String.raw`(() => {
     window.__certscoreRapidConsentInventory = (input) => {
     const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
@@ -7279,6 +7282,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
       },
     };
   }
+  onStage("main_inventory");
   const snapshot = await page.evaluate<RapidConsentInventory, RapidConsentInventoryInput>((input) => {
     const scope = window as typeof window & {
       __certscoreRapidConsentInventory: (input: RapidConsentInventoryInput) => RapidConsentInventory;
@@ -7292,6 +7296,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
     canonicalOptionalPreferenceLabels: CANONICAL_OPTIONAL_PREFERENCE_CATEGORY_LABELS,
   });
 
+  onStage("control_classification");
   const classifiedControls = snapshot.controls.map(control => normalizeConsentControlLink(control, page.url())).map((control) => ({
     control,
     classification: classifyConsentControlLabel({
@@ -7386,6 +7391,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
   // screenshot while remaining absent from the top-level document. Keep this
   // recovery structured and passive: inspect a bounded set of child frames and
   // classify only their visible DOM controls through the canonical registry.
+  onStage("child_inventory");
   const frameInventory = await readRapidChildFrameConsentInventory(page, deadlineAtMs);
   const frameContextText = frameInventory.textExcerpts.join(" ").slice(0, 12_000);
   let frameNavigationLimited = false;

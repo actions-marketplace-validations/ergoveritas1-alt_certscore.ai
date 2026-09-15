@@ -17,3 +17,11 @@ test('stalled child frames preserve completed main inventory and explicit frame 
     assert.ok(!result.basis.includes('inventory:rapid_dom_timed_out'));
   } finally { await browser.close(); }
 });
+
+test('rapid timeout retains the stalled probe stage without inventing inventory', async () => {
+  const page = { evaluate: () => new Promise(() => {}), url: () => 'https://example.test/' };
+  const result = await readRapidFirstLayerConsentUiObservation(page as any, Date.now(), 100);
+  assert.ok(result.basis.includes('inventory:rapid_timeout_stage:probe_presence'));
+  assert.deepEqual(result.captureDiagnostics?.completedChannels, []);
+  assert.deepEqual(result.captureDiagnostics?.timedOutChannels, ['dom_inventory']);
+});

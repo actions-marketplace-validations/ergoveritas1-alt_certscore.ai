@@ -38,3 +38,21 @@ in-memory masking work is estimated below $1/month at 100,000 scans (under
 100ms average additional work would be about $0.49 compute at 3,008MB); capturing
 smaller native images and removing font waits should offset that overhead. No
 provisioned-capacity or retention change is included.
+
+## Approved declared-policy text allowance — September 15, 2026
+
+The product owner approved up to $15/month incremental compute at 100,000
+scans/month for this recovery. A selected supplemental policy child keeps its
+2,500ms HTML fetch cap. When that HTML explicitly declares OneTrust notice text,
+resolution receives up to 2,500ms from resolution start, capped at 5,000ms from
+document-fetch start and at the existing policy-lane deadline. The allowance
+covers one declared notice and one unique metadata policy URL; existing locale,
+ownership, retained-text, and downstream eligibility checks remain unchanged.
+
+No new lane, browser, retry, model call, or overall lane deadline is added.
+Worst-case additional compute is approximately $12.25/month at 100,000 affected
+scans and 3,008MB Lambda memory; actual use is limited to qualifying child
+documents. Approval ceiling is $15/month. The lower-cost alternative was the
+previous retention repair with the original shared 2,500ms child allowance.
+
+Capture diagnostics retain only fixed stage/code values for rapid-inventory timeouts and form capture failures. They contain no form values or raw browser errors, add no browser work, and are estimated below $1/month in bounded logging overhead.

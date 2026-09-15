@@ -70,6 +70,9 @@ const POLICY_FETCH_CONCURRENCY = 4;
 const POLICY_RENDERED_FETCH_CONCURRENCY = 1;
 const POLICY_FETCH_TIMEOUT_MS = 5_000;
 const POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS = 2_500;
+// Owner-approved September 15: separate bounded page-declared text resolution,
+// capped inside the existing policy-lane deadline (up to $15/month at 100k scans).
+const POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS = 2_500;
 // The policy module already has a five-second hard-deadline reserve. Use part
 // of that existing reserve for one strong, actually observed privacy link
 // that reached evaluation just after the soft budget; this does not extend
@@ -2403,7 +2406,8 @@ async function processPolicyCandidate({
       !shouldUseDirectPolicyDocumentText(visibleText)) {
     const deadlineAtMs = Math.min(
       input.absoluteDeadlineAtMs ?? Infinity,
-      documentFetchStartedAtMs + POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS,
+      documentFetchStartedAtMs + POLICY_SUPPLEMENTAL_FETCH_TIMEOUT_MS + POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS,
+      Date.now() + POLICY_DECLARED_NOTICE_RESOLUTION_TIMEOUT_MS,
       Date.now() + remainingPolicyFetchMs(input, moduleStartedAtMs),
     );
     if (deadlineAtMs - Date.now() > 10) {

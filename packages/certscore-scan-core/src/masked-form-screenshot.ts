@@ -15,6 +15,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
     void acquisition.then(client => client.detach()).catch(() => {});
     throw error;
   }).finally(() => { if (acquisitionTimer) clearTimeout(acquisitionTimer); });
+  let stage = "pause_animation";
   let style: Awaited<ReturnType<Page["evaluateHandle"]>> | undefined;
   try {
     return await Promise.race([
@@ -35,16 +36,20 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
           if (!(root instanceof Element) || !root.isConnected || controls.length > 1000) throw new Error("Form screenshot binding unavailable");
           return { url: location.href, bounds: rect(root), masks: Array.from(controls, rect) };
         });
+        stage = "read_layout";
         const before = await readLayout();
         if (Date.now() >= deadline) throw new Error("Form screenshot deadline");
         const clip = before.bounds;
         if (clip.width <= 0 || clip.height <= 0 || clip.width * clip.height > 40_000_000) throw new Error("Form screenshot bounds unavailable");
+        stage = "capture_pixels";
         const captured = await session.send("Page.captureScreenshot", {
           format: "jpeg", quality: 45, fromSurface: true, captureBeyondViewport: true,
           clip: { ...clip, scale: Math.min(1, 640 / clip.width, 960 / clip.height) },
         });
+        stage = "verify_layout";
         const after = await readLayout();
         if (JSON.stringify(before) !== JSON.stringify(after) || Date.now() >= deadline) throw new Error("Form screenshot layout changed");
+        stage = "mask_pixels";
         const raw = Buffer.from(captured.data, "base64");
         const metadata = await sharp(raw, { limitInputPixels: 40_000_000 }).metadata();
         if (!metadata.width || !metadata.height) throw new Error("Form screenshot dimensions unavailable");
@@ -64,6 +69,11 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
       })(),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Form screenshot deadline")), Math.max(1, deadline - Date.now())); }),
     ]);
+  } catch (error) {
+    const code = error instanceof Error && error.message.startsWith("Form screenshot ")
+      ? error.message.slice(0, 100) : "browser_operation_failed";
+    console.warn("[form-snapshot-capture]", JSON.stringify({ stage, code, deadlineExpired: Date.now() >= deadline }));
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
     // Detaching also stops a timed-out CDP operation; no late image is retained.
