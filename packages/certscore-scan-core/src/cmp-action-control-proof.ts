@@ -12,6 +12,8 @@ import { createHash } from "node:crypto";
 import { inspectLocatorActionability, locatorActionabilitySupportsVerifiedDispatch } from "./cmp-control-actionability.js";
 import type { Locator, Page } from "playwright";
 import { consentScopePermitsInteraction } from "./cmp-action-target.js";
+import { inspectCustomAcceptControl, sameCustomAcceptControlBinding } from "./custom-accept-control.js";
+import type { CustomAcceptControlBinding } from "@certscore/contracts";
 import {
   readClosedShadowAccessibleControlLabel,
   type CmpAccessibleActionResolution,
@@ -55,6 +57,7 @@ export async function buildConsentActionControlProof(input: {
   control: Locator;
   controlFrameUrl?: string;
   expectedAccessibleControl?: CmpAccessibleActionResolution;
+  expectedCustomControlBinding?: CustomAcceptControlBinding;
   observedAtMs: number;
   page: Page;
   recipeId: string;
@@ -208,6 +211,12 @@ export async function buildConsentActionControlProof(input: {
   }
   // Re-check after every asynchronous proof read, immediately before returning
   // to dispatch. Trial clicks and baseline capture can trigger document changes.
+  if (input.expectedCustomControlBinding && (input.action !== "accept" || input.cmpId ||
+    !input.authorizedTargetSha256 || !sameCustomAcceptControlBinding(
+      await inspectCustomAcceptControl(input.control, input.expectedCustomControlBinding.bannerSelector, Date.now() + 100,
+        selected.value.replace(/\s+/g, " ").trim().toLowerCase()),
+      input.expectedCustomControlBinding,
+    ))) return { status: "label_unverifiable", reason: "custom_control_binding_changed" };
   if (input.signal?.aborted) return { status: "label_unverifiable", reason: "abort_requested_before_action" };
   if (input.authorizedTargetSha256 && sha256(normalizedTarget(input.page.url())) !== input.authorizedTargetSha256) {
     return { status: "label_unverifiable", reason: "redirect_target_not_authorized" };
@@ -217,6 +226,7 @@ export async function buildConsentActionControlProof(input: {
     proof: {
       contractVersion: CONSENT_ACTION_CONTROL_PROOF_VERSION,
       action: input.action,
+      ...(input.expectedCustomControlBinding ? { customControlBinding: input.expectedCustomControlBinding } : {}),
       observedAtMs: input.observedAtMs,
       accessibleLabel: selected.value,
       labelSource: input.expectedAccessibleControl?.kind === "closed_shadow_accessible_control"

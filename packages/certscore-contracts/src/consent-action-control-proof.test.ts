@@ -14,6 +14,26 @@ const contextualProof = {
   contextualApproval: { policyVersion: "registered_contextual_accept.v1", bannerSelector: ".bst-panel", expectedNormalizedLabel: "verstanden" },
 };
 
+test("custom Accept proof requires complete typed binding and preserves historical proof", () => {
+  const proof = { ...contextualProof, contextualApproval: undefined, cmpId: undefined,
+    actionSemantics: "direct_label", accessibleLabel: "Accept all", classifierConfidence: 1, matchStrength: "direct",
+    recipeId: "canonical-control:accept:custom-v1:fixture",
+    customControlBinding: { policyVersion: "custom_accept_control.v1", kind: "direct_onclick",
+      tagName: "span", bannerSelector: "#consent", handlerSha256: "c".repeat(64), nonTransactional: true },
+  };
+  assert.equal(consentActionControlProofSchema.safeParse(proof).success, true);
+  for (const change of [
+    { customControlBinding: undefined }, { action: "reject" }, { cmpId: "Known CMP" },
+    { authorizedTargetSha256: undefined }, { frameIdentitySha256: undefined },
+    { recipeId: "unregistered" }, { contractVersion: "certscore.consent_action_control_proof.v1" },
+    { customControlBinding: { ...proof.customControlBinding, handlerSha256: "invalid" } },
+    { customControlBinding: { ...proof.customControlBinding, tagName: "input" } },
+  ]) assert.equal(consentActionControlProofSchema.safeParse({ ...proof, ...change }).success, false, JSON.stringify(change));
+  const legacy = { ...proof, customControlBinding: undefined, recipeId: "canonical-control:accept:v1:fixture",
+    contractVersion: "certscore.consent_action_control_proof.v1" };
+  assert.equal(consentActionControlProofSchema.safeParse(legacy).success, true);
+});
+
 test("v2 contextual action proof retains named scope without raising label confidence", () => {
   assert.equal(consentActionControlProofSchema.safeParse(contextualProof).success, true);
   assert.equal(contextualProof.classifierConfidence, 0.78);

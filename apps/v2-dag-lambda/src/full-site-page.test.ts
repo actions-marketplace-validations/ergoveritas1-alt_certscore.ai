@@ -39,7 +39,9 @@ test("finish waits for verified acceptance through the proxy without exceeding t
     console.error = value => diagnostics.push(String(value));
     console.info = value => completions.push(String(value));
     const message = { contractVersion: FULL_SITE_PAGE_DISPATCH, pageId: randomUUID(), attemptId: randomUUID(), token: "a".repeat(64) };
-    const url = new URL("http://example.com/api/internal/full-site/page");
+    // The loopback proxy handles this public-IP target locally. Avoid external
+    // DNS latency in a fixture that measures only callback acceptance deadlines.
+    const url = new URL("http://93.184.216.34/api/internal/full-site/page");
     const startedAt = Date.now();
     assert.deepEqual(await requestFullSiteControl(url, message, { operation: "finish" }, startedAt + 7000), { accepted: true });
     assert.ok(Date.now() - startedAt >= 5000);
@@ -187,14 +189,14 @@ test("inventory hard timeout fits the lease without changing homepage runtime or
 });
 
 
-test("inventory admission tolerates a two-second proxy handshake and fails closed without browser work or retry", async () => {
+test("inventory admission tolerates a two-second proxy handshake and fails closed on a permanent rejection without browser work or retry", async () => {
   const { createServer } = await import("node:http");
   const { once } = await import("node:events");
   const proxy = createServer();
   let target: string | undefined;
   proxy.on("connect", (request, socket) => {
     target = request.url;
-    setTimeout(() => socket.end("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n"), 2000);
+    setTimeout(() => socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"), 2000);
   });
   proxy.listen(0, "127.0.0.1");
   await once(proxy, "listening");
@@ -214,7 +216,7 @@ test("inventory admission tolerates a two-second proxy handshake and fails close
     process.env.SCAN_PROXY_ENABLED = "1";
     process.env.CERTSCORE_PUBLIC_NETWORK_GUARD_FORCE = "true";
     globalThis.fetch = async () => { throw new Error("Direct egress must not be used"); };
-    await assert.rejects(runFullSitePage(message), /503/);
+    await assert.rejects(runFullSitePage(message), /403/);
     assert.equal(target, "example.com:443");
     assert.equal(diagnostics.length, 1);
     const diagnostic = JSON.parse(diagnostics[0]!);
@@ -230,5 +232,57 @@ test("inventory admission tolerates a two-second proxy handshake and fails close
     globalThis.fetch = originalFetch;
     keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; });
     await new Promise<void>((resolve, reject) => proxy.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test("callback retries one transient failure with identical credentials inside the original deadline", async () => {
+  const { createServer } = await import("node:http");
+  let status = 502, calls = 0, alwaysFail = false, delayMs = 0;
+  const bodies: string[] = [];
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    bodies.push(body);
+    calls++;
+    if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
+    response.writeHead(alwaysFail || calls === 1 ? status : 200, {"Content-Type":"application/json"});
+    response.end(JSON.stringify({accepted:true,grant:null}));
+  });
+  await new Promise<void>(resolve => server.listen(0,"127.0.0.1",resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const keys = ["CERTSCORE_V2_DAG_LAMBDA_PROXY_SERVER","SCAN_PROXY_ENABLED","CERTSCORE_PUBLIC_NETWORK_GUARD_FORCE"];
+  const previous = keys.map(key => process.env[key]);
+  try {
+    process.env.CERTSCORE_V2_DAG_LAMBDA_PROXY_SERVER = `http://127.0.0.1:${address.port}`;
+    process.env.SCAN_PROXY_ENABLED = "1";
+    process.env.CERTSCORE_PUBLIC_NETWORK_GUARD_FORCE = "true";
+    const message = {contractVersion:FULL_SITE_PAGE_DISPATCH,pageId:randomUUID(),attemptId:randomUUID(),token:"a".repeat(64)};
+    // Keep the public-network guard enabled without making live DNS part of
+    // the bounded retry/deadline assertions; the loopback proxy serves the reply.
+    const url = new URL("http://93.184.216.34/api/internal/full-site/page");
+    for (const operation of ["claim","finish"]) {
+      calls=0; bodies.length=0;
+      const result = await requestFullSiteControl(url,message,{operation},Date.now()+3000);
+      assert.equal(result.accepted,true);
+      assert.equal(calls,2);
+      assert.equal(bodies[0],bodies[1],"Retry cannot change credential or operation");
+    }
+    calls=0; alwaysFail=true;
+    await assert.rejects(requestFullSiteControl(url,message,{operation:"claim"},Date.now()+3000), /502/);
+    assert.equal(calls,2,"Repeated failures cannot loop");
+    for (status of [400,401,403,409,429,500]) {
+      calls=0;
+      await assert.rejects(requestFullSiteControl(url,message,{operation:"finish"},Date.now()+3000));
+      assert.equal(calls,1,"Permanent/application errors do not retry");
+    }
+    status=502; calls=0; delayMs=140;
+    const startedAt=Date.now();
+    await assert.rejects(requestFullSiteControl(url,message,{operation:"claim"},startedAt+250), {name:"TimeoutError"});
+    assert.equal(calls,2);
+    assert.ok(Date.now()-startedAt<500,"Retry shares the absolute operation deadline");
+  } finally {
+    keys.forEach((key,index)=>{if(previous[index]===undefined)delete process.env[key];else process.env[key]=previous[index];});
+    await new Promise<void>(resolve=>server.close(()=>resolve()));
   }
 });

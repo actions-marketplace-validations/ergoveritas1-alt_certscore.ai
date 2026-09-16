@@ -23,6 +23,9 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
     await style?.evaluate((state: any) => {
       if (!state) return;
       state.node.remove();
+      for (const animation of state.animations) {
+        if (animation.playState === "paused") animation.play();
+      }
       if (state.previous === null) state.root.removeAttribute(state.attribute);
       else state.root.setAttribute(state.attribute, state.previous);
       for (const entry of state.scrollPositions) entry.element.scrollTo({ left: entry.x, top: entry.y, behavior: "instant" });
@@ -36,6 +39,14 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
         style = await element.evaluateHandle((root, { deadlineAtMs, marker }) => {
           if (Date.now() >= deadlineAtMs || !(root instanceof Element)) return null;
           const position = { x: scrollX, y: scrollY };
+          // Animating ancestors and siblings can move the form even when its
+          // own CSS is paused. Freeze the current animation frame (including
+          // transitions) without finishing it or waiting for page-wide settle.
+          // This runs after runtime inventory; resume only what we paused.
+          const animations = document.getAnimations();
+          if (animations.length > 1000) throw new Error("Form screenshot animation inventory exceeded");
+          const runningAnimations = animations.filter(animation => animation.playState === "running");
+          for (const animation of runningAnimations) animation.pause();
           const scrollPositions = [];
           for (let parent = root.parentElement; parent; parent = parent.parentElement) {
             scrollPositions.push({ element: parent, x: parent.scrollLeft, y: parent.scrollTop });
@@ -48,7 +59,7 @@ export async function captureMaskedFormScreenshot(page: Page, element: ElementHa
           node.textContent = `${scope},${scope} *,${scope}::before,${scope}::after,${scope} *::before,${scope} *::after{animation-play-state:paused!important;transition-property:none!important;caret-color:transparent!important}`;
           document.documentElement.appendChild(node);
 
-          return { node, root, attribute, previous, position, scrollPositions };
+          return { node, root, attribute, previous, position, scrollPositions, animations: runningAnimations };
         }, { deadlineAtMs: deadline, marker: randomUUID() });
         if (Date.now() >= deadline) {
           await cleanupStyle();

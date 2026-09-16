@@ -284,6 +284,7 @@ export const postRefusalInteractionDiagnosticsSchema = z.object({
         "frame_not_found",
         "scope_not_interactive",
         "control_not_hit_target",
+        "control_binding_unverified",
         "binding_budget_exhausted",
         "single_actionable",
         "multiple_actionable",

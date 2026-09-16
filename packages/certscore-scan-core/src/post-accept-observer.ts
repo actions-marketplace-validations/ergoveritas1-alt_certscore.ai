@@ -1,4 +1,5 @@
 import { terminalConsentDecisionRead } from "./terminal-consent-decision.js";
+import { inspectCustomAcceptControl, isCustomAcceptControlCandidate, sameCustomAcceptControlBinding } from "./custom-accept-control.js";
 import { prioritizeConsentActionRecipes, consentActionBindingDeadline, liveConsentActionCmp } from "./consent-action-recipe-priority.js";
 import type { ActionTcfData } from "./consent-action-tcf-state.js";
 import { captureOneTrustBaseline, type OneTrustBaseline } from "./onetrust-consent-state.js";
@@ -11,6 +12,7 @@ import {
   POST_ACCEPT_DEFAULT_OBSERVATION_WINDOW_MS,
   postAcceptEvidencePacketSchema,
   type ConsentActionControlProof,
+  type CustomAcceptControlBinding,
   type PostAcceptEvidencePacket,
   type PostAcceptNetworkRequest,
   type PostAcceptObservation,
@@ -108,6 +110,7 @@ export interface PostAcceptActionRecipe {
   controlSelector: string;
   /** Exact canonical label used only to disambiguate one geometry-derived selector. */
   controlExpectedNormalizedLabel?: string;
+  customControlBinding?: CustomAcceptControlBinding;
   accessibleControl?: CmpAccessibleActionResolution;
   runtimeUrlPatternSources?: string[];
   controlFrameUrl?: string;
@@ -857,6 +860,7 @@ export async function runPostAcceptObserver(
       page,
       recipeId: selectedRecipe.recipeId,
       selectorHint: selectedRecipe.controlSelector,
+      expectedCustomControlBinding: selectedRecipe.customControlBinding,
     });
     if (
       proofResolution.status !== "verified" &&
@@ -929,6 +933,7 @@ export async function runPostAcceptObserver(
             page,
             recipeId: selectedRecipe.recipeId,
             selectorHint: selectedRecipe.controlSelector,
+            expectedCustomControlBinding: selectedRecipe.customControlBinding,
           });
         }
       } catch (error) {
@@ -1505,10 +1510,10 @@ async function waitForCanonicalAcceptControlRecipe(
       timeoutMs: Math.max(1, Math.min(750, deadlineAtMs - Date.now())),
     }).catch(() => undefined);
     if (geometry?.cmp.name) onCmpDetected?.(geometry.cmp.name);
-    const candidates = collapseEquivalentCanonicalAcceptCandidates(
-      geometry?.candidates.filter((candidate) =>
+    let candidates = geometry?.candidates.filter((candidate) =>
         candidate.actionType === "accept_all" &&
-        hasActionControlStructure(candidate) &&
+        (hasActionControlStructure(candidate) || (!geometry?.cmp.detected &&
+          candidate.consentContextConfirmed && isCustomAcceptControlCandidate(candidate))) &&
         candidate.decisionStatus === "confirmed_visible" &&
         candidate.layer === "first_layer" &&
         candidate.enabled &&
@@ -1517,20 +1522,46 @@ async function waitForCanonicalAcceptControlRecipe(
         (candidate.consentContextConfirmed || geometry?.cmp.detected === true) &&
         Boolean(candidate.selectorHint) &&
         Boolean(candidate.containerSelectorHint)
-      ) ?? [],
-    );
+      ) ?? [];
+    const classifiedCandidateCount = candidates.length;
+    const customBindings = new Map<ConsentControlCandidateEvidence, CustomAcceptControlBinding>();
+    let customBindingUnverified = false;
+    const customCandidates = candidates.filter(candidate => !hasActionControlStructure(candidate));
+    // Never establish uniqueness from a truncated candidate set.
+    if (customCandidates.length > 8) return { status: "ambiguous" };
+    const customBindingDeadline = consentActionBindingDeadline(deadlineAtMs, outerDeadlineAtMs);
+    for (const candidate of customCandidates) {
+      if (signal?.aborted) return { status: "aborted" };
+      const scope = exactAcceptSelectorScope(page, candidate.frameContext.frameKind === "child_frame"
+        ? candidate.frameContext.frameUrl : undefined);
+      const binding = scope.status === "found"
+        ? await inspectCustomAcceptControl(scope.scope.locator(candidate.selectorHint), candidate.containerSelectorHint!, customBindingDeadline, candidate.normalizedLabel)
+        : undefined;
+      if (binding) customBindings.set(candidate, binding);
+      else customBindingUnverified = true;
+    }
+    candidates = candidates.filter(candidate => hasActionControlStructure(candidate) || customBindings.has(candidate));
+    // A custom control and a native control with the same label may be two
+    // distinct choices. Do not let native-wrapper alias reduction discard it.
+    if (customBindings.size === 0) candidates = collapseEquivalentCanonicalAcceptCandidates(candidates);
     const snapshot: ResolverSnapshot = { source: "canonical_geometry",
       state: !geometry ? "geometry_unavailable" : candidates.length > 1 ? "multiple_actionable"
-        : candidates.length === 1 ? "candidate_detected" : "selector_absent",
+        : candidates.length === 1 ? "candidate_detected" : customBindingUnverified ? "control_binding_unverified" : "selector_absent",
       selectorMatchCount: Math.min(64, geometry?.candidates.length ?? 0),
       visibleCount: Math.min(64, geometry?.candidates.filter(c => c.decisionStatus === "confirmed_visible").length ?? 0),
       enabledCount: Math.min(64, geometry?.candidates.filter(c => c.enabled).length ?? 0),
-      labelMatchCount: Math.min(64, candidates.length), actionableCount: Math.min(64, candidates.length),
+      labelMatchCount: Math.min(64, classifiedCandidateCount), actionableCount: Math.min(64, candidates.length),
       cmpIds: geometry?.cmp.name ? [geometry.cmp.name] : [],
       controlLabels: [...new Set(candidates.map(c => c.normalizedLabel))].slice(0, 4),
     };
     reportDiagnostic?.(snapshot);
     const bindingState = (state: typeof snapshot.state) => reportDiagnostic?.({ ...snapshot, state, actionableCount: 0 });
+    if (customBindingUnverified && candidates.length > 0) {
+      // An unreadable competing custom choice cannot establish uniqueness for
+      // another control, including when its bounded binding read timed out.
+      bindingState("control_binding_unverified");
+      return { status: "ambiguous" };
+    }
     if (candidates.length > 1) {
       sawAmbiguousCanonicalControl = true;
       if (Date.now() >= deadlineAtMs) break;
@@ -1590,11 +1621,14 @@ async function waitForCanonicalAcceptControlRecipe(
       }
       if (actionableControls.length !== 1) { bindingState(failedStage); continue; }
       const candidateCmpName = await liveConsentActionCmp(actionableControls[0]!, registeredRecipes, bindingDeadlineAtMs);
+      const customControlBinding = customBindings.get(candidate);
+      // A custom generic binding must not bypass any named CMP's exact recipe.
+      if (customControlBinding && candidateCmpName) { bindingState("control_binding_unverified"); continue; }
       if (!candidate.consentContextConfirmed && !candidateCmpName) { bindingState("scope_not_interactive"); continue; }
       const registeredCmpRecipe = selectCanonicalAcceptConfirmationRecipe(registeredRecipes, candidateCmpName);
       const recipe: PostAcceptActionRecipe = {
         artifactVersion: "certscore.post_accept_action_recipe.v1",
-        recipeId: `canonical-control:accept:v1:${hashValue([
+        recipeId: `canonical-control:accept:${customControlBinding ? "custom-v1" : "v1"}:${hashValue([
           candidate.normalizedLabel,
           candidate.selectorHint,
           containerSelector,
@@ -1610,6 +1644,7 @@ async function waitForCanonicalAcceptControlRecipe(
           "canonical_consent_control_registry_recipe",
         controlSelector,
         controlExpectedNormalizedLabel: candidate.normalizedLabel,
+        ...(customControlBinding ? { customControlBinding } : {}),
         ...(controlFrameUrl ? { controlFrameUrl } : {}),
         bannerSelector: containerSelector,
         ...(controlFrameUrl ? { bannerFrameUrl: controlFrameUrl } : {}),
@@ -1783,6 +1818,13 @@ async function dispatchAcceptControl(
   assertDispatchAllowed?: () => void,
 ) {
   assertDispatchAllowed?.();
+  if (recipe.customControlBinding) {
+    const binding = await inspectCustomAcceptControl(control, recipe.customControlBinding.bannerSelector, Date.now() + 100, recipe.controlExpectedNormalizedLabel);
+    if (!sameCustomAcceptControlBinding(binding, recipe.customControlBinding)) {
+      throw new Error("Custom Accept control binding changed before dispatch.");
+    }
+    assertDispatchAllowed?.();
+  }
   if (recipe.accessibleControl?.kind === "closed_shadow_accessible_control") {
     await dispatchClosedShadowAccessibleControl(page, recipe.accessibleControl, assertDispatchAllowed);
     return;

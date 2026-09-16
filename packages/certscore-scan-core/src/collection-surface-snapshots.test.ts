@@ -89,7 +89,10 @@ test("a form layout change during capture discards pixels before review", async 
       const send = session.send.bind(session);
       session.send = (async (method: string, params: unknown) => {
         const result = await (send as Function)(method, params);
-        if (method === 'Page.captureScreenshot') await page.locator('input').evaluate(el => (el as HTMLElement).style.marginLeft = '50px');
+        if (method === 'Page.captureScreenshot') await page.locator('input').evaluate(el => {
+          const style = (el as HTMLElement).style;
+          style.marginLeft = `${(parseFloat(style.marginLeft) || 0) + 50}px`;
+        });
         return result;
       }) as typeof session.send;
       return session;
@@ -169,7 +172,11 @@ test("changes to controls outside retained pixels do not invalidate a form crop"
       const session = await createSession(...args), send = session.send.bind(session);
       session.send = (async (method: string, params: unknown) => {
         const result = await (send as Function)(method, params);
-        if (method === "Page.captureScreenshot") await page.locator("#outside").evaluate((el, enter) => { (el as HTMLElement).style.left = "50px"; if (enter) (el as HTMLElement).style.top = "30px"; }, enterCrop);
+        if (method === "Page.captureScreenshot") await page.locator("#outside").evaluate((el, enter) => {
+          const style = (el as HTMLElement).style;
+          style.left = `${(parseFloat(style.left) || 0) + 20}px`;
+          if (enter) style.top = "30px";
+        }, enterCrop);
         return result;
       }) as typeof session.send;
       return session;
@@ -182,6 +189,52 @@ test("changes to controls outside retained pixels do not invalidate a form crop"
     assert.equal(changed[0]?.status, "unavailable");
     assert.equal(changed[0]?.data, undefined);
     assert.equal(reviewed, false);
+  } finally { await browser.close(); }
+});
+
+test("ancestor and sibling animations freeze for one capture and resume without changing paused animations", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  try {
+    await page.setContent(`<style>
+      @keyframes grow { from {height:20px} to {height:220px} }
+      @keyframes move { from {transform:translateX(0)} to {transform:translateX(200px)} }
+      #sibling {animation:grow 1s infinite alternate}
+      section {animation:move 1s infinite alternate}
+      #paused {animation:grow 1s infinite alternate;animation-play-state:paused}
+      form {width:400px;height:150px;background:white}
+    </style><div id="sibling"></div><section><form><label>Search<input type="text" value="private-value" style="display:block;width:100px;height:40px"></label></form></section><div id="paused"></div>`);
+    const createSession = page.context().newCDPSession.bind(page.context());
+    let captures = 0, reviews = 0;
+    page.context().newCDPSession = async (...args) => {
+      const session = await createSession(...args), send = session.send.bind(session);
+      session.send = (async (method: string, params: unknown) => {
+        if (method === "Page.captureScreenshot") {
+          captures += 1;
+          await new Promise(resolve => setTimeout(resolve, 100));
+          assert.ok(await page.evaluate(() => document.getAnimations().every(animation => animation.playState === "paused")));
+        }
+        return (send as Function)(method, params);
+      }) as typeof session.send;
+      return session;
+    };
+    const inventory = buildCollectionSurfaceInventory({ pageUrl: "about:blank", inspectedFieldCandidateCount: 1, candidateScanTruncated: false, rows: [{ groupKey: "native_form_0", structure: "native_form", elementType: "input", inputType: "text", label: "Search", required: false, disabled: false, readOnly: false, domOrder: 0 }] }, Date.now());
+    const result = await captureCollectionSurfaceSnapshots(page, inventory, async ({ bytes }) => {
+      reviews += 1;
+      const pixels = await sharp(bytes).raw().toBuffer({ resolveWithObject: true });
+      const offset = (40 * pixels.info.width + 50) * pixels.info.channels;
+      assert.ok(Math.abs(pixels.data[offset]! - 148) < 8);
+      assert.ok(Math.abs(pixels.data[offset + 1]! - 163) < 8);
+      assert.ok(Math.abs(pixels.data[offset + 2]! - 184) < 8);
+      return { safeForDisplay: true };
+    });
+    assert.equal(result[0]?.status, 'available');
+    assert.equal(captures, 1);
+    assert.equal(reviews, 1);
+    assert.equal(await page.locator('input').inputValue(), 'private-value');
+    assert.equal(await page.locator('#sibling').evaluate(el => el.getAnimations()[0]?.playState), 'running');
+    assert.equal(await page.locator('section').evaluate(el => el.getAnimations()[0]?.playState), 'running');
+    assert.equal(await page.locator('#paused').evaluate(el => el.getAnimations()[0]?.playState), 'paused');
   } finally { await browser.close(); }
 });
 

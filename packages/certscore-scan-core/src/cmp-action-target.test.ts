@@ -36,6 +36,10 @@ test("action aliases require identical live nodes and identical action contracts
     assert.equal((await run([a, alias])).length, 1);
     assert.equal((await run([a, distinct])).length, 2);
     assert.equal((await run([a, { ...alias, recipe: { ...recipe, confirmation: { ...recipe.confirmation, expectedValue: "denied" } } }])).length, 2);
+    const custom = { ...recipe, customControlBinding: { handlerSha256: "a".repeat(64) } };
+    assert.equal((await distinctActionTargets([
+      { ...a, recipe: custom }, { ...alias, recipe: { ...custom, customControlBinding: { handlerSha256: "b".repeat(64) } } },
+    ], Date.now() + 2000)).length, 2);
     assert.equal((await run([a, { recipe, control: page.frames()[1]!.locator("#a") }])).length, 2);
     assert.equal((await distinctActionTargets([a, alias], Date.now() - 1)).length, 2);
     assert.equal((await distinctActionTargets([a, alias], Date.now() + 2000, AbortSignal.abort())).length, 2);

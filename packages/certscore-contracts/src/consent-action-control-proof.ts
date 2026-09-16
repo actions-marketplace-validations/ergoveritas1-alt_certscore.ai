@@ -15,6 +15,16 @@ export const CONSENT_ACTION_CONTROL_PROOF_VERSION =
 
 export const REGISTERED_CONTEXTUAL_ACCEPT_POLICY = "registered_contextual_accept.v1" as const;
 
+export const customAcceptControlBindingSchema = z.object({
+  policyVersion: z.literal("custom_accept_control.v1"),
+  kind: z.literal("direct_onclick"),
+  tagName: z.string().max(64).regex(/^(?:span|div|[a-z][a-z0-9]*-[a-z0-9-]+)$/),
+  bannerSelector: z.string().min(1).max(500),
+  handlerSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  nonTransactional: z.literal(true),
+}).strict();
+export type CustomAcceptControlBinding = z.infer<typeof customAcceptControlBindingSchema>;
+
 /** Does not lower the ordinary direct-label action threshold. A reviewed named
  * recipe must separately prove the exact label and its live first-layer scope. */
 export function isRegisteredContextualAcceptLabel(label: string, expectedNormalizedLabel: string) {
@@ -42,6 +52,7 @@ export const consentActionControlProofSchema = z.object({
     bannerSelector: z.string().min(1).max(500),
     expectedNormalizedLabel: z.string().min(1).max(160),
   }).strict().optional(),
+  customControlBinding: customAcceptControlBindingSchema.optional(),
   classifierIntent: z.enum(["accept", "reject", "options", "privacy_opt_out", "unknown"]),
   classifierConfidence: z.number().min(0).max(1),
   matchedLocale: consentActionControlLocaleSchema.optional(),
@@ -56,6 +67,16 @@ export const consentActionControlProofSchema = z.object({
   enabled: z.literal(true),
   uniquelyActionable: z.literal(true),
 }).strict().superRefine((proof, context) => {
+  if (proof.recipeId.startsWith("canonical-control:accept:custom-v1:") && !proof.customControlBinding) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["customControlBinding"], message: "Custom recipe proof must retain its binding." });
+  }
+  if (proof.customControlBinding && (proof.contractVersion !== CONSENT_ACTION_CONTROL_PROOF_VERSION ||
+    proof.action !== "accept" || proof.actionSemantics !== "direct_label" || proof.cmpId ||
+    !proof.frameIdentitySha256 || !proof.authorizedTargetSha256 ||
+    !proof.recipeId.startsWith("canonical-control:accept:custom-v1:"))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["customControlBinding"],
+      message: "Custom Accept binding requires authorized, frame-bound, canonical direct-label proof." });
+  }
   if (proof.actionSemantics === "registered_contextual_accept") {
     const classification = classifyConsentControlLabel({ label: proof.accessibleLabel, hasConsentContext: true });
     if (proof.contractVersion !== CONSENT_ACTION_CONTROL_PROOF_VERSION || proof.action !== "accept" ||

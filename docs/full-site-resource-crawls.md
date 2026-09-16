@@ -769,3 +769,39 @@ Cost: $0/month incremental production infrastructure or API usage. Development
 runs can retain up to the existing 80 MiB combined per-attempt bounds on local
 storage instead of discarding results above 2 MiB. No additional visit, retry,
 model call, retention period, or wait is introduced.
+
+### Bounded control-plane recovery (September 15, 2026)
+
+An incident retained HTTP 502 failures on both claim and finish callbacks and a
+subsequent claim timeout. The unclaimed page reached `dispatch_admission_timeout`,
+stopping the crawl after eight completed pages. These were control-plane failures,
+not HTTP errors from the scanned website.
+
+Each callback now permits one repeat for HTTP 502/503/504 or narrowly identified
+transport failures. It sends the identical credential and payload through the
+required proxy, inside the original three-second claim deadline or remaining
+24-second invocation deadline. There is no new invocation, browser visit, timeout,
+or retry of authorization, validation, rate-limit, malformed response, or semantic
+rejection errors. An exhausted deadline remains terminal. Claim credentials remain
+one-use: a lost successful claim response cannot authorize a second browser run.
+
+Finish persists the evidence byte size alongside the verified inventory receipt.
+An authenticated repeat for a terminal page can acknowledge only the exact saved
+inventory hash, inventory byte size, and evidence byte size for that page/attempt.
+It does not reread, reproject, or republish evidence. Old receipts without the new
+size field fail closed. Deploy the web receipt handler before the scanner retry.
+
+The owner approved the bounded retry with an estimated incremental allowance of
+up to $5/month at 100,000 scans/month. This estimate assumes ten-page scans and
+roughly 1% recovered additional-page callbacks: 9,000 recovered pages at about ten
+seconds and 3 GB each are approximately $4.50 in Lambda compute, plus small callback
+and log overhead. This is a forecast, not a spending cap; a higher recovery rate or
+longer average runtime requires a revised cost review. No capacity is added.
+
+Verification: callback failure fixtures, terminal HTTP receipt regression, Lambda
+and web typechecks, and a fresh localhost ten-page scan of the incident target.
+Local scan `5b5374b1-f2ec-4c18-9f97-8db7ef2b8fcf` completed all ten pages in 77.8
+seconds, with nine verified additional-page receipts and a rendered site score of
+78. Local execution validates the capture/persistence/report flow; proxy failures
+are injected by the callback regressions, not by the public target. Production
+has not been deployed as part of this verification.

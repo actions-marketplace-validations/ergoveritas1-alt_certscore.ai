@@ -65,6 +65,7 @@ type ActionRecipe = {
   controlExpectedNormalizedLabel?: string;
   accessibleControl?: unknown;
   preActionRequirement?: unknown;
+  customControlBinding?: unknown;
   confirmation: unknown;
 };
 
@@ -114,6 +115,7 @@ function actionContract(recipe: ActionRecipe): string {
     controlFrameUrl: recipe.controlFrameUrl,
     label: recipe.controlExpectedNormalizedLabel,
     preActionRequirement: recipe.preActionRequirement,
+    customControlBinding: recipe.customControlBinding,
     confirmation: recipe.confirmation,
   });
 }

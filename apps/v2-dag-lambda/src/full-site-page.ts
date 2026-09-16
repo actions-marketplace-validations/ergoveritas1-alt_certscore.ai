@@ -75,36 +75,47 @@ export async function requestFullSiteControl(controlUrl: URL, message: z.infer<t
   // than imposing a second deadline before verified persistence can acknowledge.
   const timeoutMs = body.operation === "claim" ? Math.min(3000, remainingMs) : remainingMs;
   if (timeoutMs <= 0) throw new Error("Inventory publication deadline reached.");
-  let httpStatus: number | null = null;
-  try {
-    const response = await proxyFetch(controlUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...message, ...body }),
-      signal: AbortSignal.timeout(
-        // Both operations stay inside the existing total invocation budget.
-        timeoutMs,
-      ),
-      redirect: "error",
-    });
-    httpStatus = response.status;
-    if (!response.ok)
-      throw new Error(`Full site control plane returned ${response.status}`);
-    const result = await response.json();
-    if (body.operation === "finish" && result.accepted !== true)
-      throw new Error("Full site result was not accepted.");
-    if (body.operation === "finish") console.info(JSON.stringify({ event: "full_site_control_completed",
-      page_id: message.pageId, attempt_id: message.attemptId, operation: "finish",
-      elapsed_ms: Date.now() - controlStartedAt, http_status: httpStatus }));
-    return result;
-  } catch (error) {
-    // The custom Lambda runtime does not emit uncaught invocation errors.
-    // Retain bounded operational context without URLs, credentials or response bodies.
-    console.error(JSON.stringify({ event: "full_site_control_failed", page_id: message.pageId,
-      attempt_id: message.attemptId, operation: body.operation, elapsed_ms: Date.now() - controlStartedAt, http_status: httpStatus,
-      error_name: error instanceof Error ? error.name.slice(0, 80) : "UnknownError" }));
-    throw error;
+  const operationDeadline = controlStartedAt + timeoutMs;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    let httpStatus: number | null = null;
+    let retryable = false;
+    try {
+      const remaining = operationDeadline - Date.now();
+      if (remaining <= 0) throw new Error("Inventory publication deadline reached.");
+      const response = await proxyFetch(controlUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...message, ...body }),
+        signal: AbortSignal.timeout(remaining),
+        redirect: "error",
+      });
+      httpStatus = response.status;
+      if (!response.ok) {
+        retryable = [502, 503, 504].includes(response.status);
+        await response.body?.cancel();
+        throw new Error(`Full site control plane returned ${response.status}`);
+      }
+      const result = await response.json();
+      if (body.operation === "finish" && result.accepted !== true)
+        throw new Error("Full site result was not accepted.");
+      if (body.operation === "finish" || attempt > 1) console.info(JSON.stringify({ event: "full_site_control_completed",
+        page_id: message.pageId, attempt_id: message.attemptId, operation: body.operation,
+        elapsed_ms: Date.now() - controlStartedAt, http_status: httpStatus, request_count: attempt }));
+      return result;
+    } catch (error) {
+      // Retry only transient transport failures, never permission, validation,
+      // application rejection, or a used deadline. The credential and body are identical.
+      const code = (error as { code?: string; cause?: { code?: string } })?.cause?.code ?? (error as { code?: string })?.code;
+      retryable ||= httpStatus === null && (["ECONNRESET", "EPIPE", "ETIMEDOUT", "UND_ERR_SOCKET"].includes(code ?? "") ||
+        (error instanceof Error && /^Egress proxy CONNECT failed with HTTP (502|503|504)$/.test(error.message)));
+      const retry = attempt === 1 && retryable && operationDeadline - Date.now() > 100;
+      console.error(JSON.stringify({ event: retry ? "full_site_control_retry" : "full_site_control_failed", page_id: message.pageId,
+        attempt_id: message.attemptId, operation: body.operation, elapsed_ms: Date.now() - controlStartedAt, http_status: httpStatus,
+        request_count: attempt, error_name: error instanceof Error ? error.name.slice(0, 80) : "UnknownError" }));
+      if (!retry) throw error;
+    }
   }
+  throw new Error("Full site control retry exhausted.");
 }
 
 export async function runFullSitePage(event: unknown, options: { s3Client?: S3Client; control?: (body: Record<string, unknown>) => Promise<any> } = {}) {

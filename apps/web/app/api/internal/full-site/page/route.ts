@@ -1,3 +1,4 @@
+import { matchesFullSiteCompletionReceipt } from "../../../../../server/scans/full-site-completion-receipt";
 import { collectionSurfaceInventorySchema, collectionSurfaceSnapshotSchema } from "@certscore/contracts";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -85,9 +86,11 @@ export async function POST(request: Request) {
     artifact_prefix: string;
     region: string;
     status: string;
+    artifact_json: unknown;
   }>(
-    `select c.scan_id,c.configuration_hash,c.bucket,c.artifact_prefix,c.region,p.status
-    from full_site_pages p join full_site_crawls c on c.scan_id=p.scan_id where p.id=$1 and p.attempt_id=$2 and p.token_hash=$3`,
+    `select c.scan_id,c.configuration_hash,c.bucket,c.artifact_prefix,c.region,p.status,a.artifact_json
+    from full_site_pages p join full_site_crawls c on c.scan_id=p.scan_id
+    left join full_site_attempts a on a.id=p.attempt_id and a.page_id=p.id where p.id=$1 and p.attempt_id=$2 and p.token_hash=$3`,
     [
       data.pageId,
       data.attemptId,
@@ -95,7 +98,10 @@ export async function POST(request: Request) {
     ],
   );
   if (!row) return new Response(null, { status: 403 });
-  if (row.status !== "active") return NextResponse.json({ accepted: false });
+  if (row.status !== "active") return NextResponse.json({
+    accepted: ["completed", "partial", "blocked", "failed"].includes(row.status) &&
+      matchesFullSiteCompletionReceipt(row.artifact_json, data),
+  }, { headers: { "Cache-Control": "no-store" } });
   if (!data.sha256 || !data.sizeBytes || !data.evidenceSizeBytes)
     return new Response(null, { status: 400 });
   const prefix = `${row.artifact_prefix}/${data.pageId}/${data.attemptId}`;
@@ -168,6 +174,7 @@ export async function POST(request: Request) {
       sizeBytes: data.sizeBytes,
       maxBytes: FULL_SITE_ARTIFACT_LIMITS.inventory,
       evidenceKey: `${prefix}/evidence.json`,
+      evidenceSizeBytes: data.evidenceSizeBytes,
       sourceHash: packet.sourceHash,
     },
   });

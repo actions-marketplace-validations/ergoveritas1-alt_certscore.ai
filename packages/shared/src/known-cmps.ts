@@ -494,6 +494,15 @@ export const KNOWN_CMP_REGISTRY: KnownCmpDefinition[] = [
     urlPatterns: [/(?:^|\/)orejime(?:\/|[-_.][^/?#]*)/i],
   },
   {
+    // This WordPress variant uses a span for Accept. The same id can also
+    // reload or open preferences in other variants, so bind the reviewed
+    // first-layer handler as well as the live canonical Accept label.
+    acceptControlSelectors: ['#tarteaucitronAlertBig #tarteaucitronPersonalize[onclick="tarteaucitron.userInterface.respondAll(true);"]'],
+    acceptConfirmation: {
+      kind: "canonical_first_layer_ui_transition",
+      bannerSelector: "#tarteaucitronAlertBig",
+      controlSelector: '#tarteaucitronAlertBig #tarteaucitronPersonalize[onclick="tarteaucitron.userInterface.respondAll(true);"]',
+    },
     aliases: ["DSGVO All in One for WP", "DSGVO AIO", "dsgvoaio", "tarteaucitron"],
     canonicalName: "DSGVO All in One / tarteaucitron",
     cookieNames: ["dsgvoaio", "dsgvoaio_create", "tarteaucitron"],
@@ -509,6 +518,8 @@ export const KNOWN_CMP_REGISTRY: KnownCmpDefinition[] = [
     ],
     evidenceTreatment: "cmp_infrastructure",
     globalNames: ["tarteaucitron", "dsgvoaio"],
+    interactionDocumentationUrls: ["https://plugins.svn.wordpress.org/dsgvo-all-in-one-for-wp/trunk/assets/js/tarteaucitron/tarteaucitron.min.js"],
+    recipeVersion: "v1",
     necessaryOnlyControlTargets: [{
       bannerSelector: "#tarteaucitronAlertBig",
       controlSelector: "#tarteaucitronCloseAlert",
