@@ -24,3 +24,8 @@ test("all requested columns sort both ways; missing times stay last", () => {
   assert.deepEqual(inventorySortIndices(rows, "firstSeenMs"), [0, 4, 1, 2, 3]);
   assert.deepEqual(inventorySortIndices(rows, "firstSeenMs", true), [2, 1, 4, 0, 3]);
 });
+
+test("unclassified purpose stays separate from review in inventory sorting", () => {
+  const unknown = { ...rows[0]!, evidence: "Unclassified" };
+  assert.deepEqual(inventorySortIndices([...rows, unknown]), [2, 4, 1, 5, 3, 0]);
+});

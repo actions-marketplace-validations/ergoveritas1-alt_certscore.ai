@@ -1,3 +1,4 @@
+import { buildNetworkInventoryOverview } from "../../lib/scans/network-inventory-overview";
 import { reconcileStorageInventory } from "../../lib/scans/storage-inventory-reconciliation";
 import { fullSiteFinalizationStartedAt } from "../../lib/scans/full-site-finalization";
 import { serviceEvidencePageIds } from "../../lib/scans/service-evidence-pages";
@@ -427,13 +428,14 @@ export async function loadFullSiteReport(
     score,
     storageReconciliation: { matched: storageReconciliation.matched.size, unmatched: storageReconciliation.unmatched },
     summary: { ...aggregate, resources: undefined },
+    networkOverview: buildNetworkInventoryOverview([...serviceGroups.values()]),
     priorityTotals: Object.fromEntries((["cookies", "requests", "embeds"] as const).map(group => {
       const rows = aggregate.resources.filter(row => group === "cookies"
         ? ["cookie", "storage"].includes(row.occurrence.kind)
         : row.occurrence.kind === (group === "requests" ? "request" : "embed"));
       const count = (priority: string) => rows.reduce((total, row) => total +
         (inventoryClassification(row) === priority ? group !== "cookies" ? row.eventCount : 1 : 0), 0);
-      return [group, { nonEssential: count("Non-essential"), review: count("Review"), contextual: count("Contextual"), essential: count("Essential") }];
+      return [group, { nonEssential: count("Non-essential"), review: count("Review"), contextual: count("Contextual"), essential: count("Essential"), unclassified: count("Unclassified") }];
     })),
     resources: {
       rows: displayedResources.map(row => ({ ...row, relationshipCount: relationshipCounts.get(row.pageIds[0] ?? "")?.get(row.occurrence.id)?.count, context: resourceContext(row).context, ...destinationSummary(row), inventoryEvidence: inventoryClassification(row), serviceOnlyAdditional: !!row.occurrence.serviceId && additionalServiceIds.has(row.occurrence.serviceId) })),

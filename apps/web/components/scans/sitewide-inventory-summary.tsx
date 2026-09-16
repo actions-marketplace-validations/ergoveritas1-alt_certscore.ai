@@ -17,7 +17,7 @@ function Mix({ title, rows, updating }: { updating: boolean; title: string; rows
     }
     rows = [...grouped].map(([label, count]) => ({ label, count }));
   }
-  const evidenceOrder = ["Non-essential", "Review", "Essential", "Contextual"];
+  const evidenceOrder = ["Non-essential", "Review", "Unclassified", "Essential", "Contextual"];
   if (title === "Evidence mix") rows = [...rows].sort((a, b) => evidenceOrder.indexOf(a.label) - evidenceOrder.indexOf(b.label));
   const color = (label: string, index: number) => title === "Evidence mix"
     ? ({ "Non-essential": "#f43f5e", Review: "#f59e0b", Essential: "#3b82f6", Contextual: "#0ea5e9" }[label] ?? "#94a3b8")
@@ -36,7 +36,7 @@ function Mix({ title, rows, updating }: { updating: boolean; title: string; rows
       {ordered.map(row => <span key={row.label} className="h-full" style={{ width: `${total ? row.count / total * 100 : 0}%`, background: row.color }} />)}
     </div>
     <ul id={listId} className="mt-1 max-h-44 w-full min-w-0 space-y-0 overflow-auto text-[11px] leading-[14px]" aria-label={`${title}: ${total} resource identities`}>
-      {visible.map(row => <li key={row.label} className="flex items-start gap-1.5"><span aria-hidden="true" className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: row.color }} /><span title={title === "Purpose mix" ? inventoryPurposeTitle(row.label) : undefined} className="min-w-0 flex-1 capitalize">{row.label === "Review" ? "Needs review" : row.label === "request" ? "Network requests" : row.label === "embed" ? "Embedded content" : row.label === "storage" ? "Browser storage" : row.label === "first_party" ? "1st Party" : row.label === "third_party" ? "3rd Party" : row.label.replaceAll("_", " ")}</span><strong className="shrink-0 tabular-nums"><ScanLiveValue value={row.count} active={updating} /></strong></li>)}
+      {visible.map(row => <li key={row.label} className="flex items-start gap-1.5"><span aria-hidden="true" className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: row.color }} /><span title={title === "Purpose mix" ? inventoryPurposeTitle(row.label) : undefined} className="min-w-0 flex-1 capitalize">{row.label === "Review" ? "Classification review" : row.label === "Unclassified" ? "Purpose unclassified" : row.label === "request" ? "Network requests" : row.label === "embed" ? "Embedded content" : row.label === "storage" ? "Browser storage" : row.label === "first_party" ? "1st Party" : row.label === "third_party" ? "3rd Party" : row.label.replaceAll("_", " ")}</span><strong className="shrink-0 tabular-nums"><ScanLiveValue value={row.count} active={updating} /></strong></li>)}
       {!total ? <li>No retained resources</li> : null}
     </ul>
     {canExpand ? <button type="button" aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded(!expanded)} className="mt-1 rounded text-[11px] font-medium text-sky-700 hover:text-sky-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500">{expanded ? "Show less" : `… Show all (${ordered.length})`}</button> : null}

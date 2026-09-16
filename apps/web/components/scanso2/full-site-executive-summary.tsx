@@ -5,7 +5,7 @@ import type { FullSiteReportResponse } from "../../server/scans/full-site-report
 import { getGdprEprivacyPostureTone } from "../../lib/scans/regulatory-coverage-score";
 import { ScanLiveValue } from "./scan-live-value";
 
-export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusLabel, actions, snapshot, homepageVerdict, inventorySummary, inventoryReviewCount }: {
+export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusLabel, actions, snapshot, homepageVerdict, inventorySummary }: {
   score?: FullSiteReportResponse["score"];
   pending: boolean;
   statusLabel?: string;
@@ -14,7 +14,6 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
   snapshot?: ReactNode;
   inventorySummary?: ReactNode;
   homepageVerdict?: string;
-  inventoryReviewCount?: number;
 }) {
   const layoutRef = useRef<HTMLDivElement>(null);
   const [collapsedHeight, setCollapsedHeight] = useState<number>();
@@ -89,7 +88,7 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
           : <p className="mt-2 text-sm leading-6 text-zinc-500">{pending ? "Page evidence is still being assessed. The site-scan assessment will appear when ready." : "Site assessment is unavailable."}</p>}
         </div>
         <div data-overview-block className="mt-auto">
-          {!pending && !singlePage && score ? <p className="mb-3 text-xs leading-5 text-zinc-600">Scope: {scannedPages ?? score.scoredPages} scanned pages. Consent controls, policy transparency and action-path checks cover the starting page; resource and form inventories cover the scanned pages. Completing a scan does not mean every policy topic was confirmed. {inventoryReviewCount !== undefined ? `${inventoryReviewCount} network requests need classification review; this count is separate from priority issues.` : ""}</p> : null}
+          {!pending && !singlePage && score ? <p className="mb-3 text-xs leading-5 text-zinc-600">Scope: {scannedPages ?? score.scoredPages} scanned pages. Consent controls, policy transparency and action-path checks cover the starting page; resource and form inventories cover the scanned pages. Completing a scan does not mean every policy topic was confirmed.</p> : null}
           {inventorySummary}
         </div>
       </div>

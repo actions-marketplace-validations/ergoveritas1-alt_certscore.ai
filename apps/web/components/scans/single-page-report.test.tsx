@@ -12,7 +12,7 @@ test("single-page overview uses the shared report card and keeps zero classifica
   assert.match(html, /Page score 56 out of 100/);
   assert.match(html, /1 page scanned/);
   assert.match(html, /Retained page assessment/);
-  for (const label of ["Non-essential", "Needs review", "Contextual", "Essential"]) assert.ok(html.includes(label));
+  for (const label of ["Non-essential", "Classification review", "Contextual", "Essential"]) assert.ok(html.includes(label));
   assert.doesNotMatch(html, /across your site|Site-wide scoring/);
 });
 

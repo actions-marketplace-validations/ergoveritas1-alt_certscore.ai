@@ -1,6 +1,6 @@
 export type InventorySortRow = { evidence: string; type: string; vendor: string; name: string; purpose: string; firstSeenMs: number | null };
 export type InventorySortKey = "default" | "type" | "vendor" | "name" | "purpose" | "firstSeenMs";
-const priority: Record<string, number> = { "Non-essential": 0, Review: 1, Contextual: 2, Essential: 3 };
+const priority: Record<string, number> = { "Non-essential": 0, Review: 1, Unclassified: 2, Contextual: 3, Essential: 4 };
 
 export function inventorySortIndices(rows: InventorySortRow[], key: InventorySortKey = "default", descending = false): number[] {
   const time = (a: InventorySortRow, b: InventorySortRow, reverse = false) => {

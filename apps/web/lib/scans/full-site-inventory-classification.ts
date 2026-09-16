@@ -25,7 +25,7 @@ export function classifyCrawlInventoryResource(row: CrawlOccurrence) {
         source: "full-site retained inventory",
       })
     : "review_needed";
-  return classifyInventoryEvidence({
+  const classification = classifyInventoryEvidence({
     type: row.kind === "embed" ? "embed" : row.kind === "request" ? "tracker" : "cookie",
     macroCategory: deriveInventoryMacroCategory({ purpose: row.purpose, vendor: row.vendor, priority }),
     priority,
@@ -33,4 +33,9 @@ export function classifyCrawlInventoryResource(row: CrawlOccurrence) {
     purposes: [row.purpose],
     requestCount: row.kind === "request" ? row.eventCount : 0,
   });
+  // This is the retained canonical purpose, not a service display category.
+  // Unknown purpose is a coverage limitation, never an actionable concern.
+  return row.kind === "request" && classification === "Review" &&
+    /^(unknown|unknown purpose|unclassified)?$/i.test(row.purpose.trim())
+    ? "Unclassified" : classification;
 }

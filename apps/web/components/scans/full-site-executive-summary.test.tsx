@@ -46,11 +46,11 @@ test("executive overview does not render a separate assessment coverage note", (
 });
 
 test("completed clean score still explains starting-page scope and review inventory", () => {
-  const html = renderToStaticMarkup(<FullSiteExecutiveSummary score={{...score,value:100,scoredPages:4}} pending={false} scannedPages={4} inventoryReviewCount={9} />);
+  const html = renderToStaticMarkup(<FullSiteExecutiveSummary score={{...score,value:100,scoredPages:4}} pending={false} scannedPages={4} />);
   assert.match(html, /Site score 100 out of 100/);
   assert.match(html, /0 priority issues/);
   assert.match(html, /Scope: 4 scanned pages/);
-  assert.match(html, /9 network requests need classification review/);
+  assert.doesNotMatch(html, /network requests need classification review/);
   assert.match(html, /policy transparency and action-path checks cover the starting page/);
   assert.match(html, /does not mean every policy topic was confirmed/);
 });

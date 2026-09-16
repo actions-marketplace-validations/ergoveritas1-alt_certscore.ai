@@ -43,7 +43,7 @@ import type { ScanDetailResponse } from "../../server/scans/get-scan-by-id";
 export type ConsentReviewPriority = RuntimeCookieReviewPriority;
 export type InventoryConfidence = RuntimeCookieInventoryConfidence;
 export type InventoryMacroCategory = "Advertising" | "Analytics" | "Essential" | "Functional" | "Review";
-export type InventoryEvidenceClassification = "Contextual" | "Essential" | "Non-essential" | "Review";
+export type InventoryEvidenceClassification = "Contextual" | "Essential" | "Non-essential" | "Review" | "Unclassified";
 export type InventorySiteRelationship = "same_site" | "cross_site" | "mixed" | "unknown";
 export type InventoryEntityRelationship = "same_entity" | "affiliated_entity" | "external_entity" | "mixed" | "unknown";
 
@@ -1089,7 +1089,7 @@ export function buildReportInventorySummary(rows: InventoryGroupRow[], networkSu
     { label: INVENTORY_METRIC_LABELS.requests, type: "tracker" },
     { label: INVENTORY_METRIC_LABELS.frames, type: "embed" },
   ] as const).map(({ label, type }) => {
-    const counts = { nonEssential: 0, review: 0, contextual: 0, essential: 0 };
+    const counts: { nonEssential: number; review: number; contextual: number; essential: number; unclassified?: number } = { nonEssential: 0, review: 0, contextual: 0, essential: 0 };
     // A service signature is not a request count or a classification of every
     // retained request. Never let it erase a separately retained event total.
     if (type === "tracker" && retainedNetwork.success) {
@@ -1104,8 +1104,8 @@ export function buildReportInventorySummary(rows: InventoryGroupRow[], networkSu
     for (const row of rows.filter(row => inventoryMetricFamily(row.type) === inventoryMetricFamily(type))) {
       // A script-only service observation is not a network request event.
       const count = type === "tracker" ? row.requestCount ?? 0 : row.observedRecordCount;
-      const key = { "Non-essential": "nonEssential", "Review": "review", "Contextual": "contextual", "Essential": "essential" }[classifyInventoryEvidence(row)] as keyof typeof counts;
-      counts[key] += count;
+      const key = { "Non-essential": "nonEssential", "Review": "review", "Unclassified": "unclassified", "Contextual": "contextual", "Essential": "essential" }[classifyInventoryEvidence(row)] as keyof typeof counts;
+      counts[key] = (counts[key] ?? 0) + count;
     }
     return { label, value: Object.values(counts).reduce((sum, count) => sum + count, 0), counts };
   });

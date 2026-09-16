@@ -1,4 +1,5 @@
 "use client";
+import { ReportInventorySummary } from "../scans/report-inventory-summary";
 import { useFullSiteReportContinuity } from "./full-site-report-continuity";
 import type { FullSiteScanNoticeData } from "../dashboard/full-site-scan-notice";
 import { describeSiteTechnology, type SiteMetadataProjection } from "@certscore/contracts";
@@ -413,39 +414,11 @@ export function FullSiteWorkspace({
         </details>
   );
   const reportStatus = running ? progressLabel : !state ? "Loading report…" : state?.status === "cancelled" ? "Cancelled" : state?.status === "stopped" ? "Unsuccessful" : state?.status === "completed" && (counts?.blockedFailed || counts?.partial) ? "Completed with limitations" : state?.status === "completed" ? "Completed" : state?.status.replaceAll("_", " ") ?? "Loading";
-  const inventorySummary = <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 sm:grid-cols-3" aria-label="Site-wide inventory summary">{[
-          { label: "Cookies / storage", value: s ? s.totals.cookies + s.totals.storage : null, group: "cookies" },
-          { label: "Requests", value: s?.totals.requestEvents, group: "requests" },
-          { label: "Embed instances", value: s?.totals.embedInstances, group: "embeds" },
-        ].map(metric => (
-          <div key={metric.group} className="flex min-w-0 flex-col bg-white px-3 py-3">
-            <span className="text-xs font-medium text-slate-500">{metric.label}</span>
-            <strong className="my-1 block text-2xl font-semibold tracking-tight text-slate-950 tabular-nums"><ScanLiveValue value={metric.value} active={valuesUpdating} /></strong>
-            {metric.group !== "embeds" ? (
-              <dl className="space-y-0.5 text-xs leading-4 tabular-nums">
-                <div className="flex items-center justify-between gap-2">
-                  <dt className="flex items-center gap-1.5 text-slate-600"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" />Non-essential</dt>
-                  <dd className="font-medium text-slate-900"><ScanLiveValue value={metric.group === "cookies" ? data?.score?.assessedNonEssentialStorage : data?.priorityTotals?.[metric.group]?.nonEssential} active={valuesUpdating} /></dd>
-                </div>
-                {metric.group === "cookies" ? <p className="text-[11px] text-slate-500">Assessed evidence · inventory may include unassessed items</p> : <div className="flex items-center justify-between gap-2">
-                  <dt className="flex items-center gap-1.5 text-slate-600"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />Review</dt>
-                  <dd className="font-medium text-slate-900"><ScanLiveValue value={data?.priorityTotals?.[metric.group]?.review} active={valuesUpdating} /></dd>
-                </div>}
-              </dl>
-            ) : (
-              <dl className="space-y-0.5 text-xs leading-4 text-slate-600 tabular-nums" aria-label="Embed categories">
-                {data?.charts.embeds.slice(0, 3).map(category => (
-                  <div key={category.label} className="flex justify-between gap-2">
-                    <dt className="capitalize">{category.label === "unknown" ? "Unclassified" : category.label.replaceAll("_", " ")}</dt>
-                    <dd className="font-medium text-slate-900"><ScanLiveValue value={category.count} active={valuesUpdating} /></dd>
-                  </div>
-                ))}
-                {data && data.charts.embeds.length > 3 ? <div className="flex justify-between gap-2"><dt>Other</dt><dd className="font-medium text-slate-900"><ScanLiveValue value={data.charts.embeds.slice(3).reduce((sum, category) => sum + category.count, 0)} active={valuesUpdating} /></dd></div> : null}
-                {!data ? <dt>Loading categories…</dt> : !data.charts.embeds.length ? <dt>None observed</dt> : null}
-              </dl>
-            )}
-          </div>
-        ))}</div>;
+  const inventorySummary = <ReportInventorySummary updating={valuesUpdating} metrics={[
+    {label: "Cookies & storage", value: s ? s.totals.cookies + s.totals.storage : null, group: "cookies"},
+    {label: "Network requests", value: s?.totals.requestEvents, group: "requests"},
+    {label: "Embedded frames", value: s?.totals.embedInstances, group: "embeds"},
+  ].map(metric => ({...metric, counts: data?.priorityTotals?.[metric.group], overview: metric.group === "requests" ? data?.networkOverview : undefined}))} />;
   return (
     <FullSiteRegionContext.Provider value={state?.region ?? initialNotice?.region}>
     <FullSiteTimingContext.Provider value={timing}>
@@ -568,7 +541,7 @@ export function FullSiteWorkspace({
       {tab !== "homepage" ? (
         <>
           {tab === "resources" ? <>
-          <FullSiteExecutiveSummary actions={completed ? executiveActions : null} statusLabel={reportStatus} inventorySummary={inventorySummary} inventoryReviewCount={data?.priorityTotals?.requests?.review} score={data?.score} pending={!data || valuesUpdating} scannedPages={scannedPages} snapshot={executiveSnapshot} homepageVerdict={homepageVerdict} />
+          <FullSiteExecutiveSummary actions={completed ? executiveActions : null} statusLabel={reportStatus} inventorySummary={inventorySummary} score={data?.score} pending={!data || valuesUpdating} scannedPages={scannedPages} snapshot={executiveSnapshot} homepageVerdict={homepageVerdict} />
           <SitePriorityReview findings={data?.score?.priorityReview ?? homepageFindings.map(finding => ({ ...finding, pages: homepageUrl ? [{ id: scanId, url: homepageUrl, homepage: true }] : [] }))} pending={!data || valuesUpdating} sitewideAvailable={Boolean(data?.score)} />
           {homepageTimeline ? <section aria-label="Starting-page event timeline" className="my-3 border-y border-zinc-200 bg-white py-2">
             <h2 className="text-xl font-semibold">Starting-page event timeline</h2>

@@ -34,7 +34,7 @@ const sortValue = (row: Service, key: SortKey) => {
   }
 };
 
-const priorityOrder = ["Non-essential", "Review", "Contextual", "Essential"];
+const priorityOrder = ["Non-essential", "Review", "Unclassified", "Contextual", "Essential"];
 export function summarizeService(resources: Service["resources"]) {
   const priority = priorityOrder.find(value => resources.some(row => row.inventoryEvidence === value));
   const times = resources.map(row => row.occurrence.firstSeenMs).filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);

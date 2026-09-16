@@ -1,3 +1,4 @@
+import { buildNetworkInventoryOverview, type NetworkInventoryOverview } from "./network-inventory-overview";
 import { createHash } from "node:crypto";
 import type { CrawlOccurrence } from "@website-signal-risk-scanner/shared";
 import type { FullSiteReportResponse } from "../../server/scans/full-site-report";
@@ -8,7 +9,7 @@ import { serviceIntegrationGroup } from "./service-integration-group";
 import { inventoryPurposeGroups } from "./inventory-purpose-presentation";
 
 type Resource = FullSiteReportResponse["services"][number]["resources"][number];
-export type SinglePageResourceInventory = { requestMetric?: { label: string; value: number; counts: { nonEssential: number; review: number; contextual: number; essential: number } }; resources: Resource[]; services: FullSiteReportResponse["services"]; mix: FullSiteReportResponse["inventoryMix"] };
+export type SinglePageResourceInventory = { requestMetric?: { label: string; value: number; counts: { nonEssential: number; review: number; contextual: number; essential: number; unclassified?: number }; overview?: NetworkInventoryOverview }; resources: Resource[]; services: FullSiteReportResponse["services"]; mix: FullSiteReportResponse["inventoryMix"] };
 /** Adapt the canonical retained inventory to the same resource/service presentation as site scans. */
 export function buildSinglePageResourceInventory(pageId: string, rows: InventoryGroupRow[], requests: CrawlOccurrence[] | null, reviewedPolicies: ReviewedPolicy[] = []): SinglePageResourceInventory {
   const resources = new Map<string, Resource>();
@@ -52,12 +53,12 @@ export function buildSinglePageResourceInventory(pageId: string, rows: Inventory
     for (const resource of all) { const label = field(resource); counts.set(label, (counts.get(label) ?? 0) + 1); }
     return [...counts].map(([label, count]) => ({label, count}));
   };
-  const counts = { nonEssential: 0, review: 0, contextual: 0, essential: 0 };
+  const counts: { nonEssential: number; review: number; contextual: number; essential: number; unclassified?: number } = { nonEssential: 0, review: 0, contextual: 0, essential: 0 };
   for (const request of requests ?? []) {
-    const key = { "Non-essential": "nonEssential", Review: "review", Contextual: "contextual", Essential: "essential" }[classifyCrawlInventoryResource(request)] as keyof typeof counts;
-    counts[key] += request.eventCount;
+    const key = { "Non-essential": "nonEssential", Review: "review", Unclassified: "unclassified", Contextual: "contextual", Essential: "essential" }[classifyCrawlInventoryResource(request)] as keyof typeof counts;
+    counts[key] = (counts[key] ?? 0) + request.eventCount;
   }
-  return { requestMetric: requests ? { label: "Network requests", value: requests.reduce((sum, row) => sum + row.eventCount, 0), counts } : undefined, resources: all, services: [...services.values()], mix: {
+  return { requestMetric: requests ? { label: "Network requests", value: requests.reduce((sum, row) => sum + row.eventCount, 0), counts, overview: buildNetworkInventoryOverview([...services.values()]) } : undefined, resources: all, services: [...services.values()], mix: {
     type: breakdown(row => row.kind), evidence: breakdown(row => row.inventoryEvidence),
     purpose: breakdown(row => inventoryPurposeGroups(row.purposes, row.relationships).join(", ") || "unknown"),
     relationship: breakdown(row => row.occurrence.relationship),

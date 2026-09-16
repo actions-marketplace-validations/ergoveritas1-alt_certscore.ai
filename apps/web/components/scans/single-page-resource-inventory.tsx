@@ -14,7 +14,7 @@ export function SinglePageResourceInventory({ inventory, report }: { inventory: 
   const [view, setView] = useState<"services" | "resources">("services");
   const [sort, setSort] = useState<{key: "priority" | "name"; descending: boolean}>({key: "priority", descending: false});
   const [collapseVersion, setCollapseVersion] = useState(0);
-  const priorities = ["Non-essential", "Review", "Contextual", "Essential"];
+  const priorities = ["Non-essential", "Review", "Unclassified", "Contextual", "Essential"];
   const rank = (value: string) => { const index = priorities.indexOf(value); return index < 0 ? priorities.length : index; };
   const resources = [...inventory.resources].sort((a, b) => {
     const difference = sort.key === "name" ? a.name.localeCompare(b.name) : rank(a.inventoryEvidence) - rank(b.inventoryEvidence);
