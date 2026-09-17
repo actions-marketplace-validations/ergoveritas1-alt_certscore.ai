@@ -62,7 +62,7 @@ test("additional page provenance reaches an eligible scored unified finding and 
   assert.match(priority!.evidence[0]!, /3 concealed link occurrences/);
   const concern = buildNormalizedConcerns({ runtimeArtifacts: { siteIntegrity: projection }, reviewFindingCandidates: [], validationFindings: [] })[0]!;
   assert.equal(concern.regulatoryChecklistEligibility, "none");
-  assert.equal(concern.scoreEffects?.[0]?.deductionPoints, 20);
+  assert.equal(concern.scoreEffects?.[0]?.deductionPoints, 27);
 });
 
 test("additional-page capture fails closed on hash, attempt, parent, configuration, document, timing and coverage mismatch", () => {

@@ -1,3 +1,7 @@
+import { projectFormDestinationPriority } from "../../../lib/scans/form-destination-report";
+import { formDestinationProjectionSchema } from "@certscore/contracts";
+import { projectCmsSecurityPriority } from "../../../lib/scans/cms-security-report";
+import { cmsSecurityProjectionSchema } from "@certscore/contracts";
 import { projectExecutiveRuntimeCards } from "../../../lib/scans/executive-runtime-cards";
 import { selectSiteIntegrityFinding, projectStartingPageSiteIntegrityReport, projectSiteIntegrityPriority } from "../../../lib/scans/site-integrity-report";
 import { isAfterActionReportEligible, retainedConsentAssessment } from "../../../lib/scans/after-action-report-eligibility";
@@ -697,6 +701,10 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
     ...buildChecklistConcernTopFindings(reportableChecklistRows),
     ...executiveUnifiedFindings,
   ]).map((finding, index) => mapChecklistFinding(finding, index + 1, evidenceRows));
+  const formDestinationPriority = projectFormDestinationPriority(canonical.ownerUnifiedFindings);
+  if (formDestinationPriority) findings.unshift({ ...formDestinationPriority, rank: 1, focus: "Form destinations", vendors: [] });
+  const cmsPriority = projectCmsSecurityPriority(canonical.ownerUnifiedFindings);
+  if (cmsPriority) findings.unshift({ ...cmsPriority, rank: 1, focus: "CMS security", vendors: [] });
   const integrityPriority = projectSiteIntegrityPriority(canonical.ownerUnifiedFindings);
   if (integrityPriority) findings.push({ ...integrityPriority, rank: findings.length + 1, focus: "Site integrity", vendors: [] });
   findings.sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high"));
@@ -852,6 +860,9 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
   return {
     ...(scanConfig?.fullSite === true && crawlOptions ? { fullSite: { maxPages: Number(crawlOptions.maxPages), concurrency: Number(crawlOptions.concurrency), waitSeconds: Number(crawlOptions.waitSeconds) } } : {}),
     siteMetadata: metadata.success ? metadata.data : null,
+    formDestinations: (() => { const parsed = formDestinationProjectionSchema.safeParse(runtimeArtifacts?.formDestinations); return parsed.success ? parsed.data : null; })(),
+    formDestinationWarning: Boolean(formDestinationPriority),
+    cmsSecurity: (() => { const cms = cmsSecurityProjectionSchema.safeParse(runtimeArtifacts?.cmsSecurity); return cms.success ? cms.data : null; })(),
     collectionFields,
     runtimeEvidenceGraph: inventoryProjection.runtimeEvidenceGraph,
     collectionLimitations: canonical.collectionSurfaceAssessment?.limitationKeys.map(displayLabel) ?? [],
@@ -921,6 +932,6 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
     trackingExternalRows: evidenceRows.filter((row) => CHECKLIST_GROUPS.tracking.has(row.id)),
     trackerVendors: [...vendorSurface.resolvedVendorNames, ...vendorSurface.unresolvedVendorHosts],
     transportRows: evidenceRows.filter((row) => CHECKLIST_GROUPS.transport.has(row.id)),
-    verdict,
+    verdict: formDestinationPriority ? `${formDestinationPriority.title}: ${formDestinationPriority.summary} ${verdict}` : cmsPriority ? `${cmsPriority.title}: ${cmsPriority.summary} ${verdict}` : verdict,
   };
 }

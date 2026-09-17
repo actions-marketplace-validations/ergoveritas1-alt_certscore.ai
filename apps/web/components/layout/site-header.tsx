@@ -52,7 +52,7 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/90 shadow-[0_1px_10px_rgba(15,23,42,0.04)] backdrop-blur">
-      <div className={`mx-auto flex items-center justify-between gap-3 py-3.5 ${wide ? "max-w-[90rem] px-5 lg:px-10" : "max-w-6xl px-4 sm:px-6"}`}>
+      <div className={`mx-auto flex items-center justify-between gap-2 min-[360px]:gap-3 py-3.5 ${wide ? "max-w-[90rem] px-3 min-[360px]:px-5 lg:px-10" : "max-w-6xl px-4 sm:px-6"}`}>
         <div className="min-w-0 flex items-center overflow-visible">
           <CertScoreLogo compact showText size="small" className="shrink-0" />
         </div>
@@ -127,7 +127,7 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
             <Link
               href="/contact"
               aria-current={isActive("/contact") ? "page" : undefined}
-              className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
+              className="hidden min-[360px]:inline-flex rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
             >
               Contact
             </Link>
@@ -143,8 +143,21 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
             </svg>
           </summary>
 
-          <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(21rem,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.14)]">
+          <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(21rem,calc(100vw-2rem))] max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain rounded-[1.75rem] border border-slate-200 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.14)]">
             <nav className="flex flex-col">
+              <div className="grid gap-2">
+                <PendingButtonLink
+                  className="w-full justify-center"
+                  data-analytics-cta-location="header"
+                  data-analytics-event="sign_in_clicked"
+                  href="/login"
+                  idleContent="Sign in"
+                  pendingContent="Opening..."
+                  size="sm"
+                  variant="secondary"
+                />
+              </div>
+              <Link href="/contact" className="rounded-2xl bg-sky-50 px-4 py-3 text-base font-semibold text-sky-800">Contact</Link>
               {navLinks.slice(0, 3).map((link) => (
                 <Link
                   key={link.href}
@@ -168,7 +181,7 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
                   {link.label}
                 </Link>
               ))}
-              {navLinks.slice(3).map((link) => (
+              {navLinks.slice(3).filter(link => link.href !== "/contact").map((link) => (
                 <Link
                   key={link.href}
                   href={link.href}
@@ -179,18 +192,7 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
                 </Link>
               ))}
 
-              <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3">
-                <PendingButtonLink
-                  className="w-full justify-center"
-                  data-analytics-cta-location="header"
-                  data-analytics-event="sign_in_clicked"
-                  href="/login"
-                  idleContent="Sign in"
-                  pendingContent="Opening..."
-                  size="sm"
-                  variant="secondary"
-                />
-              </div>
+
             </nav>
           </div>
           </details>

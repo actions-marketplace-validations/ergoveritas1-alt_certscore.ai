@@ -1,3 +1,5 @@
+import { FORM_DESTINATION_FINDING_ID, formDestinationProjectionSchema, type FormDestinationProjection } from "@certscore/contracts";
+import { CMS_SECURITY_FINDING_ID, cmsSecurityProjectionSchema, type CmsSecurityProjection } from "@certscore/contracts";
 import { SITE_INTEGRITY_FINDING_ID, siteIntegrityProjectionSchema, type SiteIntegrityProjection } from "@certscore/contracts";
 import { REJECT_CLICK_TRACKING_COPY } from "./consent-action-copy";
 import {
@@ -102,6 +104,8 @@ import { REJECT_TRACKING_CONFIRMATION_MIN_MS } from "./reject-tracking-policy";
 import { buildPromotionGradePreconsentRequests } from "./preconsent-public-evidence";
 
 export type UnifiedFindingDetails =
+  | { family: "form_destinations"; projection: FormDestinationProjection }
+  | { family: "cms_security"; projection: CmsSecurityProjection }
   | { family: "site_integrity"; projection: SiteIntegrityProjection }
   | {
       family: "coverage_gap";
@@ -1785,6 +1789,14 @@ function buildUnifiedFindingDetails(input: {
   observedValue: string | null;
   summary: string;
 }) {
+  if (input.findingId === FORM_DESTINATION_FINDING_ID) {
+    const projection = formDestinationProjectionSchema.safeParse(input.fallbackEvidence?.formDestinations);
+    return projection.success ? { family: "form_destinations", projection: projection.data } satisfies UnifiedFindingDetails : undefined;
+  }
+  if (input.findingId === CMS_SECURITY_FINDING_ID) {
+    const projection = cmsSecurityProjectionSchema.safeParse(input.fallbackEvidence?.cmsSecurity);
+    return projection.success ? { family: "cms_security", projection: projection.data } satisfies UnifiedFindingDetails : undefined;
+  }
   if (input.findingId === SITE_INTEGRITY_FINDING_ID) {
     const projection = siteIntegrityProjectionSchema.safeParse(input.fallbackEvidence?.siteIntegrity);
     return projection.success ? { family: "site_integrity", projection: projection.data } satisfies UnifiedFindingDetails : undefined;

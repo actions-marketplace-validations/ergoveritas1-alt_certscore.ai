@@ -41,7 +41,22 @@ export function buildServiceHierarchy(services: Service[]): ServiceBranch[] {
       inferred: Boolean(parent) && (service.origins ?? []).some(link => link.key === parent && ownResources.some(row => row.key === link.resourceKey) && link.inferred),
       residual: !parent && Boolean(service.origins?.length), };
   };
-  const roots = services.flatMap(service => ["", "site:document"].filter(parent => assigned.get(service.key)?.has(parent)).map(parent => make(service, parent, new Set())));
+  const roots = services.flatMap(service => {
+    const branches = ["", "site:document"].filter(parent => assigned.get(service.key)?.has(parent)).map(parent => make(service, parent, new Set()));
+    if (!service.context.identity || branches.length < 2) return branches;
+    // Loading attribution partitions resources, not the service identity. Keep a
+    // single identified root while retaining the original per-resource origins.
+    // Verified branches beneath other services are intentionally left nested.
+    const resources = [...new Map(branches.flatMap(branch => branch.service.resources).map(row => [row.key, row])).values()];
+    return [{
+      service: { ...service, resources, pageIds: [...new Set(resources.flatMap(row => row.pageIds))] },
+      ownResources: branches.flatMap(branch => branch.ownResources),
+      children: branches.flatMap(branch => branch.children),
+      directSite: false,
+      residual: true,
+      inferred: branches.some(branch => branch.inferred),
+    }];
+  });
   // Identified services remain visible even when loading ancestry is incomplete.
   const other = roots.filter(branch => !branch.directSite && !branch.service.context.identity);
   const first = other[0];

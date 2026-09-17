@@ -967,7 +967,7 @@ export function DomainScanForm({
             autoComplete="url"
             className={
               variant === "homepage-hero"
-                ? "h-14 rounded-[16px] border-[3px] border-sky-400 bg-white pl-6 pr-44 text-base font-semibold text-slate-950 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_16px_42px_rgba(14,165,233,0.3)] placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-400/30 sm:h-16 sm:pr-48 sm:text-lg"
+                ? "h-14 rounded-[16px] border-[3px] border-sky-400 bg-white pl-4 pr-16 text-base font-semibold text-slate-950 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_16px_42px_rgba(14,165,233,0.3)] placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-400/30 sm:h-16 sm:pl-6 sm:pr-48 sm:text-lg"
                 : compact
                 ? "h-12 rounded-[1.2rem] border-2 border-sky-500 pr-40 text-left text-sm font-semibold shadow-[0_12px_30px_rgba(14,165,233,0.12)] placeholder:text-left focus:border-sky-600 focus:ring-2 focus:ring-sky-100"
                 : "h-14 rounded-[1.6rem] border-2 border-sky-500 pr-32 text-base font-semibold shadow-[0_14px_34px_rgba(14,165,233,0.12)] focus:border-sky-600 focus:ring-2 focus:ring-sky-100"
@@ -985,7 +985,7 @@ export function DomainScanForm({
           />
           {mode === "full" ? (
             <div className={variant === "homepage-hero"
-              ? `absolute ${isSubmitting ? "right-[10rem] sm:right-[10.5rem]" : "right-[8.75rem] sm:right-[9.25rem]"} top-1/2 -translate-y-1/2 scale-150`
+              ? `absolute right-4 top-7 ${isSubmitting ? "sm:right-[10.5rem]" : "sm:right-[9.25rem]"} sm:top-1/2 -translate-y-1/2 scale-125 sm:scale-150`
               : compact
               ? `absolute ${isSubmitting ? "right-[8.5rem]" : "right-[5.9rem]"} top-1/2 z-10 -translate-y-1/2`
               : `absolute ${isSubmitting ? "right-[10.25rem]" : "right-[8rem]"} top-1/2 -translate-y-1/2`}>
@@ -1027,7 +1027,7 @@ export function DomainScanForm({
             aria-label={buttonLabel}
             className={
               variant === "homepage-hero"
-                ? `absolute right-1.5 top-1/2 h-11 ${isSubmitting ? "w-[8.5rem] sm:w-[9rem]" : "w-[118px] sm:w-[126px]"} -translate-y-1/2 rounded-[13px] border border-emerald-300/70 bg-[linear-gradient(135deg,#45c957_0%,#56bd58_100%)] px-4 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_7px_18px_rgba(34,197,94,0.28)] hover:brightness-110 focus-visible:ring-4 focus-visible:ring-emerald-300/40 sm:h-[52px] sm:text-base`
+                ? `relative mt-3 h-11 w-full sm:absolute sm:right-1.5 sm:top-1/2 sm:mt-0 ${isSubmitting ? "sm:w-[9rem]" : "sm:w-[126px]"} sm:-translate-y-1/2 rounded-[13px] border border-emerald-300/70 bg-[linear-gradient(135deg,#45c957_0%,#56bd58_100%)] px-4 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_7px_18px_rgba(34,197,94,0.28)] hover:brightness-110 focus-visible:ring-4 focus-visible:ring-emerald-300/40 sm:h-[52px] sm:text-base`
                 : compact
                 ? scanButtonArmed
                   ? `scan-report-button scan-report-button-primary scan-form-button absolute right-2 top-1/2 z-20 h-8 ${isSubmitting ? "w-[7.5rem]" : "w-[4.5rem]"} -translate-y-1/2 rounded-full border border-sky-600 bg-[linear-gradient(180deg,#38bdf8_0%,#0284c7_100%)] px-4 text-xs font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_3px_0_0_rgba(3,105,161,0.55),0_10px_22px_-7px_rgba(14,165,233,0.7)] ring-1 ring-sky-300/70 transition-[filter,box-shadow] duration-150 hover:-translate-y-1/2 hover:border-sky-500 hover:brightness-110 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_4px_0_0_rgba(3,105,161,0.5),0_13px_24px_-7px_rgba(14,165,233,0.8)] active:-translate-y-1/2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 disabled:!opacity-100`

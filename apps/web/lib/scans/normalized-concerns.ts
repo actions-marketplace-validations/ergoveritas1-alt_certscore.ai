@@ -1,3 +1,5 @@
+import { formDestinationProjectionSchema, formDestinationCopy, qualifiesFormDestinationReview, FORM_DESTINATION_FINDING_ID, FORM_DESTINATION_SIGNAL } from "@certscore/contracts";
+import { cmsSecurityProjectionSchema, cmsSecurityCopy, CMS_SECURITY_FINDING_ID, CMS_SECURITY_SIGNAL } from "@certscore/contracts";
 import { projectConsentControlBehavior } from "./consent-control-behavior";
 import { siteIntegrityProjectionSchema, SITE_INTEGRITY_FINDING_ID, SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY, SITE_INTEGRITY_POLICY_VERSION, SITE_INTEGRITY_SEVERITY } from "@certscore/contracts";
 import { describeGpcBoundedObservation } from "@certscore/contracts";
@@ -4417,6 +4419,32 @@ function resolveGdprTransparencyConcernConflicts(concerns: NormalizedConcern[]) 
 }
 
 
+function buildFormDestinationConcerns(runtimeArtifacts: Record<string, unknown> | null | undefined) {
+  const result = formDestinationProjectionSchema.safeParse(runtimeArtifacts?.formDestinations);
+  if (!result.success || !qualifiesFormDestinationReview(result.data)) return [];
+  const projection = result.data, copy = formDestinationCopy(projection);
+  return [buildConcernFromSharedInput({
+    categoryId: "privacy", originType: "runtime_artifact", originKey: FORM_DESTINATION_SIGNAL,
+    title: copy.title, description: copy.description, observedValue: copy.description,
+    severity: copy.severity, sourceType: "signal", signalSource: "runtime_artifact_signal",
+    signalKey: FORM_DESTINATION_SIGNAL, signalLabel: copy.title, evidence: [projection.trace.events[0]!.documentUrl],
+    rawEvidence: { formDestinations: projection, unifiedFindingId: FORM_DESTINATION_FINDING_ID, pageUrl: projection.trace.events[0]!.documentUrl },
+  })];
+}
+
+function buildCmsSecurityConcerns(runtimeArtifacts: Record<string, unknown> | null | undefined) {
+  const result = cmsSecurityProjectionSchema.safeParse(runtimeArtifacts?.cmsSecurity);
+  if (!result.success || !result.data.assessment.matches.length) return [];
+  const projection = result.data, copy = cmsSecurityCopy(projection);
+  return [buildConcernFromSharedInput({
+    categoryId: "site_integrity", originType: "runtime_artifact", originKey: CMS_SECURITY_SIGNAL,
+    title: copy.title, description: copy.description, observedValue: copy.description,
+    severity: copy.severity, sourceType: "signal", signalSource: "runtime_artifact_signal",
+    signalKey: CMS_SECURITY_SIGNAL, signalLabel: copy.title, evidence: [projection.documentUrl],
+    rawEvidence: { cmsSecurity: projection, unifiedFindingId: CMS_SECURITY_FINDING_ID, pageUrl: projection.documentUrl },
+  })];
+}
+
 function buildSiteIntegrityConcerns(runtimeArtifacts: Record<string, unknown> | null | undefined) {
   const result = siteIntegrityProjectionSchema.safeParse(runtimeArtifacts?.siteIntegrity);
   if (!result.success) return [];
@@ -4456,6 +4484,8 @@ export function buildNormalizedConcerns(input: {
       return normalizedFinding ? [normalizeConcernFromValidationFinding(normalizedFinding, input.domainContext, consentControlAssessment)] : [];
     }),
     ...buildSiteIntegrityConcerns(input.runtimeArtifacts),
+    ...buildFormDestinationConcerns(input.runtimeArtifacts),
+    ...buildCmsSecurityConcerns(input.runtimeArtifacts),
     ...buildScanNoGoAssessmentConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildRuntimeCoverageLimitationConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildCollectionSurfaceAssessmentConcerns(input.runtimeArtifacts, input.domainContext),

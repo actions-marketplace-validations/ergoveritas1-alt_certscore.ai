@@ -28,7 +28,7 @@ import { buildSitePriorityReview, sitePriorityFindingSchema, type SitePriorityFi
 import { buildChecklistConcernTopFindings } from "../../lib/scans/checklist-concern-top-findings";
 import { projectExecutiveFindingsFromUnifiedPackets } from "../../lib/scans/executive-findings-projection";
 const VERSION = FULL_SITE_SCORING_POLICY_VERSION;
-const PRIORITY_VERSION = "site-priority-review.v17";
+const PRIORITY_VERSION = "site-priority-review.v18";
 const persistedScoreSchema = z.object({
   version: z.literal(VERSION), value: z.number().int().min(0).max(100).nullable(),
   scoredPages: z.number().int().min(1), limitedPages: z.number().int().nonnegative(), scope: z.string(),

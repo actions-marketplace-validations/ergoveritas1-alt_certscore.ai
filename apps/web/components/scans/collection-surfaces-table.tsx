@@ -124,11 +124,11 @@ export function CollectionSurfacesTable({ rows, loading = false, scanning = fals
   const [snapshot, setSnapshot] = useState<{ title: string; url: string } | null>(null);
   const [sort, setSort] = useState<{ key: FormSortKey; direction: "asc" | "desc" }>({ key: "page", direction: "asc" });
   const sortedRows = useMemo(() => sortCollectionSurfaces(rows, sort.key, sort.direction), [rows, sort]);
-  if (!loading && rows.length === 0) return <section aria-label="Forms & fields" className="border-b border-zinc-200 bg-white py-3 text-sm text-zinc-600">
+  if (!loading && rows.length === 0) return <section id="report-forms" aria-label="Forms & fields" className="border-b border-zinc-200 bg-white py-3 text-sm text-zinc-600">
     {scanning ? "Forms: none observed yet; scan in progress." : pagesWithoutInventory > 0 || limitedPages > 0 ? "Forms: no retained rows; form coverage is incomplete." : "Forms: no forms observed on the scanned pages."}
   </section>;
   return (
-    <section aria-labelledby={`${prefix}-title`} className="min-w-0 border-b border-zinc-200 bg-white py-4">
+    <section id="report-forms" aria-labelledby={`${prefix}-title`} className="min-w-0 border-b border-zinc-200 bg-white py-4">
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <h2 id={`${prefix}-title`} className="text-xl font-semibold">Forms & fields</h2>
         <div className="flex items-center gap-2"><span className="text-xs text-zinc-500"><ScanLiveValue active={scanning && !loading} value={loading ? "Loading…" : `${rows.length} ${rows.length === 1 ? "form" : "forms"}`} /></span>{!loading ? <CopyJsonButton className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sky-700 hover:bg-sky-50" label="Copy entire forms table with all fields and evidence as JSON" payload={JSON.stringify(rows, null, 2)} /> : null}</div>

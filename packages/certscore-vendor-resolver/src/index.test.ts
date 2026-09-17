@@ -2366,6 +2366,18 @@ test("resolves DatoCMS and Mux image hosts as content infrastructure by default"
   );
 });
 
+test("Maps API support assets resolve specifically without absorbing shared Google assets", () => {
+  const url = "https://maps.gstatic.com/mapfiles/openhand_8_8.cur";
+  const resolved = resolveCanonicalVendor({ type: "request", url, evidenceId: "maps-cursor" }).observation;
+  assert.equal(resolved?.product, "Google Maps JavaScript API");
+  assert.equal(resolved?.purpose, "infrastructure");
+  assert.deepEqual(resolved?.matchedEvidenceIds, ["maps-cursor"]);
+  for (const other of ["https://t0.gstatic.com/mapfiles/openhand_8_8.cur", "https://maps.gstatic.com/unrelated/file.js", "https://maps.gstatic.com.evil.example/mapfiles/openhand_8_8.cur"]) {
+    assert.notEqual(resolveCanonicalVendor({ type: "request", url: other }).observation?.product, "Google Maps JavaScript API");
+  }
+  assert.equal(resolveCanonicalVendor({ type: "request", url: "https://fonts.gstatic.com/s/opensans/font.woff2" }).observation?.product, "Google Fonts");
+});
+
 test("resolves gstatic shard hosts as contextual Google static asset infrastructure", () => {
   const observations = resolveVendorObservations([
     request("https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON", "t0.gstatic.com"),
@@ -2993,6 +3005,8 @@ function assertResolved(
 test("reCAPTCHA Enterprise attribution requires its canonical endpoint, not a shared host or query text", () => {
   for (const [url, enterprise] of [
     ["https://www.google.com/recaptcha/enterprise.js?render=key", true],
+    ["https://www.recaptcha.net/recaptcha/enterprise.js?render=key", true],
+    ["https://www.recaptcha.net.evil.example/recaptcha/enterprise.js", false],
     ["https://www.google.com/recaptcha/enterprise/anchor?k=key", true],
     ["https://www.google.com/recaptcha/api.js", false],
     ["https://fonts.googleapis.com/css2", false],

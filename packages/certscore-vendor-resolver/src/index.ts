@@ -22,7 +22,7 @@ export {
 
 export { resolveCanonicalVendorHeadquarters, VENDOR_HEADQUARTERS_VERSION, VENDOR_HEADQUARTERS_REFERENCES, type VendorHeadquartersReference } from "./vendor-headquarters";
 
-export const CANONICAL_VENDOR_RESOLVER_VERSION = "certscore-vendor-resolver-2026-09-07-attribution-v2";
+export const CANONICAL_VENDOR_RESOLVER_VERSION = "certscore-vendor-resolver-2026-09-17-maps-assets-v1";
 
 export type VendorResolverEvidenceType =
   | "request"
@@ -436,6 +436,7 @@ const rules: VendorRule[] = [
     urlPatterns: [/^https?:\/\/(?:www\.)?(?:google\.com|recaptcha\.net)\/recaptcha\/enterprise(?:\.js(?:[?#]|$)|\/)/i],
     requireUrlPatternMatch: true,
     basisLabel: "google_recaptcha_enterprise_security_runtime",
+    review: { reviewedAt: "2026-09-17", reviewer: "Codex source review", sourceUrls: ["https://docs.cloud.google.com/recaptcha/docs/faq", "https://docs.cloud.google.com/recaptcha/docs/instrument-web-pages"] },
   },
   {
     identity: {"entityId":"ent_5262e317b747","vendorId":"ven_24d36c542550","serviceId":"svc_4a7bd8ea1b6d"},
@@ -1506,10 +1507,13 @@ const rules: VendorRule[] = [
     servicePurpose: "Maps / location services",
     regulatoryRelevance: ["maps", "location_services", "third_party_runtime"],
     confidence: 0.97,
-    hostPatterns: [/^maps\.googleapis\.com$/i],
+    hostPatterns: [/^maps\.googleapis\.com$/i, /^maps\.gstatic\.com$/i],
     urlPatterns: [
       /^https:\/\/maps\.googleapis\.com\/maps\/api\/js(?:\?|$)/i,
       /^https:\/\/maps\.googleapis\.com\/maps-api-v3\/api\/js\/\d+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\.js(?:\?|$)/i,
+      // Map controls/cursors are supporting resources of the Maps API. Match
+      // its retained endpoint, never all gstatic traffic or shared Google fonts.
+      /^https:\/\/maps\.gstatic\.com\/mapfiles\/[^?#]+(?:\?|#|$)/i,
     ],
     requireUrlPatternMatch: true,
     basisLabel: "google_maps_javascript_api_runtime",

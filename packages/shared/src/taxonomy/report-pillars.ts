@@ -1,3 +1,5 @@
+import { FORM_DESTINATION_FINDING_ID, FORM_DESTINATION_SIGNAL } from "@certscore/contracts";
+import { CMS_SECURITY_FINDING_ID, CMS_SECURITY_SIGNAL } from "@certscore/contracts";
 import { SITE_INTEGRITY_FINDING_ID, SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY } from "@certscore/contracts";
 export type ReportPrimaryPillarId =
   | "site_integrity"
@@ -1121,6 +1123,8 @@ export const REPORT_EVIDENCE_CATEGORIES: ReportEvidenceCategoryDefinition[] = [
 ];
 
 export const REPORT_SIGNALS: ReportSignalDefinition[] = [
+  defineReportSignal("runtime_artifact_signal", FORM_DESTINATION_SIGNAL, "Form-data destination review", "collection_surface_entry_points_and_handling_context"),
+  defineReportSignal("runtime_artifact_signal", CMS_SECURITY_SIGNAL, "CMS security review", "site_integrity_observations"),
   defineReportSignal("runtime_artifact_signal", SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY.title, "site_integrity_observations"),
   defineReportSignal(
     "snapshot_signal",
@@ -2377,6 +2381,8 @@ export const REPORT_SIGNALS: ReportSignalDefinition[] = [
 ];
 
 export const REPORT_UNIFIED_FINDINGS = [
+  defineReportUnifiedFinding({ id: FORM_DESTINATION_FINDING_ID, label: "Form-data destination review", owner: "collection_surface_entry_points_and_handling_context", signalMappings: [{ source: "runtime_artifact_signal", key: FORM_DESTINATION_SIGNAL }] }),
+  defineReportUnifiedFinding({ id: CMS_SECURITY_FINDING_ID, label: "CMS security review", owner: "site_integrity_observations", signalMappings: [{ source: "runtime_artifact_signal", key: CMS_SECURITY_SIGNAL }] }),
   defineReportUnifiedFinding({ id: SITE_INTEGRITY_FINDING_ID, label: SITE_INTEGRITY_COPY.title,
     owner: "site_integrity_observations", signalMappings: [{ source: "runtime_artifact_signal", key: SITE_INTEGRITY_SIGNAL }] }),
   defineReportUnifiedFinding({

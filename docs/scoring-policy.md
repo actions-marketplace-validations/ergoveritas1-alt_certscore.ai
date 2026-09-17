@@ -5,8 +5,8 @@ The owner-approved September 6, 2026 scoring table is defined in
 this registry directly. Change the registry rather than copying policy numbers
 into report components or documentation.
 
-Versions: `gdpr-eprivacy-posture.v14`, `overall-posture.v4`, and
-`full-site-distinct-findings.v3`. The California GPC evidence policy remains v1;
+Versions: `gdpr-eprivacy-posture.v14`, `overall-posture.v5`, and
+`full-site-distinct-findings.v4`. The California GPC evidence policy remains v1;
 its existing eligible 15-point effect is unchanged.
 
 The score starts at 100, subtracts eligible deductions after shared family caps,
@@ -34,12 +34,12 @@ registry's existing deductions. Zero-deduction checks are omitted from the table
 
 ## Hidden outbound links — September 17, 2026 update
 
-The owner approved an overall-score deduction of 10 points for the first verified
+The owner approved an overall-score deduction of 17 points for the first verified
 hidden outbound link occurrence and 5 for each additional occurrence, capped at
-40 across the entire report. Seven occurrences reach the cap. The scoring review
+40 across the entire report. Six occurrences reach the cap. The scoring review
 sheet includes this rule from the same registry used by the engine.
 
-Policy `certscore.site-integrity-policy.v3` accepts one or more verified retained
+Policy `certscore.site-integrity-policy.v4` accepts one or more verified retained
 hidden links. The previous three-link/two-domain/two-method threshold is replaced;
 strict evidence, provenance and capture verification remain unchanged. Typed
 projection → normalized concern → concern policy → unified finding score effect

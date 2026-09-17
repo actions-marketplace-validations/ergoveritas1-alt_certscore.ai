@@ -1,3 +1,5 @@
+import { projectFormDestinations } from "./form-destination-projection";
+import { projectCmsSecurity } from "./cms-security-projection";
 import { projectSiteIntegrity } from "./site-integrity-projection";
 import { projectOriginBoundBrowserStorage } from "./pre-consent-browser-storage-projection";
 import { retainedCookieInventoryIdentity } from "../../lib/scans/retained-cookie-inventory-identity";
@@ -6011,6 +6013,8 @@ function buildMaterializedLocalV2Detail(
     ...inheritedRuntimeArtifacts,
     formSnapshots: verifiedFormSnapshots(bundle).map(({ snapshot: { data: _data, ...metadata } }) => metadata),
     siteIntegrity: runtimeEvidenceReportable ? projectSiteIntegrity(bundle, options.policyTextEvidenceContext?.sourceBundle, canonicalDocumentUrl) : null,
+    formDestinations: runtimeEvidenceReportable ? projectFormDestinations(bundle, options.policyTextEvidenceContext?.sourceBundle) : null,
+    cmsSecurity: runtimeEvidenceReportable ? projectCmsSecurity(bundle, options.policyTextEvidenceContext?.sourceBundle, canonicalDocumentUrl) : null,
     siteMetadata: projectSiteMetadata(bundle, options.policyTextEvidenceContext?.sourceBundle, canonicalDocumentUrl),
     runtimeEvidenceGraphProjection: projectRuntimeEvidenceGraphs({
       bundle, scanId: scanRecord.scan.id, source: options.policyTextEvidenceContext?.sourceBundle,

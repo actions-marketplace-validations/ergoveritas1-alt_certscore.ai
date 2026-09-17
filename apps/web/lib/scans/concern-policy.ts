@@ -1,3 +1,5 @@
+import { FORM_DESTINATION_FINDING_ID, qualifiesFormDestinationReview } from "@certscore/contracts";
+import { CMS_SECURITY_FINDING_ID, qualifiesCmsSecurityReview } from "@certscore/contracts";
 import { buildSiteIntegrityScoreEffects } from "./site-integrity-score-policy";
 import { qualifiesSiteIntegrityReview, SITE_INTEGRITY_FINDING_ID } from "@certscore/contracts";
 import { readRejectClickTrackingAssessment, REJECT_CLICK_TRACKING_FINDING, REJECT_CLICK_TRACKING_SIGNAL } from "./reject-click-tracking-policy";
@@ -2584,6 +2586,18 @@ export function deriveConcernPolicy(input: {
   regulatoryChecklistEligibility?: NormalizedConcernRegulatoryChecklistEligibility;
   scoreEffects?: NormalizedConcernScoreEffect[];
 } {
+  if (input.concern.suggestedUnifiedFindingId === FORM_DESTINATION_FINDING_ID) {
+    const eligible = input.concern.originType === "runtime_artifact" && qualifiesFormDestinationReview(input.rawEvidence?.formDestinations);
+    return { allowedNarrativeTier: "moderate", externalSurfacingEligibility: eligible ? "eligible" : "suppress",
+      promotionEligibility: eligible ? "eligible" : "blocked", negativeEvidenceFlags: [],
+      regulatoryChecklistEligibility: "none", scoreEffects: [] };
+  }
+  if (input.concern.suggestedUnifiedFindingId === CMS_SECURITY_FINDING_ID) {
+    const eligible = input.concern.originType === "runtime_artifact" && qualifiesCmsSecurityReview(input.rawEvidence?.cmsSecurity);
+    return { allowedNarrativeTier: "moderate", externalSurfacingEligibility: eligible ? "eligible" : "suppress",
+      promotionEligibility: eligible ? "eligible" : "blocked", negativeEvidenceFlags: [],
+      regulatoryChecklistEligibility: "none", scoreEffects: [] };
+  }
   if (input.concern.suggestedUnifiedFindingId === SITE_INTEGRITY_FINDING_ID) {
     const eligible = input.concern.originType === "runtime_artifact" && qualifiesSiteIntegrityReview(input.rawEvidence?.siteIntegrity);
     return { allowedNarrativeTier: "moderate", externalSurfacingEligibility: eligible ? "eligible" : "suppress",

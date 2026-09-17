@@ -17,7 +17,7 @@
         "vendorId": "ven_b460db2a4c04",
         "serviceId": "svc_0dc085cde9c8",
         "contractVersion": "vendor-registry-attribution-v1",
-        "resolverVersion": "certscore-vendor-resolver-2026-09-07-attribution-v2",
+        "resolverVersion": "certscore-vendor-resolver-2026-09-17-maps-assets-v1",
         "ruleIds": [
           "google_maps_iframe_embed"
         ],
@@ -104,7 +104,7 @@
         "vendorId": "ven_6a03b1eeab38",
         "serviceId": "svc_ac21cb004610",
         "contractVersion": "vendor-registry-attribution-v1",
-        "resolverVersion": "certscore-vendor-resolver-2026-09-07-attribution-v2",
+        "resolverVersion": "certscore-vendor-resolver-2026-09-17-maps-assets-v1",
         "ruleIds": [
           "facebook_page_plugin_embed"
         ],
@@ -192,7 +192,7 @@
         "vendorId": "ven_b460db2a4c04",
         "serviceId": "svc_7dd5fa017f5c",
         "contractVersion": "vendor-registry-attribution-v1",
-        "resolverVersion": "certscore-vendor-resolver-2026-09-07-attribution-v2",
+        "resolverVersion": "certscore-vendor-resolver-2026-09-17-maps-assets-v1",
         "ruleIds": [
           "google_fonts_cdn"
         ],
@@ -279,7 +279,7 @@
         "vendorId": "ven_3e5a5b1911ca",
         "serviceId": "svc_1dc03beaa9fd",
         "contractVersion": "vendor-registry-attribution-v1",
-        "resolverVersion": "certscore-vendor-resolver-2026-09-07-attribution-v2",
+        "resolverVersion": "certscore-vendor-resolver-2026-09-17-maps-assets-v1",
         "ruleIds": [
           "microsoft_bing_uet_endpoint"
         ],

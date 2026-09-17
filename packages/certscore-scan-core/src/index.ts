@@ -1373,6 +1373,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       ...(consentFlowResult?.consentUiObservations ?? []),
     ],
     ...(preConsentResult.collectionSurfaceSnapshots ? { collectionSurfaceSnapshots: preConsentResult.collectionSurfaceSnapshots } : {}),
+    ...(preConsentResult.formDestinationTrace ? { formDestinationTrace: preConsentResult.formDestinationTrace } : {}),
     ...(preConsentResult.collectionSurfaceInventory
       ? { collectionSurfaceInventory: preConsentResult.collectionSurfaceInventory }
       : {}),

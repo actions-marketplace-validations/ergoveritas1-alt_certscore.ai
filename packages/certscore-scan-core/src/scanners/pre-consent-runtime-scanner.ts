@@ -1,4 +1,5 @@
-import { SITE_INTEGRITY_LIMITS, siteIntegrityObservationSchema, type SiteIntegrityObservation } from "@certscore/contracts";
+import { installFormDestinationTracing } from "../form-destination-trace.js";
+import { CMS_ASSET_PATTERNS, SITE_INTEGRITY_LIMITS, siteIntegrityObservationSchema, type SiteIntegrityObservation } from "@certscore/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { createProxyDestinationCapture } from "../proxy-destination-capture.js";
 import { captureCollectionSurfaceSnapshots, type FormSnapshotReviewer } from "../collection-surface-snapshots";
@@ -381,15 +382,23 @@ export function buildLateConsentGeometryShadowArtifact(input: {
 export async function readDocumentSiteMetadata(page: Page) {
   const url = page.url();
   const identity = currentBrowserDocumentIdentity(page);
-  const metadata = await page.evaluate(() => ({
+  const metadata = await page.evaluate((assetPatterns) => ({
     contractVersion: "certscore.site-metadata.v1" as const,
     title: document.title.slice(0, 240),
     language: (document.documentElement.lang.trim() || document.querySelector('meta[http-equiv="content-language" i]')?.getAttribute("content")?.split(",")[0]?.trim() || document.querySelector('meta[property="og:locale" i]')?.getAttribute("content")?.replaceAll("_", "-") || "").slice(0, 35),
     generators: Array.from(document.querySelectorAll('meta[name="generator" i]')).slice(0, 8).map(el => (el.getAttribute("content") || "").trim().slice(0, 160)).filter(Boolean),
+    cmsAssets: Array.from(document.querySelectorAll('script[src],link[href]')).slice(0, 500).flatMap(el => {
+      try {
+        const asset = new URL(el.getAttribute("src") || el.getAttribute("href") || "", document.baseURI);
+        if (asset.origin !== location.origin || !assetPatterns.some(pattern => new RegExp(pattern, "i").test(asset.pathname))) return [];
+        asset.search = ""; asset.hash = "";
+        return asset.href.length <= 512 ? [asset.href] : [];
+      } catch { return []; }
+    }).filter((value, index, all) => all.indexOf(value) === index).slice(0, 6),
     wordpressAssetObserved: Array.from(document.querySelectorAll('script[src],link[href]')).slice(0, 500).some(el => {
       try { const url = new URL(el.getAttribute("src") || el.getAttribute("href") || "", document.baseURI); return url.origin === location.origin && /^\/(?:wp-content|wp-includes)\//.test(url.pathname); } catch { return false; }
     }),
-  })).catch(() => null);
+  }), Object.values(CMS_ASSET_PATTERNS)).catch(() => null);
   return page.url() === url && identity?.token === currentBrowserDocumentIdentity(page)?.token ? metadata : null;
 }
 
@@ -553,6 +562,7 @@ export interface PreConsentRuntimeScannerResult {
   iframeEvents: IframeEvent[];
   consentUiObservations: ConsentUiObservation[];
   collectionSurfaceSnapshots?: import("@certscore/contracts").CollectionSurfaceSnapshot[];
+  formDestinationTrace?: import("@certscore/contracts").FormDestinationTrace;
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
   cmpRuntimeObservations: CmpRuntimeObservation[];
@@ -794,6 +804,8 @@ export async function preConsentRuntimeScanner(
   const webBotAuthRoute = await installWebBotAuthRoute(browserContext);
   await installPublicNetworkGuardRoute(browserContext);
 
+  const formTracing = captureScope === "runtime_evidence" ? await installFormDestinationTracing(page, input.scanStartedAtMs, () => currentBrowserDocumentIdentity(page)).catch(() => null) : null;
+
   page.on("request", (request) => {
     if (responseCaptureFinalized) return;
     const requestUrl = request.url();
@@ -906,6 +918,7 @@ export async function preConsentRuntimeScanner(
       relatedEvidenceRefs: [],
       requestPayloadSignals: payloadSignals,
     };
+    formTracing?.request(requestId, requestUrl, request.method(), event.timestampMs, request.postData(), currentBrowserDocumentIdentity(page)?.token ?? "");
     networkEvents.push(event);
     impactCapture?.recordRequest(event);
     gpcObservationSession?.recordRequest(event, request);
@@ -928,6 +941,8 @@ export async function preConsentRuntimeScanner(
   });
 
   page.on("response", (response) => {
+    const formRequestId = requestIds.get(response.request());
+    if (formRequestId) formTracing?.status(formRequestId, "response_observed");
     if (responseCaptureFinalized) return;
     if (isHttpUrl(response.url())) passiveEvidenceActivity.noteActivity();
     const capture = captureResponse(response).catch(() => {
@@ -939,6 +954,8 @@ export async function preConsentRuntimeScanner(
     if (isHttpUrl(request.url())) passiveEvidenceActivity.markRequestFinished(request);
   });
   page.on("requestfailed", (request) => {
+    const formRequestId = requestIds.get(request);
+    if (formRequestId) formTracing?.status(formRequestId, "failed");
     const requestUrl = request.url();
     if (!isHttpUrl(requestUrl)) {
       return;
@@ -3885,6 +3902,7 @@ export async function preConsentRuntimeScanner(
       ...("siteIntegrityObservation" in pageEvidence && pageEvidence.siteIntegrityObservation &&
         currentBrowserDocumentIdentity(page)?.token === pageEvidence.siteIntegrityObservation.documentToken &&
         !input.signal?.aborted ? { siteIntegrityObservation: pageEvidence.siteIntegrityObservation } : {}),
+      ...(formTracing && !input.signal?.aborted ? { formDestinationTrace: formTracing.finish() } : {}),
       ...(collectionSurfaceInventory ? { collectionSurfaceInventory } : {}),
       collectionSurfaceObservations,
       cmpRuntimeObservations: captureConsentEvidence ? cmpRuntimeObservations : [],
@@ -4944,6 +4962,7 @@ async function captureConsentProofPageEvidence(input: {
 }): Promise<{
   siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: RuntimeEvidenceEvent[];
+  formDestinationTrace?: import("@certscore/contracts").FormDestinationTrace;
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
   domText: string;
@@ -4989,6 +5008,7 @@ async function capturePostSettlePageEvidence(input: {
 }): Promise<{
   siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: RuntimeEvidenceEvent[];
+  formDestinationTrace?: import("@certscore/contracts").FormDestinationTrace;
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
   domText: string;

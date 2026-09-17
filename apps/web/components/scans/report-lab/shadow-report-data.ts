@@ -146,6 +146,9 @@ export type ShadowReportData = {
   siteIntegrity?: SiteIntegrityReportFinding | null;
   siteIntegritySummary?: import("../../../lib/scans/site-integrity-report").SiteIntegritySiteReport;
   resultDisposition?: never;
+  formDestinations?: import("@certscore/contracts").FormDestinationProjection | null;
+  formDestinationWarning?: boolean;
+  cmsSecurity?: import("@certscore/contracts").CmsSecurityProjection | null;
   siteMetadata?: import("@certscore/contracts").SiteMetadataProjection | null;
   fullSite?: import("@website-signal-risk-scanner/shared").CrawlOptions;
   resourceInventory?: import("../../../lib/scans/single-page-resource-inventory").SinglePageResourceInventory;

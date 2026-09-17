@@ -42,10 +42,25 @@ test("identified supporting services stay visible while unknown identities stay 
  assert.equal(tree[2]!.residual,true);
  assert.deepEqual(tree[3]!.children.map(x=>x.service.key),["unknown"]);
 });
-test("verified site-loaded resources are independent; unresolved and embedded resources stay separate", () => {
+test("one identified root combines site-loaded and unresolved resources while embedded resources remain nested", () => {
  const fonts={...service("fonts",[resource("site-font"),resource("embedded-font"),resource("unresolved")],[{...link("site:document","site-font"),kind:"site" as const},link("youtube","embedded-font")]),name:"Google Fonts"};
  const tree=buildServiceHierarchy([service("youtube"),fonts]);
- assert.deepEqual(tree.find(x=>x.directSite)!.ownResources.map(x=>x.key),["site-font"]);
+ const roots=tree.filter(x=>x.service.key==="fonts");
+ assert.equal(roots.length,1);
+ assert.deepEqual(roots[0]!.ownResources.map(x=>x.key).sort(),["site-font","unresolved"]);
+ assert.equal(roots[0]!.directSite,false);
+ assert.equal(roots[0]!.residual,true);
+ assert.deepEqual(roots[0]!.service.origins,fonts.origins);
  assert.deepEqual(tree.find(x=>x.service.key==="youtube")!.children[0]!.ownResources.map(x=>x.key),["embedded-font"]);
- assert.deepEqual(tree.find(x=>x.service.key==="fonts" && x.residual)!.ownResources.map(x=>x.key),["unresolved"]);
+ const owned=(branches: ReturnType<typeof buildServiceHierarchy>): string[] => branches.flatMap(branch=>[...branch.ownResources.map(row=>row.key),...owned(branch.children)]);
+ assert.deepEqual(owned(tree).sort(),["embedded-font","site-font","unresolved","youtube"]);
+});
+test("merging identified roots retains linked children exactly once without merging names across identities", () => {
+ const fonts=service("fonts",[resource("direct"),resource("unknown")],[link("site:document","direct")]);
+ const sameName={...service("other-fonts"),name:fonts.name};
+ const tree=buildServiceHierarchy([fonts,service("assets",[resource("asset")],[link("fonts","asset")]),sameName]);
+ const root=tree.find(branch=>branch.service.key==="fonts")!;
+ assert.equal(tree.length,2);
+ assert.deepEqual(root.children.map(branch=>branch.service.key),["assets"]);
+ assert.deepEqual(root.service.resources.map(row=>row.key).sort(),["asset","direct","unknown"]);
 });

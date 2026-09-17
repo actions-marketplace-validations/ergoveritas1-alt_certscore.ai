@@ -1,3 +1,5 @@
+import { FORM_DESTINATION_FINDING_ID, qualifiesFormDestinationReview } from "@certscore/contracts";
+import { CMS_SECURITY_FINDING_ID, qualifiesCmsSecurityReview } from "@certscore/contracts";
 import { SITE_INTEGRITY_FINDING_ID } from "@certscore/contracts";
 import {
   REPORT_UNIFIED_FINDINGS,
@@ -85,6 +87,7 @@ export type SurfacingPolicyRuleId =
   | "evidence.finding_contract.audit_only"
   | "evidence.finding_contract.suppressed"
   | "evidence.commercial.confirmed_when_runtime_or_structured"
+  | "cms_security.verified_version_match"
   | "evidence.context.keep_review"
   | "posture.post_choice_flow.deferred_from_core"
   | "posture.ccpa_cpra.deferred_from_core"
@@ -359,6 +362,8 @@ const ACCESSIBILITY_IDS = [
 ] as const satisfies ReportUnifiedFindingId[];
 
 const CONTEXT_IDS = [
+  CMS_SECURITY_FINDING_ID,
+  FORM_DESTINATION_FINDING_ID,
   SITE_INTEGRITY_FINDING_ID,
   "regulator_operated_mock_investment_example",
   "scan_quality_visual_artifact_missing",
@@ -1864,6 +1869,20 @@ function overrideDecision(
 
 function applyFindingSpecificRules(context: PolicyEvaluationContext) {
   const { packet, decision } = context;
+  if (packet.unifiedFindingId === FORM_DESTINATION_FINDING_ID) {
+    const eligible = packet.details?.family === "form_destinations" && qualifiesFormDestinationReview(packet.details.projection) &&
+      packet.concernContext?.promotionEligibilities.includes("eligible") && packet.concernContext?.externalSurfacingEligibilities.includes("eligible");
+    overrideDecision(decision, { state: eligible ? "review" : "suppressed", lane: eligible ? "main" : "suppressed",
+      tier: "headline", reason: "Canonical form-data payload match outside the declared destination; score-neutral.", ruleId: "evidence.context.keep_review" });
+    return;
+  }
+  if (packet.unifiedFindingId === CMS_SECURITY_FINDING_ID) {
+    const eligible = packet.details?.family === "cms_security" && qualifiesCmsSecurityReview(packet.details.projection) &&
+      packet.concernContext?.promotionEligibilities.includes("eligible") && packet.concernContext?.externalSurfacingEligibilities.includes("eligible");
+    overrideDecision(decision, { state: eligible ? "review" : "suppressed", lane: eligible ? "main" : "suppressed",
+      tier: "headline", reason: "Canonical CMS security assessment: evidence-backed version match requiring verification; score-neutral.", ruleId: "cms_security.verified_version_match" });
+    return;
+  }
   if (packet.unifiedFindingId === SITE_INTEGRITY_FINDING_ID) {
     const eligible = packet.details?.family === "site_integrity" &&
       packet.concernContext?.promotionEligibilities.includes("eligible") &&

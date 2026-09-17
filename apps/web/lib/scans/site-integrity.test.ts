@@ -22,7 +22,7 @@ test("verified integrity evidence flows through concern policy and unified findi
   assert.ok(concern);
   assert.equal(concern.promotionEligibility, "eligible");
   assert.equal(concern.regulatoryChecklistEligibility, "none");
-  assert.equal(concern.scoreEffects?.[0]?.deductionPoints, 20);
+  assert.equal(concern.scoreEffects?.[0]?.deductionPoints, 27);
   const packets = integrityPacketsFixture();
   const finding = selectSiteIntegrityFinding(packets);
   assert.ok(finding, JSON.stringify(packets));
@@ -37,7 +37,7 @@ test("verified integrity evidence flows through concern policy and unified findi
     evidenceState: "observed", id: "consent_surface_observed", status: "Observed" }] as unknown as GdprEprivacyCoverageChecklistItem[];
   const score = (unifiedFindings: typeof packets) => deriveCanonicalOverallScoreForReport({ scanRecord: { runtimeArtifacts: null }, checklistRows, unifiedFindings });
   assert.equal(score([]), 100);
-  assert.equal(score(packets), 80);
+  assert.equal(score(packets), 73);
 });
 
 test("raw flags, missing evidence, and empty or malformed captures never become integrity findings", () => {
@@ -60,7 +60,7 @@ test("eligible unified integrity joins priority review once, scoped to its retai
  assert.equal(priorities[0]?.status, "Partial concern");
  assert.equal(priorities[0]?.priority, "high");
  assert.deepEqual(priorities[0]?.pages.map(page => page.id), ["home"]);
- assert.match(priorities[0]!.evidence.join(" "), /20-point score deduction/);
+ assert.match(priorities[0]!.evidence.join(" "), /27-point score deduction/);
  assert.deepEqual(buildSitePriorityReview([], pages, [], []), []);
  assert.deepEqual(buildSitePriorityReview([], pages, [], packets.map(packet => ({...packet, presentationDecision: {...packet.presentationDecision, status:"suppress"}}))), []);
 });

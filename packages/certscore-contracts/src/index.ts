@@ -1,3 +1,4 @@
+import { formDestinationTraceSchema } from "./form-destination-trace";
 import { siteIntegrityObservationSchema } from "./site-integrity";
 export * from "./site-integrity";
 export * from "./policy-date-evidence";
@@ -3472,6 +3473,7 @@ const canonicalEvidenceBundleBaseSchema = z.object({
   consentUiObservations: z.array(consentUiObservationSchema),
   collectionSurfaceObservations: z.array(collectionSurfaceObservationSchema).default([]),
   collectionSurfaceInventory: collectionSurfaceInventorySchema.optional(),
+  formDestinationTrace: formDestinationTraceSchema.optional(),
   collectionSurfaceSnapshots: z.array(collectionSurfaceSnapshotSchema).max(MAX_COLLECTION_SURFACE_FORMS).optional(),
   consentInteractionEvents: z.array(consentInteractionEventSchema).default([]),
   consentFlowObservations: z.array(consentFlowObservationSchema).default([]),
@@ -3756,3 +3758,7 @@ export * from "./after-action-capture";
 export * from "./choice-path-execution";
 
 export * from "./terminal-consent-decision";
+
+export * from "./cms-security";
+
+export * from "./form-destination-trace";

@@ -1,3 +1,5 @@
+import { FormDestinationEvidence } from "../form-destination-evidence";
+import { CmsSecurityEvidence } from "../cms-security-evidence";
 import { SiteIntegrityEvidence } from "../site-integrity-evidence";
 import { choicePathExecutionLabel } from "@certscore/contracts";
 import React from "react";
@@ -1285,13 +1287,14 @@ function TimelineVariant({ report, allowRestrictedScanOptions, defaultScanFrom, 
         <div className="mt-3 flex justify-end sm:col-start-2 sm:row-start-1 sm:mt-0 sm:w-full sm:max-w-xl sm:justify-self-end"><ReportScanNext allowRestrictedScanOptions={allowRestrictedScanOptions} defaultScanFrom={defaultScanFrom} mode={mode} report={report} /></div>
       </div>
     </header>
-    <FullSiteExecutiveSummary inventorySummary={<ReportInventorySummary metrics={report.inventorySummary ?? []} siteIntegrity={report.siteIntegritySummary ?? (report.siteIntegrity ? { findings: [report.siteIntegrity], coverage: [{ pageId: report.scan.id, url: report.siteIntegrity.evidence.observation.documentUrl, homepage: true, status: report.siteIntegrity.evidence.observation.truncated ? "limited" : "captured" }] } : undefined)} />} score={{ value: report.score.value, priorityReview, scoredPages: 1 }} pending={false} scannedPages={1} statusLabel="Completed"
+    <FullSiteExecutiveSummary inventorySummary={<ReportInventorySummary forms={report.collectionTableRows} formCount={report.metrics.forms} metrics={report.inventorySummary ?? []} siteIntegrity={report.siteIntegritySummary ?? (report.siteIntegrity ? { findings: [report.siteIntegrity], coverage: [{ pageId: report.scan.id, url: report.siteIntegrity.evidence.observation.documentUrl, homepage: true, status: report.siteIntegrity.evidence.observation.truncated ? "limited" : "captured" }] } : undefined)} />} score={{ value: report.score.value, priorityReview, scoredPages: 1 }} pending={false} scannedPages={1} statusLabel="Completed"
       actions={<ShadowReportShareMenu key="share-report" reportUrl={report.scan.reportUrl ?? SHADOW_REPORT_SOURCE_URL} scanId={report.scan.id} siteLabel={report.scan.host} />}
       snapshot={<SignalSnapshot siteOverview report={report} />} homepageVerdict={report.verdict} />
     <SitePriorityReview findings={priorityReview} pending={false} sitewideAvailable scannedPages={1} />
     <section aria-label="Page event timeline" className="my-3 border-y border-zinc-200 bg-white py-2"><h2 className="text-xl font-semibold">Page event timeline</h2><div className="mt-1"><RuntimeObservationTimeline dominant compact events={report.timeline} /></div></section>
     {report.resourceInventory ? <SinglePageResourceInventory inventory={report.resourceInventory} report={report}/> : <RuntimeInventoryTable report={report} heading="Services & Resources" />}
     <CollectionSurfacesTable rows={report.collectionTableRows ?? []} loading={false} pagesWithoutInventory={report.collectionTableRows ? 0 : 1} />
+    <FormDestinationEvidence projection={report.formDestinations} warning={report.formDestinationWarning} />
     <EvidenceDirectory compact report={report} />
   </div></ReportInventoryNavigation>;
 }
@@ -1595,6 +1598,7 @@ export function EvidenceDirectory({ report, compact = false, additionalEvidence 
           <RatingMix report={report} homepage={compact} />
         </div>
         <SiteIntegrityEvidence finding={report.siteIntegrity} />
+        <CmsSecurityEvidence projection={report.cmsSecurity} />
         <div className={`${compact ? "mt-3 gap-3" : "mt-6 gap-6"} grid items-start lg:grid-cols-[minmax(0,1.08fr)_minmax(22rem,0.92fr)]`}>
           <div className="border-l border-t border-zinc-200">
             {additionalEvidence}
@@ -1804,7 +1808,7 @@ export function ShadowScanReport({
     </>
   );
 
-  const reportContent = report.resultDisposition !== "no_go" && report.fullSite ? <FullSiteWorkspace homepageRuntimeCards={report.executiveRuntimeCards} executiveActions={<ShadowReportShareMenu fullSite reportUrl={report.scan.reportUrl ?? SHADOW_REPORT_SOURCE_URL} scanId={report.scan.id} siteLabel={report.scan.host} />} homepageTimeline={<RuntimeObservationTimeline dominant compact events={report.timeline} />} executiveSnapshot={<SignalSnapshot siteOverview report={report} />} evidenceDirectory={<EvidenceDirectory compact report={report} />} homepageVerdict={report.verdict} initialNotice={fullSiteNotice} scanId={report.scan.id} requested={report.fullSite} homepageGraph={report.runtimeEvidenceGraph} homepageFindings={report.findings} homepageUrl={report.scan.url} siteMetadata={report.siteMetadata} identity={<ReportIdentity compact enhancedActions workspaceIdentity report={report} />} identityWithoutSharing={<ReportIdentity compact enhancedActions workspaceIdentity hideShare report={report} />} scanNext={<ReportScanNext allowRestrictedScanOptions={allowRestrictedScanOptions} defaultScanFrom={defaultScanFrom} mode={mode} report={report} />}>{homepageContent}</FullSiteWorkspace> : homepageContent;
+  const reportContent = report.resultDisposition !== "no_go" && report.fullSite ? <FullSiteWorkspace formDestinationEvidence={<FormDestinationEvidence projection={report.formDestinations} warning={report.formDestinationWarning} />} homepageRuntimeCards={report.executiveRuntimeCards} executiveActions={<ShadowReportShareMenu fullSite reportUrl={report.scan.reportUrl ?? SHADOW_REPORT_SOURCE_URL} scanId={report.scan.id} siteLabel={report.scan.host} />} homepageTimeline={<RuntimeObservationTimeline dominant compact events={report.timeline} />} executiveSnapshot={<SignalSnapshot siteOverview report={report} />} evidenceDirectory={<EvidenceDirectory compact report={report} />} homepageVerdict={report.verdict} initialNotice={fullSiteNotice} scanId={report.scan.id} requested={report.fullSite} homepageGraph={report.runtimeEvidenceGraph} homepageFindings={report.findings} homepageUrl={report.scan.url} siteMetadata={report.siteMetadata} identity={<ReportIdentity compact enhancedActions workspaceIdentity report={report} />} identityWithoutSharing={<ReportIdentity compact enhancedActions workspaceIdentity hideShare report={report} />} scanNext={<ReportScanNext allowRestrictedScanOptions={allowRestrictedScanOptions} defaultScanFrom={defaultScanFrom} mode={mode} report={report} />}>{homepageContent}</FullSiteWorkspace> : homepageContent;
 
   const reportDisclaimer = <p className="mx-auto mt-6 px-5 pb-6 text-center text-xs text-zinc-500">CertScore.ai can make mistakes. Verify all findings.</p>;
 

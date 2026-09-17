@@ -64,14 +64,14 @@ function integrityFindings(count: number, page?: string) {
 }
 const scoreIntegrity = (unifiedFindings: UnifiedFindingDisplayPacket[]) => deriveCanonicalOverallScoreForReport({scanRecord: {runtimeArtifacts: null}, checklistRows: checkedChecklist, unifiedFindings});
 
-test("verified hidden links use 10 then 5 with a 40-point site cap", () => {
-  for (const [count, expected] of [[0,100],[1,90],[2,85],[6,65],[7,60],[12,60]]) assert.equal(scoreIntegrity(integrityFindings(count!)), expected);
+test("verified hidden links use 17 then 5 with a 40-point site cap", () => {
+  for (const [count, expected] of [[0,100],[1,83],[2,78],[3,73],[5,63],[6,60],[7,60],[12,60]]) assert.equal(scoreIntegrity(integrityFindings(count!)), expected);
 });
 test("site-wide link identities union across pages and duplicate projections do not multiply deductions", () => {
   const home = integrityFindings(1);
   const page = integrityFindings(2, "20000000-0000-4000-8000-000000000001");
-  assert.equal(scoreIntegrity([...home, ...home]), 90);
-  assert.equal(scoreIntegrity([...home, ...page, ...page]), 80);
+  assert.equal(scoreIntegrity([...home, ...home]), 83);
+  assert.equal(scoreIntegrity([...home, ...page, ...page]), 73);
   assert.equal(scoreIntegrity([...integrityFindings(6), ...page]), 60);
   assert.equal(scoreIntegrity([...integrityFindings(12),gpcFinding(15)]),45);
 });

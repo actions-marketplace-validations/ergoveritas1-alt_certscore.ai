@@ -2,7 +2,7 @@ import { CALIFORNIA_GPC_NO_SUPPRESSION_DEDUCTION_POINTS } from "./california-gpc
 
 /** Owner-approved September 6 and 17, 2026. Numeric policy shared by scoring and review UI. */
 export const SCORING_POLICY_VERSION = "gdpr-eprivacy-posture.v14";
-export const FULL_SITE_SCORING_POLICY_VERSION = "full-site-distinct-findings.v3";
+export const FULL_SITE_SCORING_POLICY_VERSION = "full-site-distinct-findings.v4";
 export const SCORE_FLOOR = 0;
 export const SCORE_BASE = 100;
 export const SCORING_FAMILIES = {
@@ -41,7 +41,7 @@ export const SCORING_RULES: readonly ScoringRule[] = [
   {"id": "transport_security_mixed_content", "anchor": "mixed-content", "label": "Mixed content", "family": "transport_security", "siteWide": false, "points": 8},
   {"id": "transport_security_http_redirect", "anchor": "redirect", "label": "HTTP redirect handling", "family": "transport_security", "siteWide": false, "points": 2},
   {"id": "gpc_response", "anchor": "gpc", "label": "Eligible California GPC finding", "family": "gpc", "siteWide": false, "points": CALIFORNIA_GPC_NO_SUPPRESSION_DEDUCTION_POINTS},
-  { id: "site_integrity_hidden_outbound_links", anchor: "hidden-links", label: "Hidden outbound links", family: "site_integrity", siteWide: true, points: 10, identity: { first: 10, second: 5, subsequentEach: 5, unit: "link occurrence" } },
+  { id: "site_integrity_hidden_outbound_links", anchor: "hidden-links", label: "Hidden outbound links", family: "site_integrity", siteWide: true, points: 17, identity: { first: 17, second: 5, subsequentEach: 5, unit: "link occurrence" } },
  ];
 export const SCORING_RULE_BY_ID = new Map(SCORING_RULES.map(rule => [rule.id, rule]));
 export function scoringRuleDescription(rule: ScoringRule) {

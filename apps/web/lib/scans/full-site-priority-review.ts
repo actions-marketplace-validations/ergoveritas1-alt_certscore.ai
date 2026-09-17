@@ -1,3 +1,5 @@
+import { projectFormDestinationPriority } from "./form-destination-report";
+import { projectCmsSecurityPriority } from "./cms-security-report";
 import { projectSiteIntegrityPriority, projectSiteIntegritySitePriority, type SiteIntegritySiteReport } from "./site-integrity-report";
 import type { UnifiedFindingDisplayPacket } from "./unified-findings";
 import { z } from "zod";
@@ -53,6 +55,11 @@ export function buildSitePriorityReview(rows: GdprEprivacyCoverageChecklistItem[
       pages: affected.map(({ id, url, homepage }) => ({ id, url, homepage })),
     };
   });
+  const formDestination = projectFormDestinationPriority(unified);
+  if (formDestination) priorities.unshift({ ...formDestination, rank: 1, pages: pages.filter(page => page.homepage).map(({ id, url, homepage }) => ({ id, url, homepage })) });
+  const cms = projectCmsSecurityPriority(unified);
+  if (cms) priorities.unshift({ ...cms, rank: 1,
+    pages: pages.filter(page => page.homepage).map(({ id, url, homepage }) => ({ id, url, homepage })) });
   const integrity = siteIntegrity ? projectSiteIntegritySitePriority(siteIntegrity) : projectSiteIntegrityPriority(unified);
   if (integrity && !priorities.some(row => row.id === integrity.id)) priorities.push({
     ...integrity, rank: priorities.length + 1,

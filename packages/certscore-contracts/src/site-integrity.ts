@@ -4,7 +4,7 @@ import { z } from "zod";
 export const SITE_INTEGRITY_LIMITS = { inspectedLinks: 1000, retainedLinks: 12, ancestorDepth: 6, captureBudgetMs: 20 } as const;
 export const SITE_INTEGRITY_FINDING_ID = "site_integrity_hidden_outbound_links";
 export const SITE_INTEGRITY_SIGNAL = "site_integrity.hidden_outbound_links";
-export const SITE_INTEGRITY_POLICY_VERSION = "certscore.site-integrity-policy.v3";
+export const SITE_INTEGRITY_POLICY_VERSION = "certscore.site-integrity-policy.v4";
 // Owner-approved September 17, 2026: verified hidden links receive an overall-score effect.
 export const SITE_INTEGRITY_SEVERITY = "high" as const;
 export const SITE_INTEGRITY_COPY = {

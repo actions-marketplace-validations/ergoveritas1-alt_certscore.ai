@@ -6,6 +6,7 @@ import { DisclosureChevron } from "./report-finding-row";
 import { VendorBrandIcon } from "./vendor-brand-chip";
 import { ServicesSignalSnapshot } from "./services-signal-snapshot";
 import { summarizeSiteIntegrityLinks, type SiteIntegritySiteReport } from "../../lib/scans/site-integrity-report";
+import { InventoryTileHeading, inventoryTileDisclosure, inventoryTilePadding } from "./inventory-tile-heading";
 import { ScanLiveValue } from "./scan-live-value";
 
 export type InventoryAssessmentCounts = { nonEssential: number; review: number; contextual: number; essential: number; unclassified?: number };
@@ -40,9 +41,12 @@ export function ReportRuntimeSummary({ cards }: { cards: ExecutiveRuntimeCard[] 
 }
 
 /** Inventory only. Risk and remediation remain in canonical priority findings. */
-export function ReportInventorySummary({ metrics, updating = false, siteIntegrity }: {
+export function ReportInventorySummary({ metrics, updating = false, siteIntegrity, formCount, forms = [], onViewEvidence }: {
   metrics: ReportInventoryMetric[];
   updating?: boolean;
+  formCount?: number;
+  forms?: import("./collection-surfaces-table").CollectionSurfaceTableRow[];
+  onViewEvidence?: () => void;
   siteIntegrity?: SiteIntegritySiteReport;
 }) {
   const network = metrics.find(metric => metric.overview);
@@ -53,19 +57,48 @@ export function ReportInventorySummary({ metrics, updating = false, siteIntegrit
     { label: INVENTORY_METRIC_LABELS.frames, value: overview.distinctEmbeds, counts: overview.distinctClassifications?.embeds },
   ] : metrics.map(metric => ({ ...metric, label: inventoryMetricLabel(metric.label) })).sort((a, b) => inventoryMetricOrder(a.label) - inventoryMetricOrder(b.label));
   const hiddenLinks = siteIntegrity ? summarizeSiteIntegrityLinks(siteIntegrity) : null;
-  return <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white" aria-label="Inventory summary">
-    <div className="grid grid-cols-2 items-start divide-x divide-zinc-200 border-b border-zinc-200">
+  const destinationCounts = new Map<string, number>();
+  const findings = new Map((siteIntegrity?.findings ?? []).map(finding => [finding.evidence.observation.documentUrl, finding]));
+  for (const finding of findings.values()) for (const link of finding.evidence.observation.links) {
+    destinationCounts.set(link.destinationDomain, (destinationCounts.get(link.destinationDomain) ?? 0) + 1);
+  }
+  const hiddenLinkDestinations = [...destinationCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white" aria-label="Inventory summary">
+    <div className="grid grid-cols-3 items-stretch divide-x divide-slate-200 border-b border-slate-200 bg-slate-50/50">
       <ServicesSignalSnapshot overview={overview} card />
-      <div className="flex min-w-0 items-center justify-between gap-2 px-3 py-2.5">
-        <p className="text-xs leading-4 text-slate-500">Hidden links</p>
-        <p className="text-xl font-semibold tabular-nums text-slate-950" title={hiddenLinks?.count != null ? `Retained link occurrences across ${hiddenLinks.pages} pages` : undefined}>{hiddenLinks?.count != null && hiddenLinks.lowerBound ? "≥" : ""}<ScanLiveValue value={hiddenLinks?.count} active={updating} /></p>
-      </div>
+      {(hiddenLinks?.count ?? 0) > 0 ? <details className="group/hidden-links min-w-0">
+        <summary className={inventoryTileDisclosure}>
+          <InventoryTileHeading label="Hidden links" value={<>{hiddenLinks?.count != null && hiddenLinks.lowerBound ? "≥" : ""}<ScanLiveValue value={hiddenLinks?.count} active={updating} /></>} chevron={<DisclosureChevron className="group-open/hidden-links:rotate-180" />} />
+        </summary>
+        <div className="space-y-2 border-t border-slate-100 px-3 py-3 text-xs leading-5 text-slate-600 sm:px-4">
+          {hiddenLinks?.count == null ? <p>Hidden-link evidence is unavailable.</p> : hiddenLinks.count === 0 ? <p>No hidden outbound links observed.</p> : <>
+            <p>{hiddenLinks.pages} affected {hiddenLinks.pages === 1 ? "page" : "pages"}</p>
+            <ul className="max-h-48 space-y-1 overflow-y-auto" aria-label="Hidden link destinations">{hiddenLinkDestinations.map(([domain, count]) => <li key={domain} className="flex items-start justify-between gap-2"><span className="min-w-0 break-all">{domain}</span><span className="shrink-0 tabular-nums">{count}</span></li>)}</ul>
+          </>}
+          {hiddenLinks?.lowerBound ? <p>Capture was limited; more links may be present.</p> : null}
+          {hiddenLinks?.count ? <a href="#site-integrity-evidence" className="inline-block pt-1 text-sky-700 hover:underline" onClick={event => {
+            event.preventDefault();
+            onViewEvidence?.();
+            const section = document.getElementById("site-integrity-evidence");
+            if (!section) return;
+            section.querySelectorAll("details").forEach((details, index) => { if (index === 0) details.open = true; });
+            for (let parent = section.parentElement; parent; parent = parent.parentElement) if (parent instanceof HTMLDetailsElement) parent.open = true;
+            section.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}>View hidden links ↗</a> : null}
+        </div>
+      </details> : <div className={`min-w-0 ${inventoryTilePadding}`}><InventoryTileHeading label="Hidden links" value={<ScanLiveValue value={hiddenLinks?.count} active={updating} />} /></div>}
+      {(formCount ?? 0) > 0 ? <details className="group/forms min-w-0">
+        <summary className={inventoryTileDisclosure}><InventoryTileHeading label="Forms" value={formCount} chevron={<DisclosureChevron className="group-open/forms:rotate-180" />} /></summary>
+        <div className="border-t border-slate-100 px-3 pb-3 sm:px-4">
+        <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto text-xs leading-5 text-slate-600" aria-label="Observed forms">{forms.map(({ id, form }) => <li key={id}><p className="break-words font-medium">{form.title || form.surfaceType.replaceAll("_", " ")}</p><p>{form.retainedFieldCount} {form.retainedFieldCount === 1 ? "field" : "fields"} · {form.method}</p></li>)}</ul>
+        <a href="#report-forms" className="mt-3 inline-block text-xs text-sky-700 hover:underline" onClick={event => { event.preventDefault(); onViewEvidence?.(); document.getElementById("report-forms")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>View forms ↗</a>
+        </div>
+      </details> : <div className={`min-w-0 ${inventoryTilePadding}`}><InventoryTileHeading label="Forms" value={<ScanLiveValue value={formCount} active={updating} />} /></div>}
     </div>
     <div className="overflow-x-auto" role="region" aria-label="Inventory totals" tabIndex={0}>
-      <div className="grid min-w-[360px] grid-cols-3 divide-x divide-zinc-200">
-        {technical.map(tile => <div key={tile.label} className="min-w-0 px-3 py-2.5">
-          <p className="min-h-4 text-xs leading-4 text-slate-500">{tile.label}</p>
-          <div className="mt-1 flex items-baseline justify-between gap-2"><strong className="text-xl font-semibold tabular-nums text-slate-950"><ScanLiveValue value={tile.value} active={updating} /></strong></div>
+      <div className="grid grid-cols-3 divide-x divide-slate-200">
+        {technical.map(tile => <div key={tile.label} className={`min-w-0 ${inventoryTilePadding}`}>
+          <InventoryTileHeading label={tile.label} value={<ScanLiveValue value={tile.value} active={updating} />} />
         </div>)}
       </div>
     </div>
@@ -76,7 +109,7 @@ export function ReportInventorySummary({ metrics, updating = false, siteIntegrit
       </summary>
       <div className="overflow-x-auto border-t border-zinc-100 bg-white px-4 py-3">
         <p className="mb-4 max-w-3xl text-xs leading-5 text-zinc-500">{overview ? "Each resource is counted once. Services group requests, cookies/storage and frames." : "Retained inventory counts and classifications."}</p>
-        <div className="grid min-w-[508px] grid-cols-3 divide-x divide-zinc-200">{technical.map((metric, index) => <div key={metric.label} className={`min-w-0 py-0 ${index ? "pl-4" : ""} ${index < technical.length - 1 ? "pr-4" : ""}`}>
+        <div className="grid grid-cols-1 gap-4 divide-y divide-zinc-200 md:min-w-[508px] md:grid-cols-3 md:gap-0 md:divide-x md:divide-y-0">{technical.map((metric, index) => <div key={metric.label} className={`min-w-0 py-0 ${index ? "pt-4 md:pt-0 md:pl-4" : ""} ${index < technical.length - 1 ? "md:pr-4" : ""}`}>
           <p className="mb-2 text-xs font-semibold text-zinc-700">{metric.label}<span className="ml-2 font-normal text-zinc-500 tabular-nums">{metric.value?.toLocaleString() ?? "Unavailable"}</span></p>
           <ClassificationCounts counts={metric.counts} />
         </div>)}</div>

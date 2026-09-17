@@ -1,4 +1,5 @@
 "use client";
+import { flushSync } from "react-dom";
 import { ServicesSnapshotContext } from "./services-signal-snapshot";
 
 import { INVENTORY_METRIC_LABELS } from "../../lib/scans/inventory-resource-semantics";
@@ -105,6 +106,7 @@ export function FullSiteWorkspace({
   scanId,
   requested,
   homepageGraph,
+  formDestinationEvidence,
   executiveSnapshot,
   executiveActions,
   homepageTimeline,
@@ -126,6 +128,7 @@ export function FullSiteWorkspace({
   scanId: string;
   requested: CrawlOptions;
   homepageGraph?: ApiRuntimeEvidenceGraphProjection;
+  formDestinationEvidence?: ReactNode;
   executiveSnapshot?: ReactNode;
   executiveActions?: ReactNode;
   homepageTimeline?: ReactNode;
@@ -410,7 +413,7 @@ export function FullSiteWorkspace({
           { label: INVENTORY_METRIC_LABELS.requests, value: s?.totals.requestEvents, group: "requests" },
           { label: INVENTORY_METRIC_LABELS.frames, value: s?.totals.embedInstances, group: "embeds" },
         ].map(metric => ({ ...metric, counts: data?.priorityTotals?.[metric.group], overview: metric.group === "requests" ? data?.networkOverview : undefined, note: metric.group === "cookies" && data?.storageReconciliation?.unmatched ? `${data.storageReconciliation.unmatched} assessed items lack an exact inventory match.` : undefined }));
-  const inventorySummary = <ReportInventorySummary updating={valuesUpdating} metrics={inventoryMetrics} siteIntegrity={data?.score?.siteIntegrity} />;
+  const inventorySummary = <ReportInventorySummary forms={data?.collectionSurfaces?.rows} onViewEvidence={() => flushSync(() => setTab("resources"))} formCount={data?.collectionSurfaces?.rows.length} updating={valuesUpdating} metrics={inventoryMetrics} siteIntegrity={data?.score?.siteIntegrity} />;
   return (
     <FullSiteRegionContext.Provider value={state?.region ?? initialNotice?.region}>
     <FullSiteTimingContext.Provider value={timing}>
@@ -434,9 +437,6 @@ export function FullSiteWorkspace({
           Site crawl cancelled. Captured evidence is preserved.{running ? " Active page visits are finishing; no additional visits will start." : ""}
         </p> : null}
 
-        {sitemapLimited ? <p role="status" className="mt-3 rounded-lg border border-amber-200/70 bg-amber-50/50 px-4 py-3 text-sm text-zinc-600">
-          Sitemap discovery was limited. This report covers captured pages; additional pages may not have been found.
-        </p> : null}
         {captureLimitations}
         {stopError ? <p role="alert" className="mt-3 text-sm text-rose-700">{stopError}</p> : null}
         {state?.status === "stopped" ? <div role="status" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200/70 bg-amber-50/50 px-4 py-3">
@@ -611,6 +611,7 @@ export function FullSiteWorkspace({
                 : `${tab === "pages" ? data.pages.total : data.resources.total} rows${(tab === "pages" ? data.pages.total : data.resources.total) > 6 ? " · Up to 6 visible. Scroll for more." : ""}`}</p>}
           </section>
           {tab === "resources" ? <CollectionSurfacesTable rows={data?.collectionSurfaces?.rows ?? []} loading={!data} scanning={valuesUpdating} pagesWithoutInventory={data?.collectionSurfaces?.pagesWithoutInventory} limitedPages={data?.collectionSurfaces?.limitedPages} /> : null}
+          {tab === "resources" ? formDestinationEvidence : null}
           {tab === "resources" ? <SitewideEvidenceContext.Provider value={data?.score?.evidencePages ? { pages: data.score.evidencePages, limitedPages: data.score.limitedPages } : null}><SiteIntegritySiteContext.Provider value={data?.score?.siteIntegrity ?? null}>{evidenceDirectory}</SiteIntegritySiteContext.Provider></SitewideEvidenceContext.Provider> : null}
           {detailPage ? (
             <section

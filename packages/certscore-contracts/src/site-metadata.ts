@@ -7,6 +7,8 @@ export const siteMetadataSchema = z.object({
   language: z.string().max(35),
   generators: z.array(z.string().max(160)).max(8),
   wordpressAssetObserved: z.boolean(),
+  /** Same-origin CMS-specific asset URLs; queries/fragments omitted, never version evidence. */
+  cmsAssets: z.array(z.string().url().max(512)).max(6).optional(),
 });
 export type SiteMetadata = z.infer<typeof siteMetadataSchema>;
 export const siteMetadataProjectionSchema = z.object({
@@ -28,7 +30,7 @@ export function describeSiteTechnology(observation?: SiteMetadata | null) {
   }
   if (observation.wordpressAssetObserved) return { platform: "WordPress indicators observed", version: "Unknown" };
   // Read explicit generator declarations only; asset versions can belong to plugins.
-  const cmsNames = ["Hugo", "Drupal", "Joomla", "Ghost", "Shopify", "Wix", "Squarespace", "Webflow", "TYPO3", "Magento", "PrestaShop", "HubSpot", "Contentful"];
+  const cmsNames = ["Hugo", "Drupal", "Joomla", "Ghost", "Shopify", "Wix", "Squarespace", "Webflow", "TYPO3", "Magento", "Adobe Commerce", "OpenCart", "PrestaShop", "HubSpot", "Contentful"];
   const detected = cmsNames.flatMap(name => {
     const declarations = observation.generators.filter(value => new RegExp(`^${name}(?:\\b|!)`, "i").test(value));
     if (!declarations.length) return [];

@@ -1,6 +1,6 @@
 # Site integrity review policy v3
 
-`certscore.site-integrity-policy.v3` implements a factual review and an owner-approved overall-score deduction for verified concealed outbound links. It does not classify a destination as adult, pharmaceutical, malicious or unrelated, establish unauthorized modification, or imply personal-data disclosure. Those conclusions require separate investigation.
+`certscore.site-integrity-policy.v4` implements a factual review and an owner-approved overall-score deduction for verified concealed outbound links. It does not classify a destination as adult, pharmaceutical, malicious or unrelated, establish unauthorized modification, or imply personal-data disclosure. Those conclusions require separate investigation.
 
 ## Canonical path
 
@@ -16,7 +16,7 @@ The observer reuses the existing selected anchors, examines at most 1,000 anchor
 
 It examines text-only anchors and excludes same-site destinations, navigation/menu regions, collapsed or explicitly hidden content, conventional screen-reader-only content, clipped accessibility labels, dialogs and links with child elements (including icons, images or styled text spans). Zero-size clipping does not qualify through an absolutely/fixed-positioned descendant that could escape the container. Only HTTP(S) external DNS domains are retained; destination paths, query strings, fragments, credentials, link text and destination content are not retained. Source page query, fragment and credentials are removed. Each link retains a capture-local reference, domain and concealment mechanism, alongside source page, timestamp and document provenance.
 
-The concern policy requires at least one verified retained hidden outbound link. On September 17, 2026 the owner replaced the previous three-link/two-domain/two-method threshold with per-link scoring: 10 points for the first occurrence, 5 for each additional occurrence, capped at 40 per report. Strict evidence verification is unchanged. The finding does not establish that the content is unrelated or unauthorized.
+The concern policy requires at least one verified retained hidden outbound link. On September 17, 2026 the owner replaced the previous three-link/two-domain/two-method threshold with per-link scoring: 17 points for the first occurrence, 5 for each additional occurrence, capped at 40 per report. Strict evidence verification is unchanged. The finding does not establish that the content is unrelated or unauthorized.
 
 ## Presentation and scoring
 
@@ -48,8 +48,8 @@ tooltip and the finding description.
 
 ## Owner-approved scoring update (September 17, 2026)
 
-The subsequent v3 policy supersedes the score-neutral v1/v2 policy and applies
-`min(40, 10 + 5 × (n − 1))` for positive verified occurrence counts; zero links
+The current v4 policy supersedes the score-neutral v1/v2 policy and applies
+`min(40, 17 + 5 × (n − 1))` for positive verified occurrence counts; zero links
 produce zero deduction. Policy effects retain scan/page/link identities and source
 hash references. Full-site scoring unions those already-projected identities and
 applies the cap once; no display-derived deduction is permitted. Repeated page
@@ -58,3 +58,5 @@ occurrences. Bounded or partial captures score only their retained verified link
 The approved local report is rematerialized from retained canonical evidence;
 other historical homepage records are not bulk rewritten. See
 [canonical scoring policy](../scoring-policy.md) for the reference sheet and cost.
+
+The owner subsequently increased the first-link deduction to 17 points (v4). Additional occurrences remain 5 points each, capped at 40. Overall scoring is v5 and full-site scoring is v4; previously recorded policy versions remain historical. This arithmetic change adds no scan work or infrastructure cost.
