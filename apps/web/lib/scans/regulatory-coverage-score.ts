@@ -84,6 +84,7 @@ const GDPR_EPRIVACY_ROW_WEIGHTS: Record<string, RegulatoryCoverageRowConfig> = {
   international_transfers_disclosure: { weight: 5 },
   legal_basis_disclosure_observed: { weight: 5 },
   options_settings_preferences_control: { weight: 7 },
+  outdated_transfer_framework_reference: { scoreEffect: "none" },
   post_reject_tracking_reduction: { weight: 10 },
   pre_consent_cookies_storage: { weight: 12 },
   pre_consent_third_party_tracking: { weight: 14 },

@@ -67,6 +67,16 @@ const scoreIntegrity = (unifiedFindings: UnifiedFindingDisplayPacket[]) => deriv
 test("verified hidden links use 17 then 5 with a 40-point site cap", () => {
   for (const [count, expected] of [[0,100],[1,83],[2,78],[3,73],[5,63],[6,60],[7,60],[12,60]]) assert.equal(scoreIntegrity(integrityFindings(count!)), expected);
 });
+test("transfer-framework review retains the canonical consent, embed, and hidden-link deductions", () => {
+  const checklistRows = [
+    ...checkedChecklist,
+    ...["reject_all_path_availability", "embedded_content_pre_consent", "social_media_embed_pre_consent", "third_party_iframe_pre_consent"].map(id => ({
+      id, assessmentStatus: "gap_observed", evidenceState: "observed", status: "Gap observed",
+    })),
+    { id: "outdated_transfer_framework_reference", assessmentStatus: "review_signal", evidenceState: "observed", status: "Review signal" },
+  ] as GdprEprivacyCoverageChecklistItem[];
+  assert.equal(deriveCanonicalOverallScoreForReport({ scanRecord: { runtimeArtifacts: null }, checklistRows, unifiedFindings: integrityFindings(8) }), 33);
+});
 test("site-wide link identities union across pages and duplicate projections do not multiply deductions", () => {
   const home = integrityFindings(1);
   const page = integrityFindings(2, "20000000-0000-4000-8000-000000000001");

@@ -72,6 +72,16 @@ test("unknown checklist rows withhold scoring instead of receiving a silent fall
   assert.doesNotMatch(result.summary, /scor|weight|deduct|credit/i);
 });
 
+test("stale transfer-framework review preserves existing deductions without adding a deduction", () => {
+  const rows = [{ id: "reject_all_path_availability", assessmentStatus: "gap_observed", evidenceState: "observed", status: "Gap observed" }];
+  const baseline = deriveRegulatoryCoverageScore({ framework: "gdpr_eprivacy", rows });
+  const result = deriveRegulatoryCoverageScore({ framework: "gdpr_eprivacy", rows: [...rows, {
+    id: "outdated_transfer_framework_reference", assessmentStatus: "review_signal", evidenceState: "observed", status: "Review signal",
+  }] });
+  assert.equal(baseline.score, 88);
+  assert.deepEqual(result, baseline);
+});
+
 test("registered contextual collection inventory does not withhold or affect scoring", () => {
   const result = deriveRegulatoryCoverageScore({
     framework: "gdpr_eprivacy",

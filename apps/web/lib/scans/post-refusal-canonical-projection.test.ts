@@ -568,7 +568,7 @@ test("verified generic Reject click plus tracking produces one scored review wit
   assert.match(JSON.stringify(result.postRejectRow), /"refusalRegistrationStatus":"unconfirmed"/);
   const score = deriveRegulatoryCoverageScore({ framework: "gdpr_eprivacy", rows: [result.postRejectRow] });
   assert.equal(score.score, 85);
-  assert.equal(score.scoreVersion, "gdpr-eprivacy-posture.v14");
+  assert.equal(score.scoreVersion, "gdpr-eprivacy-posture.v15");
   const retained = result.postRejectRow.criticalEvidence?.retainedEvidence as Record<string, unknown>;
   assert.equal(retained.rejectInteractionConfirmed, false);
   assert.ok("rejectClickTrackingAssessment" in result.runtimeArtifacts);
