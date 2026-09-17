@@ -358,7 +358,8 @@ function getScanProgressDisplay(input: {
 
 export function useScanProgressClock(active: boolean) {
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  // Start with identical server/client markup; the clock begins after hydration.
+  const [nowMs, setNowMs] = useState(0);
 
   useEffect(() => {
     if (!active) {
@@ -406,7 +407,7 @@ export function LocalV2DagScanProgressCard({
   startedAtMs?: number | null;
   targetLabel?: string;
 }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  const { nowMs, startedAtMs: mountedStartedAtMs } = useScanProgressClock(true);
   const startedAtMs = useMemo(() => {
     if (explicitStartedAtMs !== null && explicitStartedAtMs !== undefined && Number.isFinite(explicitStartedAtMs)) {
       return explicitStartedAtMs;
@@ -416,18 +417,8 @@ export function LocalV2DagScanProgressCard({
       return parsedStartedAt;
     }
     const parsedCreatedAt = createdAt ? Date.parse(createdAt) : Number.NaN;
-    return Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : nowMs;
-  }, [createdAt, explicitStartedAtMs, nowMs, startedAt]);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, SCAN_PROGRESS_TICK_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, []);
+    return Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : mountedStartedAtMs;
+  }, [createdAt, explicitStartedAtMs, mountedStartedAtMs, startedAt]);
 
   const badgeLabel = progressStage === "review"
     ? "Reviewing..."

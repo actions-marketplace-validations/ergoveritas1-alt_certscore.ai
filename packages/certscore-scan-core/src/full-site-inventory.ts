@@ -392,6 +392,7 @@ export function projectFullSiteInventory(input: {
 }
 
 export async function runInventoryOnly(input: {
+  parentScanId?: string;
   url: string;
   region: string;
   profile: "standard" | "tiny";
@@ -447,10 +448,14 @@ export async function runInventoryOnly(input: {
           );
       },
     });
+  const completedAt = new Date().toISOString();
   return {
-    evidence,
+    evidence: { ...evidence, ...(input.parentScanId && input.runtimeGraph ? { siteIntegrityPageCapture: {
+      parentScanId: input.parentScanId, pageId: input.runtimeGraph.pageId, attemptId: input.runtimeGraph.attemptId,
+      configurationHash: input.configurationHash, startedAt, completedAt, finalUrl,
+    } } : {}) },
     startedAt,
-    completedAt: new Date().toISOString(),
+    completedAt,
     finalUrl,
     links,
   };

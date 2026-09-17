@@ -1,4 +1,6 @@
+import { SITE_INTEGRITY_FINDING_ID, SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY } from "@certscore/contracts";
 export type ReportPrimaryPillarId =
+  | "site_integrity"
   | "policies_rights_disclosures"
   | "consent_tracking_data_collection"
   | "consumer_protection_commercial_practices"
@@ -6,6 +8,7 @@ export type ReportPrimaryPillarId =
   | "regulatory_enforcement_overlay";
 
 export type ReportSectionId =
+  | "site_integrity_review"
   | "privacy_notices_rights_data_handling"
   | "terms_legal_disclosures"
   | "policy_clarity_consistency_review"
@@ -27,6 +30,7 @@ export type ReportSectionId =
   | "international_privacy_comparators";
 
 export type ReportEvidenceCategoryId =
+  | "site_integrity_observations"
   | "notice_scope_entity_identity"
   | "rights_request_mechanisms"
   | "data_handling_disclosures"
@@ -631,10 +635,12 @@ export const REPORT_PRIMARY_PILLARS: ReportPrimaryPillarDefinition[] = [
       "us_accessibility_enforcement_ada_doj",
       "international_privacy_comparators"
     ]
-  }
+  },
+  { id: "site_integrity", label: "Site integrity", sectionIds: ["site_integrity_review"] },
 ];
 
 export const REPORT_SECTIONS: ReportSectionDefinition[] = [
+  { id: "site_integrity_review", pillarId: "site_integrity", label: "Site integrity", evidenceCategoryIds: ["site_integrity_observations"] },
   {
     id: "privacy_notices_rights_data_handling",
     pillarId: "policies_rights_disclosures",
@@ -805,6 +811,7 @@ export const REPORT_SECTIONS: ReportSectionDefinition[] = [
 ];
 
 export const REPORT_EVIDENCE_CATEGORIES: ReportEvidenceCategoryDefinition[] = [
+  { id: "site_integrity_observations", sectionId: "site_integrity_review", label: "Site integrity observations" },
   {
     id: "notice_scope_entity_identity",
     sectionId: "privacy_notices_rights_data_handling",
@@ -1114,6 +1121,7 @@ export const REPORT_EVIDENCE_CATEGORIES: ReportEvidenceCategoryDefinition[] = [
 ];
 
 export const REPORT_SIGNALS: ReportSignalDefinition[] = [
+  defineReportSignal("runtime_artifact_signal", SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY.title, "site_integrity_observations"),
   defineReportSignal(
     "snapshot_signal",
     "disclosure.privacy_policy_present",
@@ -2369,6 +2377,8 @@ export const REPORT_SIGNALS: ReportSignalDefinition[] = [
 ];
 
 export const REPORT_UNIFIED_FINDINGS = [
+  defineReportUnifiedFinding({ id: SITE_INTEGRITY_FINDING_ID, label: SITE_INTEGRITY_COPY.title,
+    owner: "site_integrity_observations", signalMappings: [{ source: "runtime_artifact_signal", key: SITE_INTEGRITY_SIGNAL }] }),
   defineReportUnifiedFinding({
     id: "privacy_policy_present",
     label: "Privacy policy surface present",

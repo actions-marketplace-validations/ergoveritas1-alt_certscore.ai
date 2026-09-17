@@ -5,20 +5,21 @@ import { FullSiteRegion, FullSiteTiming } from "./full-site-workspace";
 import { ShareReportActions } from "./share-report-actions";
 import { VendorBrandLogo } from "./vendor-brand-chip";
 
-export function FullSiteIdentity({ scanId, host, url, createdAt, region, visualEvidenceHref, actions, timing }: {
+export function FullSiteIdentity({ scanId, host, url, createdAt, region, visualEvidenceHref, visualEvidenceAction, actions, timing }: {
   scanId: string;
   host: string;
   url?: string | null;
   createdAt: string;
   region: ReactNode;
   visualEvidenceHref?: string | null;
+  visualEvidenceAction?: ReactNode;
   actions?: ReactNode;
   timing?: ReactNode;
 }) {
   return <header className="space-y-2">
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-medium text-zinc-500">
       <div className="min-h-[1.625rem] min-w-8 [&_.app-raised-button]:!h-[1.625rem] [&_.app-raised-button]:!rounded-md [&_.app-raised-button]:!border [&_.app-raised-button]:!border-zinc-300 [&_.app-raised-button]:!bg-white [&_.app-raised-button]:!text-zinc-600 [&_.app-raised-button]:!shadow-none [&_.app-raised-button]:hover:!border-zinc-500 [&_.app-raised-button]:hover:!text-zinc-950">
-        <ShareReportActions domainLabel={host} scanId={scanId} visualEvidenceHref={visualEvidenceHref} visualEvidenceOnly />
+        {visualEvidenceAction ?? <ShareReportActions domainLabel={host} scanId={scanId} visualEvidenceHref={visualEvidenceHref} visualEvidenceOnly />}
       </div>
       <FullSiteRegion>{region}</FullSiteRegion>
       {timing ?? <FullSiteTiming />}

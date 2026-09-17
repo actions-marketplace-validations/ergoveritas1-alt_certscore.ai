@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import type { FullSiteReportResponse } from "../../server/scans/full-site-report";
 import { getGdprEprivacyPostureTone } from "../../lib/scans/regulatory-coverage-score";
 import { ScanLiveValue } from "./scan-live-value";
@@ -15,39 +15,6 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
   inventorySummary?: ReactNode;
   homepageVerdict?: string;
 }) {
-  const layoutRef = useRef<HTMLDivElement>(null);
-  const [collapsedHeight, setCollapsedHeight] = useState<number>();
-  useLayoutEffect(() => {
-    const root = layoutRef.current;
-    if (!root) return;
-    const measure = () => {
-      const columns = Array.from(root.children) as HTMLElement[];
-      if (getComputedStyle(root).gridTemplateColumns.split(" ").length < 2) {
-        setCollapsedHeight(undefined);
-        return;
-      }
-      const heights = columns.map(column => Array.from(column.children).reduce((height, child) => {
-        const element = child as HTMLElement;
-        let contentHeight = element.getBoundingClientRect().height;
-        // Exclude disclosure bodies: opening a snapshot must not resize the other column.
-        element.querySelectorAll<HTMLDetailsElement>("details[open]").forEach(details => {
-          if (details.parentElement?.closest("details[open]")) return;
-          const summary = details.querySelector(":scope > summary");
-          if (!summary) return;
-          const css = getComputedStyle(details);
-          const closedHeight = summary.getBoundingClientRect().height + parseFloat(css.paddingTop) + parseFloat(css.paddingBottom) + parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth);
-          contentHeight -= details.getBoundingClientRect().height - closedHeight;
-        });
-        return height + contentHeight;
-      }, 20));
-      setCollapsedHeight(Math.ceil(Math.max(...heights)));
-    };
-    const observer = new ResizeObserver(measure);
-    root.querySelectorAll("[data-overview-block]").forEach(element => observer.observe(element));
-    observer.observe(root);
-    measure();
-    return () => observer.disconnect();
-  });
   const value = score?.value ?? null;
   const color = getGdprEprivacyPostureTone(value).ringColor;
   const priorities = score?.priorityReview;
@@ -58,8 +25,8 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
       <div className="flex items-center gap-3"><h2 className="text-xl font-semibold tracking-tight text-zinc-950">Executive overview</h2>{actions}</div>
       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{statusLabel ? `Site assessment · ${statusLabel}` : pending ? "Scan in progress" : "Site assessment"}</span>
     </div>
-    <div ref={layoutRef} className="grid items-start gap-5 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] lg:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.65fr)] lg:gap-8">
-      <div className="flex min-w-0 flex-col gap-5" style={{ minHeight: collapsedHeight }}>
+    <div className="grid items-start gap-6 p-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)] lg:p-5 lg:gap-8">
+      <div className="flex min-w-0 flex-col gap-5">
         <div data-overview-block>
         <div className="flex items-center gap-3 lg:gap-4">
           <div role="img" aria-label={value === null ? (pending ? `${scoreLabel} awaiting scored evidence` : `${scoreLabel} unavailable`) : `${scoreLabel} ${value} out of 100`} className="flex h-24 w-24 shrink-0 lg:h-28 lg:w-28 items-center justify-center rounded-full p-2" style={{background: value === null ? "#e4e4e7" : `conic-gradient(${color} 0 ${value}%, #e4e4e7 ${value}% 100%)`}}>
@@ -77,21 +44,16 @@ export function FullSiteExecutiveSummary({ score, pending, scannedPages, statusL
         {!score ? <p className="mt-2 text-xs text-zinc-500">{pending ? `${singlePage ? "The page score" : "The site-wide score"} will appear when the assessment is ready.` : `${singlePage ? "Page scoring" : "Site-wide scoring"} is unavailable for this scan.`}</p> : null}
         {score?.limitedPages ? <p className="mt-1 text-xs text-amber-800">{score.limitedPages} {score.limitedPages === 1 ? "page has" : "pages have"} limited scoring coverage.</p> : null}
         </div>
-        <div data-overview-block className="mt-auto">
-          {snapshot ?? <p className="py-3 text-sm text-zinc-500">The signal snapshot will appear when the starting-page assessment is ready.</p>}
-        </div>
+        <div data-overview-block>{snapshot ?? <p className="py-3 text-sm text-zinc-500">The signal snapshot will appear when the starting-page assessment is ready.</p>}</div>
       </div>
-      <div className="flex min-w-0 flex-col gap-5" style={{ minHeight: collapsedHeight }}>
+      <div className="flex min-w-0 flex-col gap-4">
         <div data-overview-block>
         <h3 className="text-sm font-bold tracking-tight text-zinc-900">{singlePage ? "Single page assessment" : "Site assessment"}</h3>
         {singlePage ? <p className="mt-2 text-sm leading-6 text-zinc-600">{homepageVerdict ?? "The single page assessment will appear when ready."}</p>
-          : priorities ? <p className="mt-2 text-sm leading-6 text-zinc-700">{priorities.length ? `Across ${scannedPages ?? score?.scoredPages ?? 0} scanned pages, ${priorities.length} priority issues focus on ${priorities.slice(0, 3).map(finding => finding.title.toLowerCase()).join("; ")}. These findings combine the starting-page audit with eligible retained additional-page evidence, counting repeated evidence once. Consent controls, policy transparency, and action-path checks cover the starting page; observed resources and collection surfaces cover all scanned pages.` : "No priority issues were identified in the assessed evidence."}</p>
+          : priorities ? <p className="mt-2 text-sm leading-5 text-zinc-700">{priorities.length ? `Across ${scannedPages ?? score?.scoredPages ?? 0} scanned pages, ${priorities.length} priority issues focus on ${priorities.slice(0, 3).map(finding => finding.title.toLowerCase()).join("; ")}. These findings combine the starting-page audit with eligible retained additional-page evidence, counting repeated evidence once. Consent controls, policy transparency, and action-path checks cover the starting page; observed resources and collection surfaces cover all scanned pages.` : "No priority issues were identified in the assessed evidence."}</p>
           : <p className="mt-2 text-sm leading-6 text-zinc-500">{pending ? "Page evidence is still being assessed. The site-scan assessment will appear when ready." : "Site assessment is unavailable."}</p>}
         </div>
-        <div data-overview-block className="mt-auto">
-          {!pending && !singlePage && score ? <p className="mb-3 text-xs leading-5 text-zinc-600">Scope: {scannedPages ?? score.scoredPages} scanned pages. Consent controls, policy transparency and action-path checks cover the starting page; resource and form inventories cover the scanned pages. Completing a scan does not mean every policy topic was confirmed.</p> : null}
-          <React.Fragment key="inventory-summary">{inventorySummary}</React.Fragment>
-        </div>
+        {inventorySummary ? <div>{inventorySummary}</div> : null}
       </div>
     </div>
   </section>;

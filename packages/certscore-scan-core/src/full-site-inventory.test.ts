@@ -54,8 +54,9 @@ test(
     try {
       const config = inventoryConfiguration("eu-west-1", "tiny"),
         configurationHash = inventoryHash(config);
-      const pageId = randomUUID(), attemptId = randomUUID();
+      const pageId = randomUUID(), attemptId = randomUUID(), parentScanId = randomUUID();
       const a = await runInventoryOnly({
+        parentScanId,
         runtimeGraph: { pageId, attemptId },
         formSnapshotReviewer: async () => ({ safeForDisplay: true }),
         url: origin + "/a",
@@ -66,6 +67,10 @@ test(
         outDir: join(outDir, "a"),
         signal: AbortSignal.timeout(35000),
       });
+      assert.equal(a.evidence.siteIntegrityPageCapture?.parentScanId, parentScanId);
+      assert.equal(a.evidence.siteIntegrityPageCapture?.attemptId, attemptId);
+      assert.equal(a.evidence.siteIntegrityPageCapture?.completedAt, a.completedAt);
+      assert.equal(a.evidence.siteIntegrityObservation?.scope, "additional_page_main_document");
       const b = await runInventoryOnly({
         url: origin + "/b",
         hosts: ["127.0.0.1"],

@@ -1,3 +1,4 @@
+import { SITE_INTEGRITY_LIMITS, siteIntegrityObservationSchema, type SiteIntegrityObservation } from "@certscore/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { createProxyDestinationCapture } from "../proxy-destination-capture.js";
 import { captureCollectionSurfaceSnapshots, type FormSnapshotReviewer } from "../collection-surface-snapshots";
@@ -555,6 +556,7 @@ export interface PreConsentRuntimeScannerResult {
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
   cmpRuntimeObservations: CmpRuntimeObservation[];
+  siteIntegrityObservation?: SiteIntegrityObservation;
   transportSecurityObservations: TransportSecurityObservation[];
   screenshots: ScreenshotArtifact[];
   visualCapture: VisualCaptureSummary;
@@ -2004,6 +2006,7 @@ export async function preConsentRuntimeScanner(
       "Atomic read-only storage, scripts, iframes, browser API, collection surface, and DOM text snapshot after the first structured consent inventory is retained.",
       () => Promise.all([captureRuntimeEvidence
         ? capturePostSettlePageEvidence({
+            captureSiteIntegrity: !input.globalPrivacyControlEnabled ? (input.executionProfile === "inventory_only" ? "additional_page_main_document" : "starting_page_main_document") : false,
             captureRenderedPolicyLinks: captureRenderedPolicyEvidence,
             firstPartyHostname,
             normalizedUrl: input.normalizedUrl,
@@ -3879,6 +3882,9 @@ export async function preConsentRuntimeScanner(
       ...(retainedGpcObservationSession ? { gpcObservationSession: retainedGpcObservationSession } : {}),
       iframeEvents,
       consentUiObservations: captureConsentEvidence ? [consentObservation] : [],
+      ...("siteIntegrityObservation" in pageEvidence && pageEvidence.siteIntegrityObservation &&
+        currentBrowserDocumentIdentity(page)?.token === pageEvidence.siteIntegrityObservation.documentToken &&
+        !input.signal?.aborted ? { siteIntegrityObservation: pageEvidence.siteIntegrityObservation } : {}),
       ...(collectionSurfaceInventory ? { collectionSurfaceInventory } : {}),
       collectionSurfaceObservations,
       cmpRuntimeObservations: captureConsentEvidence ? cmpRuntimeObservations : [],
@@ -4907,6 +4913,7 @@ function signalTypeForMatchSource(
 }
 
 type ConsolidatedPageEvidenceSnapshot = {
+  siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: Array<{ apiName: string; category: string; timestampMs: number }>;
   collectionCapture: CollectionSurfaceCaptureSnapshot;
   domText: string;
@@ -4935,6 +4942,7 @@ async function captureConsentProofPageEvidence(input: {
   scanStartedAtMs: number;
   timingBreakdown: NonNullable<ScanModuleRun["timingBreakdown"]>;
 }): Promise<{
+  siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: RuntimeEvidenceEvent[];
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
@@ -4972,12 +4980,14 @@ async function captureConsentProofPageEvidence(input: {
 async function capturePostSettlePageEvidence(input: {
   captureRenderedPolicyLinks: boolean;
   firstPartyHostname: string | undefined;
+  captureSiteIntegrity?: false | "starting_page_main_document" | "additional_page_main_document";
   normalizedUrl: string;
   page: Page;
   scanStartedAtMs: number;
   skipLegacyFallbackAfterAtomicTimeout?: boolean;
   timingBreakdown: NonNullable<ScanModuleRun["timingBreakdown"]>;
 }): Promise<{
+  siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: RuntimeEvidenceEvent[];
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
@@ -4992,7 +5002,7 @@ async function capturePostSettlePageEvidence(input: {
     "page evidence: consolidated snapshot",
     "One read-only main-document snapshot for storage keys, scripts, iframes, API probes, public collection surfaces, and bounded visible text.",
     2_500,
-    () => captureConsolidatedPageEvidenceSnapshot(input.page),
+    () => captureConsolidatedPageEvidenceSnapshot(input.page, input.captureSiteIntegrity),
     () => undefined,
   );
   if (snapshot) {
@@ -5033,7 +5043,7 @@ async function capturePostSettlePageEvidence(input: {
       "page evidence: consolidated snapshot retry",
       "One short atomic retry preserves storage, script, iframe, browser-API, collection-surface, and text evidence without restoring the six-call legacy fallback.",
       1_000,
-      () => captureConsolidatedPageEvidenceSnapshot(input.page),
+      () => captureConsolidatedPageEvidenceSnapshot(input.page, input.captureSiteIntegrity),
       () => undefined,
     );
     const retryEvidence = retrySnapshot
@@ -5174,9 +5184,10 @@ async function capturePostSettlePageEvidence(input: {
   };
 }
 
-async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<ConsolidatedPageEvidenceSnapshot> {
+async function captureConsolidatedPageEvidenceSnapshot(page: Page, captureSiteIntegrity: false | "starting_page_main_document" | "additional_page_main_document" = false): Promise<ConsolidatedPageEvidenceSnapshot> {
+  const before = currentBrowserDocumentIdentity(page);
   const cmpSelectors = KNOWN_CMP_REGISTRY.flatMap((definition) => definition.domSelectors ?? []).slice(0, 100);
-  return page.evaluate(({ cmpSelectors, maxFieldCandidates }) => {
+  const snapshot = await page.evaluate(({ cmpSelectors, maxFieldCandidates, captureSiteIntegrity, integrityLimits }) => {
     // tsx/esbuild can preserve nested browser-callback names by emitting calls to
     // its module-scoped __name helper. Playwright serializes only this callback,
     // so provide the no-op helper in the page before any nested callback runs.
@@ -5357,10 +5368,47 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
         ...(id ? { selector: `#${id.replace(/[^a-zA-Z0-9_-]/g, "")}` } : {}),
       }];
     });
+    // Bounded passive main-document observation. Do not inspect or follow destinations.
+    const hiddenLinks: SiteIntegrityObservation["links"] = [];
+    let inspectedLinks = 0;
+    let integrityTruncated = anchorElements.length > integrityLimits.inspectedLinks;
+    if (captureSiteIntegrity) {
+      const stopAt = performance.now() + integrityLimits.captureBudgetMs;
+      for (const element of selectedAnchors) {
+        if (performance.now() >= stopAt || hiddenLinks.length >= integrityLimits.retainedLinks) { integrityTruncated = true; break; }
+        const index = inspectedLinks++;
+        if (element.ownerDocument !== document || !element.textContent?.trim() ||
+            element.childElementCount > 0 ||
+            element.closest('nav, [role="navigation"], [role="menu"], [role="menubar"], [hidden], [inert], [aria-hidden="true"], template')) continue;
+        let target: URL;
+        try { target = new URL(element.getAttribute("href") ?? "", location.href); } catch { continue; }
+        if (!/^https?:$/.test(target.protocol) || target.hostname === location.hostname || target.username || target.password) continue;
+        let concealment: SiteIntegrityObservation["links"][number]["concealment"] | undefined;
+        let excluded = false;
+        let positionedDescendant = false;
+        const linkRect = element.getBoundingClientRect();
+        let ancestor: Element | null = element;
+        for (let depth = 0; ancestor && ancestor !== document.body && depth < integrityLimits.ancestorDepth; depth++, ancestor = ancestor.parentElement) {
+          const style = getComputedStyle(ancestor);
+          // Hidden menus, collapsed widgets and conventional screen-reader-only content are not integrity evidence.
+          if (style.display === "none" || style.visibility !== "visible" || style.clip !== "auto" || style.clipPath !== "none" ||
+              /(?:^|\s)(?:sr-only|screen-reader-text|visually-hidden)(?:\s|$)/i.test(ancestor.className?.toString() ?? "") ||
+              ancestor.matches('[aria-expanded="false"], [role="dialog"], details:not([open])')) { excluded = true; break; }
+          const rect = ancestor.getBoundingClientRect();
+          if ((style.position === "absolute" || style.position === "fixed") && (rect.right < -1000 || rect.bottom < -1000) &&
+              (linkRect.right < -1000 || linkRect.bottom < -1000)) concealment ??= "offscreen_position";
+          if (!positionedDescendant && rect.width <= 0 && rect.height <= 0 && ["hidden", "clip"].includes(style.overflow)) concealment ??= "zero_size_container";
+          if (depth === 0 && parseFloat(style.fontSize) === 0) concealment ??= "zero_font_size";
+          positionedDescendant ||= style.position === "absolute" || style.position === "fixed";
+        }
+        if (!excluded && concealment) hiddenLinks.push({ evidenceRef: `site_integrity:link:${index}`, destinationDomain: target.hostname.toLowerCase(), concealment });
+      }
+    }
     const apiScope = window as typeof window & {
       __certscoreBrowserApiAccesses?: Array<{ apiName: string; category: string; timestampMs: number }>;
     };
     return {
+      integrityCapture: { links: hiddenLinks, inspectedLinks, truncated: integrityTruncated, capturedAt: new Date().toISOString() },
       apiAccesses: (apiScope.__certscoreBrowserApiAccesses ?? []).slice(0, 60),
       collectionCapture,
       domText: document.body?.innerText ?? "",
@@ -5382,7 +5430,17 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
       })),
       sessionStorageEntries,
     };
-  }, { cmpSelectors, maxFieldCandidates: MAX_COLLECTION_SURFACE_INSPECTED_FIELDS });
+  }, { cmpSelectors, maxFieldCandidates: MAX_COLLECTION_SURFACE_INSPECTED_FIELDS, captureSiteIntegrity, integrityLimits: SITE_INTEGRITY_LIMITS });
+  const identity = stableBrowserDocumentIdentity(before, currentBrowserDocumentIdentity(page));
+  const { integrityCapture, ...evidence } = snapshot;
+  if (!captureSiteIntegrity || !identity || snapshot.pageUrl !== page.url()) return evidence;
+  const pageUrl = new URL(snapshot.pageUrl); pageUrl.search = ""; pageUrl.hash = ""; pageUrl.username = ""; pageUrl.password = "";
+  const observation = siteIntegrityObservationSchema.safeParse({
+    ...integrityCapture, links: integrityCapture.links.filter(link => classifyHostnameParty(link.destinationDomain, pageUrl.hostname) === "third_party"),
+    contractVersion: captureSiteIntegrity === "additional_page_main_document" ? "certscore.site-integrity-observation.v2" : "certscore.site-integrity-observation.v1", sourceLane: "runtime_evidence", scope: captureSiteIntegrity,
+    documentUrl: pageUrl.href, documentToken: identity.token,
+  });
+  return { ...evidence, ...(observation.success ? { siteIntegrityObservation: observation.data } : {}) };
 }
 
 function consolidatedPageEvidenceFromSnapshot(
@@ -5411,6 +5469,7 @@ function consolidatedPageEvidenceFromSnapshot(
     input.scanStartedAtMs,
   );
   return {
+    siteIntegrityObservation: snapshot.siteIntegrityObservation,
     storageSnapshot,
     scripts: scriptEventsFromRows(snapshot.scripts, input.scanStartedAtMs, input.firstPartyHostname),
     frames: iframeEventsFromRows(snapshot.frames, input.scanStartedAtMs, input.firstPartyHostname),

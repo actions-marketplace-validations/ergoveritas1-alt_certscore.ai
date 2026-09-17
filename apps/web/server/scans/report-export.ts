@@ -1,6 +1,7 @@
 import type { FullSiteReportExport } from "./full-site-report";
 import {
   consentControlAssessmentSchema,
+  SITE_INTEGRITY_FINDING_ID,
   type CollectionSurfaceAssessment,
 } from "@certscore/contracts";
 import {
@@ -11,6 +12,7 @@ import {
 import type { ScanDetailResponse } from "./get-scan-by-id";
 import { getPersistedCanonicalReportProjection } from "./persisted-canonical-report-projection";
 import { isGdprTransparencyReportRowId } from "../../lib/scans/gdpr-transparency-report-contract";
+import { selectSiteIntegrityFinding } from "../../lib/scans/site-integrity-report";
 
 export const CANONICAL_REPORT_EXPORT_VERSION = "canonical-report-export-v5" as const;
 const MAX_APPENDIX_INVENTORY_ROWS = 500;
@@ -302,6 +304,7 @@ export function buildCanonicalReportExport(scanRecord: ScanDetailResponse, fullS
   if (!canonical) return null;
   const assessment = consentAssessment(scanRecord);
   const findings = canonical.ownerUnifiedFindings as Array<Record<string, unknown>>;
+  const siteIntegrity = selectSiteIntegrityFinding(canonical.ownerUnifiedFindings);
   const normalizedConcerns = canonical.normalizedConcerns as Array<Record<string, unknown>>;
 
   return {
@@ -325,7 +328,7 @@ export function buildCanonicalReportExport(scanRecord: ScanDetailResponse, fullS
     executiveSummary: buildExecutiveSummary({
       assessment,
       checklistPresentation: canonical.checklistPresentation,
-      findings,
+      findings: findings.filter(finding => finding.unifiedFindingId !== SITE_INTEGRITY_FINDING_ID),
     }),
     gdprEprivacyReview: canonical.checklistPresentation
       ? {
@@ -362,6 +365,8 @@ export function buildCanonicalReportExport(scanRecord: ScanDetailResponse, fullS
       })),
     ],
     appendix: {
+      ...(siteIntegrity ? { siteIntegrity } : {}),
+      ...(fullSite?.score?.siteIntegrity ? { siteIntegritySite: fullSite.score.siteIntegrity } : {}),
       cookieAndTrackerInventory: buildRuntimeAppendix(scanRecord, normalizedConcerns),
       dataCollectionSurfaces: buildDataCollectionSurfacesAppendix(
         canonical.collectionSurfaceAssessment ?? null,

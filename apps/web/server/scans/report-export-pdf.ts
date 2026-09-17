@@ -1,7 +1,9 @@
+import { siteIntegrityScoreDescription } from "../../lib/scans/site-integrity-score-policy";
 import { consentInspectionNotice } from "../../lib/scans/consent-inspection-presentation";
 import type { CanonicalReportExport } from "./report-export";
 import { deflateSync, inflateSync } from "node:zlib";
 import { isGdprTransparencyReportRowId } from "../../lib/scans/gdpr-transparency-report-contract";
+import { SITE_INTEGRITY_FINDING_ID } from "@certscore/contracts";
 
 const TRANSPORT_SECURITY_ROW_IDS = new Set([
   "transport_security_https_delivery",
@@ -302,7 +304,7 @@ function findingDisplay(finding: Record<string, unknown>) {
 
 function reportLines(report: CanonicalReportExport, image: PdfImage | null): PdfLine[] {
   const findings = report.projection.unifiedFindings as Array<Record<string, unknown>>;
-  const mainFindings = findings.filter((finding) => !isTransportSecurityFinding(finding));
+  const mainFindings = findings.filter((finding) => !isTransportSecurityFinding(finding) && finding.unifiedFindingId !== SITE_INTEGRITY_FINDING_ID);
   const transportFindings = findings.filter(isTransportSecurityFinding);
   const review = report.gdprEprivacyReview;
   const transparencyAppendix = report.appendix.gdprTransparency;
@@ -351,6 +353,22 @@ function reportLines(report: CanonicalReportExport, image: PdfImage | null): Pdf
       ...(f.resources.length > 500 ? wrappedLines("PDF shows the first 500 resources. Download the full-site JSON for the complete inventory.") : []),
       sectionHeading("Homepage audit"),
     ]);
+  }
+
+  const siteIntegrity = report.appendix.siteIntegritySite;
+  if (siteIntegrity) lines.push(sectionHeading("Site integrity coverage"), ...wrappedLines(`${siteIntegrity.coverage.filter(page => page.status !== "unavailable").length} of ${siteIntegrity.coverage.length} scanned pages have retained capture.`), ...siteIntegrity.coverage.flatMap(page => wrappedLines(`${page.url} | ${page.status}`)));
+  const integrityFindings = siteIntegrity?.findings ?? (report.appendix.siteIntegrity ? [report.appendix.siteIntegrity] : []);
+  if (integrityFindings.length) lines.push(...wrappedLines(siteIntegrityScoreDescription(integrityFindings.flatMap(finding => finding.scoreEffects ?? []))));
+  for (const integrity of siteIntegrity?.findings ?? (report.appendix.siteIntegrity ? [report.appendix.siteIntegrity] : [])) {
+    const evidence = integrity.evidence;
+    lines.push(sectionHeading("Site integrity - High priority"),
+      ...wrappedLines(integrity.title, { bold: true }), ...wrappedLines(integrity.description),
+      ...wrappedLines(`Source page: ${evidence.observation.documentUrl}. Captured: ${evidence.observation.capturedAt}.`),
+      ...evidence.observation.links.flatMap(link => wrappedLines(`${link.destinationDomain} | ${titleCase(link.concealment)} | ${link.evidenceRef}`)),
+      ...wrappedLines(integrity.action),
+      ...wrappedLines("Bounded source-page main-document capture only. Destination pages were not opened."),
+      ...wrappedLines(`Evidence: ${evidence.evidenceRef}; source SHA-256: ${evidence.sourceHash}; observation SHA-256: ${evidence.observationHash}.`),
+    );
   }
 
   lines.push(sectionHeading("GDPR / ePrivacy evidence overview"));

@@ -1383,6 +1383,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
     consentActionAttempts: consentFlowResult?.consentActionAttempts ?? [],
     consentFlowComparisons: consentFlowResult?.consentFlowComparisons ?? [],
     policySurfaceObservations: policySurfaceResult?.policySurfaceObservations ?? [],
+    ...(preConsentResult.siteIntegrityObservation ? { siteIntegrityObservation: preConsentResult.siteIntegrityObservation } : {}),
     transportSecurityObservations: preConsentResult.transportSecurityObservations,
     cmpRuntimeObservations: preConsentResult.cmpRuntimeObservations,
     screenshots: [

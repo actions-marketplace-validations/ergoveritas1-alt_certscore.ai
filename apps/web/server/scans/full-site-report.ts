@@ -1,3 +1,4 @@
+import { projectSiteExecutiveRuntimeCards } from "../../lib/scans/executive-runtime-cards";
 import { buildNetworkInventoryOverview } from "../../lib/scans/network-inventory-overview";
 import { reconcileStorageInventory } from "../../lib/scans/storage-inventory-reconciliation";
 import { fullSiteFinalizationStartedAt } from "../../lib/scans/full-site-finalization";
@@ -425,10 +426,14 @@ export async function loadFullSiteReport(
       }),
     })).sort((a,b) => a.name.localeCompare(b.name)),
     collectionSurfaces,
+    executiveRuntimeCards: score ? projectSiteExecutiveRuntimeCards(score) : undefined,
     score,
     storageReconciliation: { matched: storageReconciliation.matched.size, unmatched: storageReconciliation.unmatched },
     summary: { ...aggregate, resources: undefined },
-    networkOverview: buildNetworkInventoryOverview([...serviceGroups.values()]),
+    networkOverview: buildNetworkInventoryOverview(aggregate.resources.map(row => {
+      const { context } = resourceContext(row);
+      return { key: serviceIntegrationGroup(context.identity).key, context, resources: [{ key: row.key, kind: row.occurrence.kind, context, inventoryEvidence: inventoryClassification(row) }] };
+    })),
     priorityTotals: Object.fromEntries((["cookies", "requests", "embeds"] as const).map(group => {
       const rows = aggregate.resources.filter(row => group === "cookies"
         ? ["cookie", "storage"].includes(row.occurrence.kind)

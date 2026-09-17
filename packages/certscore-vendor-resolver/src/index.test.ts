@@ -7,6 +7,7 @@ import {
   resolveCanonicalServicePurpose,
   resolveCanonicalEntityOwner,
   resolveCanonicalVendorLabel,
+  resolveCanonicalVendor,
   resolveEndpointGeography,
   resolveVendorDisplayCategory,
   resolveVendorObservations,
@@ -2987,3 +2988,18 @@ function assertResolved(
   assert.equal(observation.purpose, purpose);
   assert.equal(observation.confidence >= 0.9, true);
 }
+
+
+test("reCAPTCHA Enterprise attribution requires its canonical endpoint, not a shared host or query text", () => {
+  for (const [url, enterprise] of [
+    ["https://www.google.com/recaptcha/enterprise.js?render=key", true],
+    ["https://www.google.com/recaptcha/enterprise/anchor?k=key", true],
+    ["https://www.google.com/recaptcha/api.js", false],
+    ["https://fonts.googleapis.com/css2", false],
+    ["https://www.google.com/?next=/recaptcha/enterprise.js", false]
+  ] as const) {
+    const result = resolveCanonicalVendor({ type: "request", url, hostname: new URL(url).hostname, matchSource: "network_request" });
+    assert.equal(result.observation?.registryAttribution?.ruleIds.includes("google_recaptcha_enterprise_security_runtime") ?? false, enterprise);
+    if (enterprise) assert.equal(result.observation?.purpose, "security");
+  }
+});

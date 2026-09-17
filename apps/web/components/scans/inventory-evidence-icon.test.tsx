@@ -10,7 +10,7 @@ test("classification icons have distinct shapes, accessible labels, and no butto
     const html = renderToStaticMarkup(<InventoryEvidenceIcon evidence={evidence}/>);
     assert.match(html, /role="img"/);
     assert.match(html, /tabindex="0"/);
-    assert.ok(html.includes(evidence === "Review" ? "Classification review" : evidence === "Unclassified" ? "Purpose unclassified" : evidence));
+    assert.ok(html.includes(evidence === "Review" ? "Classification review" : evidence === "Unclassified" ? "Unknown purpose" : evidence));
     assert.doesNotMatch(html, /<button/);
     const path = html.match(/<path d="([^"]+)"/)?.[1];
     assert.ok(path);
@@ -23,6 +23,6 @@ test("classification icons have distinct shapes, accessible labels, and no butto
     assert.match(blank, /aria-hidden="true"/);
     assert.doesNotMatch(blank, /<svg|tabindex|Unclassified/);
   }
-  assert.match(renderToStaticMarkup(<InventoryEvidenceLegend/>), /Purpose unclassified/);
+  assert.match(renderToStaticMarkup(<InventoryEvidenceLegend/>), /Unknown purpose/);
   assert.match(renderToStaticMarkup(<InventoryEvidenceLegend/>), /Evidence classification legend/);
 });

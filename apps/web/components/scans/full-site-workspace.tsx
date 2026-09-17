@@ -1,4 +1,6 @@
 "use client";
+import { ServicesSnapshotContext } from "./services-signal-snapshot";
+
 import { INVENTORY_METRIC_LABELS } from "../../lib/scans/inventory-resource-semantics";
 import { ReportCoverageTiming } from "./report-coverage-timing";
 import { useFullSiteReportContinuity } from "./full-site-report-continuity";
@@ -6,11 +8,13 @@ import type { FullSiteScanNoticeData } from "../dashboard/full-site-scan-notice"
 import { describeSiteTechnology, type SiteMetadataProjection } from "@certscore/contracts";
 import { useTableRowLimit } from "./use-table-row-limit";
 import { FullSiteExecutiveSummary } from "./full-site-executive-summary";
+import type { ExecutiveRuntimeCard } from "../../lib/scans/executive-runtime-cards";
 import { ReportInventorySummary } from "./report-inventory-summary";
 import { preliminarySiteInventoryMetrics } from "./preliminary-site-inventory-metrics";
 import { SitePriorityReview } from "./site-priority-review";
 import type { ShadowFinding } from "./report-lab/shadow-report-data";
 import { CopyJsonButton } from "./copy-json-button";
+import { SiteIntegritySiteContext } from "./site-integrity-evidence";
 import { SitewideEvidenceContext } from "./sitewide-evidence-card";
 import { FullSiteServices } from "./full-site-services-table";
 import { ServiceResourceRows } from "./service-resource-rows";
@@ -66,11 +70,6 @@ const initialFilters: Filters = {
   pageSort: "url",
 };
 const sortKeys: Record<string, string> = { Priority: "priority", Vendor: "vendor", Name: "label", Purpose: "purpose", "Policy disclosure": "policy", Location: "transfer", "First seen": "time", Page: "page" };
-const units = {
-  cookie: "Cookies & storage",
-  request: "Network requests",
-  embed: "Embeds",
-};
 const duration = (ms: number | null | undefined) =>
   ms === null || ms === undefined
     ? "Unavailable"
@@ -112,6 +111,7 @@ export function FullSiteWorkspace({
   evidenceDirectory,
   homepageVerdict,
   homepageFindings = [],
+  homepageRuntimeCards,
   homepageUrl,
   siteMetadata,
   initialStartedAt,
@@ -132,6 +132,7 @@ export function FullSiteWorkspace({
   evidenceDirectory?: ReactNode;
   homepageVerdict?: string;
   homepageFindings?: ShadowFinding[];
+  homepageRuntimeCards?: ExecutiveRuntimeCard[];
   homepageUrl?: string;
   siteMetadata?: SiteMetadataProjection | null;
   initialStartedAt?: string;
@@ -404,14 +405,16 @@ export function FullSiteWorkspace({
   const reportStatus = running ? progressLabel : !state ? "Loading report…" : retainedAssessment ? "Starting page completed · Crawl limited" : crawlLimited ? "Crawl limited" : state?.status === "cancelled" ? "Cancelled" : state?.status === "stopped" ? "Unsuccessful" : state?.status === "completed" && (counts?.blockedFailed || counts?.partial || sitemapLimited) ? "Completed with limitations" : state?.status === "completed" ? "Completed" : state?.status.replaceAll("_", " ") ?? "Loading";
   const previewMetrics = initialPending && valuesUpdating && !data?.score && (scannedPages ?? 0) === 0
     ? preliminarySiteInventoryMetrics(preConsentPreview) : null;
-  const inventorySummary = <ReportInventorySummary updating={valuesUpdating} metrics={previewMetrics ?? [
+  const inventoryMetrics = previewMetrics ?? [
           { label: INVENTORY_METRIC_LABELS.storage, value: s ? s.totals.cookies + s.totals.storage : null, group: "cookies" },
           { label: INVENTORY_METRIC_LABELS.requests, value: s?.totals.requestEvents, group: "requests" },
           { label: INVENTORY_METRIC_LABELS.frames, value: s?.totals.embedInstances, group: "embeds" },
-        ].map(metric => ({ ...metric, counts: data?.priorityTotals?.[metric.group], overview: metric.group === "requests" ? data?.networkOverview : undefined, note: metric.group === "cookies" && data?.storageReconciliation?.unmatched ? `${data.storageReconciliation.unmatched} assessed items lack an exact inventory match.` : undefined }))} />;
+        ].map(metric => ({ ...metric, counts: data?.priorityTotals?.[metric.group], overview: metric.group === "requests" ? data?.networkOverview : undefined, note: metric.group === "cookies" && data?.storageReconciliation?.unmatched ? `${data.storageReconciliation.unmatched} assessed items lack an exact inventory match.` : undefined }));
+  const inventorySummary = <ReportInventorySummary updating={valuesUpdating} metrics={inventoryMetrics} siteIntegrity={data?.score?.siteIntegrity} />;
   return (
     <FullSiteRegionContext.Provider value={state?.region ?? initialNotice?.region}>
     <FullSiteTimingContext.Provider value={timing}>
+    <ServicesSnapshotContext.Provider value={{ overview: data?.networkOverview, navigate: () => { setInventoryView("services"); setFilters(initialFilters); setOffset(0); document.getElementById("site-resource-table")?.scrollIntoView({ behavior: "smooth", block: "start" }); } }}>
     <div
       className="mx-auto max-w-[1500px] px-4 py-4 text-zinc-900 sm:px-6"
       data-full-site-report
@@ -489,23 +492,24 @@ export function FullSiteWorkspace({
       {tab !== "homepage" ? (
         <>
           {tab === "resources" ? <>
-          <FullSiteExecutiveSummary actions={reportActionsAvailable ? executiveActions : null} statusLabel={reportStatus} inventorySummary={inventorySummary} score={data?.score} pending={!data || valuesUpdating} scannedPages={scannedPages} snapshot={executiveSnapshot} homepageVerdict={homepageVerdict} />
+          <FullSiteExecutiveSummary inventorySummary={inventorySummary} actions={reportActionsAvailable ? executiveActions : null} statusLabel={reportStatus} score={data?.score} pending={!data || valuesUpdating} scannedPages={scannedPages} snapshot={executiveSnapshot} homepageVerdict={homepageVerdict} />
           {!(initialPending && !data?.score) ? <SitePriorityReview scannedPages={scannedPages} findings={data?.score?.priorityReview ?? homepageFindings.map(finding => ({ ...finding, pages: homepageUrl ? [{ id: scanId, url: homepageUrl, homepage: true }] : [] }))} pending={!data || valuesUpdating} sitewideAvailable={Boolean(data?.score)} /> : null}
           {homepageTimeline ? <section aria-label="Starting-page event timeline" className="my-3 border-y border-zinc-200 bg-white py-2">
             <h2 className="text-xl font-semibold">Starting-page event timeline</h2>
             <div className="mt-1">{homepageTimeline}</div>
           </section> : null}
           </> : null}
-          <section className="min-w-0 border-y border-zinc-200 bg-white py-4">
-<div className="mb-3 flex flex-wrap items-center justify-between gap-3">            <h2 className="text-xl font-semibold">{tab === "pages" ? "Page observations and coverage" : "Resources & services"}</h2>{tab !== "pages" ? <div className="flex shrink-0 gap-2" role="group" aria-label="Inventory view">{(["services", "resources"] as const).map(view => <button key={view} type="button" aria-pressed={inventoryView === view} className={`${button} capitalize ${inventoryView === view ? "!bg-slate-900 !text-white" : ""}`} onClick={() => setInventoryView(view)}>{view}</button>)}</div> : null}</div>
-          {data && tab === "resources" ? <SitewideInventorySummary mix={data.inventoryMix} updating={valuesUpdating} /> : null}
-            {activeFilters.length ? <button className="mb-2 text-xs text-sky-800 underline" onClick={() => { setFilters(initialFilters); setOffset(0); }}>Show all {units[filters.kind as keyof typeof units]?.toLowerCase()}</button> : null}
+          <section id="site-resource-inventory" className="my-5 min-w-0 rounded-xl border border-zinc-200 bg-white p-4 lg:p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div>{tab !== "pages" ? <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Supporting evidence</p> : null}<h2 className="text-xl font-semibold tracking-tight text-zinc-950">{tab === "pages" ? "Page observations and coverage" : "Services & Resources"}</h2></div>{tab !== "pages" ? <div className="flex shrink-0 gap-2" role="group" aria-label="Inventory view">{(["services", "resources"] as const).map(view => <button key={view} type="button" aria-pressed={inventoryView === view} className={`${button} capitalize ${inventoryView === view ? "!bg-slate-900 !text-white" : ""}`} onClick={() => { setInventoryView(view); setFilters(initialFilters); setOffset(0); }}>{view}</button>)}</div> : null}</div>
+          {tab === "resources" ? <p className="mb-4 max-w-3xl text-sm leading-6 text-zinc-500">Explore the integrations behind the observations. Privacy issues and recommended actions are listed in Priority review above.</p> : null}
+          {data && tab === "resources" ? <details className="mt-3 rounded-lg border border-zinc-200"><summary className="cursor-pointer px-4 py-3 text-xs font-medium text-zinc-600">Resource breakdowns <span className="ml-2 font-normal text-zinc-400">Type, purpose and site relationship</span></summary><div className="border-t border-zinc-100 px-4 py-3 [&>section]:my-0 [&>section]:border-0"><SitewideInventorySummary mix={data.inventoryMix} updating={valuesUpdating} /></div></details> : null}
+            {activeFilters.length ? <button className="mb-2 text-xs text-sky-800 underline" onClick={() => { setFilters(initialFilters); setOffset(0); }}>Show all resources</button> : null}
 
             <div className="my-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><span className="shrink-0"><ScanLiveValue key={inventoryView} active={valuesUpdating} value={data ? `${tab === "pages" ? data.pages.total : inventoryView === "services" ? data.services.length : data.resources.total} ${tab === "pages" ? "pages" : inventoryView}` : "Loading inventory…"} /></span><span className="text-slate-500">{tab === "pages" ? "· Starting page audit and additional-page capture outcomes." : inventoryView === "services" ? "· Organized by root integration; expand for linked services and resources." : "· Distinct resources across scanned pages; repeated observations count once. Expand for linked resources."}</span></div>
-              <div className={tab === "pages" ? "hidden" : "flex flex-wrap items-center gap-3"}><button type="button" onClick={() => setCollapseVersion(value => value + 1)} className="rounded-md px-2 py-1.5 text-sky-700 hover:bg-sky-50">Collapse all</button>{data ? <CopyJsonButton className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sky-700 hover:bg-sky-50" label="Copy entire inventory table with all service and resource details as JSON" payload={JSON.stringify({ services: data.services, pages: data.pageChoices }, null, 2)} /> : null}</div>
+              {tab === "pages" || inventoryView !== "services" ? <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><span className="shrink-0"><ScanLiveValue key={inventoryView} active={valuesUpdating} value={data ? `${tab === "pages" ? data.pages.total : data.resources.total} ${tab === "pages" ? "pages" : "resources"}` : "Loading inventory…"} /></span><span className="text-slate-500">{tab === "pages" ? "· Starting page audit and additional-page capture outcomes." : "· Distinct resources across scanned pages; repeated observations count once. Expand for linked resources."}</span></div> : null}
+              <div className={tab === "pages" ? "hidden" : "ml-auto flex flex-wrap items-center gap-3"}><button type="button" onClick={() => setCollapseVersion(value => value + 1)} className="rounded-md px-2 py-1.5 text-sky-700 hover:bg-sky-50">Collapse all</button>{data ? <CopyJsonButton className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sky-700 hover:bg-sky-50" label="Copy entire inventory table with all service and resource details as JSON" payload={JSON.stringify({ services: data.services, pages: data.pageChoices }, null, 2)} /> : null}</div>
             </div>
-            <div ref={inventoryRowLimit.ref} style={inventoryRowLimit.style} className="max-h-[376px] overflow-auto rounded-lg border border-zinc-200" tabIndex={0} aria-busy={isFetching} aria-label={tab === "pages" ? "Scrollable page observations" : `Scrollable ${inventoryView}`}
+            <div id="site-resource-table" ref={inventoryRowLimit.ref} style={inventoryRowLimit.style} className="max-h-[376px] overflow-auto rounded-lg border border-zinc-200" tabIndex={0} aria-busy={isFetching} aria-label={tab === "pages" ? "Scrollable page observations" : `Scrollable ${inventoryView}`}
               onScroll={event => {
                 const el = event.currentTarget;
                 const table = tab === "pages" ? data?.pages : data?.resources;
@@ -527,7 +531,7 @@ export function FullSiteWorkspace({
                           "Page",
                           "Status",
                           "Services / cookies",
-                          "Requests / embeds",
+                          "Request / frame observations",
                           "Additional services",
                           "Duration",
                         ].map((h) => (
@@ -582,10 +586,10 @@ export function FullSiteWorkspace({
                     <thead className="sticky top-0 z-10 h-10 bg-zinc-50 text-[10px] uppercase tracking-wider text-zinc-500">
                       <tr>
                         {[
-                          "Count", "Type", "Name", "Priority", "Purpose", "Policy disclosure", "Location", "First seen", "Domain", "Site relationship", "Page", "JSON",
+                          "Observations", "Type", "Name", "Priority", "Purpose", "Policy disclosure", "Location", "First seen", "Domain", "Site relationship", "Page", "JSON",
                         ].map((h) => (
                           <th className={`h-10 whitespace-nowrap border-b ${!h ? "w-10 px-1" : h === "Count" ? "w-14 px-2 text-center" : "px-3"} ${h === "JSON" ? "sticky right-0 bg-zinc-50" : ""}`} key={h} aria-sort={sortKeys[h] && filters.sort.replace(/_desc$/, "") === sortKeys[h] ? filters.sort.endsWith("_desc") ? "descending" : "ascending" : undefined}>
-                            <div className={`flex items-center gap-1 ${h === "Count" ? "justify-center" : ""}`}>{sortKeys[h] ? <button className="flex items-center gap-1 rounded uppercase tracking-wider hover:text-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500" onClick={() => { setFilters(current => ({ ...current, sort: current.sort === sortKeys[h] ? `${sortKeys[h]}_desc` : sortKeys[h]! })); setOffset(0); }}>{h}<span aria-hidden="true">{filters.sort === sortKeys[h] ? "↑" : filters.sort === `${sortKeys[h]}_desc` ? "↓" : "↕"}</span></button> : h === "JSON" || !h ? <span className="sr-only">{h === "JSON" ? "JSON evidence" : "Expand relationships"}</span> : h}{h === "Priority" ? <InventoryPriorityHelp/> : null}</div>
+                            <div className={`flex items-center gap-1 ${h === "Observations" ? "justify-center" : ""}`}>{sortKeys[h] ? <button className="flex items-center gap-1 rounded uppercase tracking-wider hover:text-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500" onClick={() => { setFilters(current => ({ ...current, sort: current.sort === sortKeys[h] ? `${sortKeys[h]}_desc` : sortKeys[h]! })); setOffset(0); }}>{h}<span aria-hidden="true">{filters.sort === sortKeys[h] ? "↑" : filters.sort === `${sortKeys[h]}_desc` ? "↓" : "↕"}</span></button> : h === "JSON" || !h ? <span className="sr-only">{h === "JSON" ? "JSON evidence" : "Expand relationships"}</span> : h}{h === "Priority" ? <InventoryPriorityHelp/> : null}</div>
                           </th>
                         ))}
                       </tr>
@@ -603,11 +607,11 @@ export function FullSiteWorkspace({
               </table></InventoryResourceProvider></div>
             </div>
             {<p className="mt-2 text-xs text-zinc-500">{!data ? "Loading inventory…" : isFetching ? "Updating inventory…" : tab !== "pages" && inventoryView === "services"
-                ? `${data.services.length} ${data.services.length === 1 ? "service" : "services"} · Expand a service to inspect its resources.`
+                ? `${data.services.filter(service => service.context.identity).length} distinct services, including child services`
                 : `${tab === "pages" ? data.pages.total : data.resources.total} rows${(tab === "pages" ? data.pages.total : data.resources.total) > 6 ? " · Up to 6 visible. Scroll for more." : ""}`}</p>}
           </section>
           {tab === "resources" ? <CollectionSurfacesTable rows={data?.collectionSurfaces?.rows ?? []} loading={!data} scanning={valuesUpdating} pagesWithoutInventory={data?.collectionSurfaces?.pagesWithoutInventory} limitedPages={data?.collectionSurfaces?.limitedPages} /> : null}
-          {tab === "resources" ? <SitewideEvidenceContext.Provider value={data?.score?.evidencePages ? { pages: data.score.evidencePages, limitedPages: data.score.limitedPages } : null}>{evidenceDirectory}</SitewideEvidenceContext.Provider> : null}
+          {tab === "resources" ? <SitewideEvidenceContext.Provider value={data?.score?.evidencePages ? { pages: data.score.evidencePages, limitedPages: data.score.limitedPages } : null}><SiteIntegritySiteContext.Provider value={data?.score?.siteIntegrity ?? null}>{evidenceDirectory}</SiteIntegritySiteContext.Provider></SitewideEvidenceContext.Provider> : null}
           {detailPage ? (
             <section
               ref={detailRef}
@@ -773,6 +777,7 @@ export function FullSiteWorkspace({
         </>
       ) : null}
     </div>
+    </ServicesSnapshotContext.Provider>
     </FullSiteTimingContext.Provider>
     </FullSiteRegionContext.Provider>
   );

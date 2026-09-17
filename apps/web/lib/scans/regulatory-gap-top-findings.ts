@@ -125,7 +125,8 @@ const PRECONSENT_TRACKING_CLUSTER_ROW_IDS = new Set([
   "retargeting_behavioral_advertising_signal_observed",
   "analytics_vendor_observed",
   "third_party_iframe_pre_consent",
-  "embedded_content_pre_consent"
+  "embedded_content_pre_consent",
+  "social_media_embed_pre_consent"
 ]);
 
 function regulatoryRowId(finding: CertScoreFinding) {
@@ -156,15 +157,19 @@ function clusterRelatedRuntimeTopFindings(findings: CertScoreFinding[]) {
   const hasTrackingRow = clusteredRowIds.has("pre_consent_third_party_tracking");
   const hasEmbeddedRow =
     clusteredRowIds.has("third_party_iframe_pre_consent") ||
-    clusteredRowIds.has("embedded_content_pre_consent");
+    clusteredRowIds.has("embedded_content_pre_consent") ||
+    clusteredRowIds.has("social_media_embed_pre_consent");
   const groupedLabel = hasTrackingRow && hasEmbeddedRow
-    ? "Pre-consent tracking and embedded services"
+    ? "Tracking and embedded content before consent"
     : hasEmbeddedRow
-      ? "Third-party embedded services before consent"
+      ? "Third-party embeds before consent"
       : "Pre-consent non-essential tracking";
   const groupedPrimary: CertScoreFinding = {
     ...primary,
     label: groupedLabel,
+    shortSummary: hasTrackingRow && hasEmbeddedRow
+      ? "Tracking requests and embedded content were observed before consent. Review each observation’s evidence, affected pages and consent requirements."
+      : primary.shortSummary,
     evidencePreview: [
       ...primary.evidencePreview,
       ...supporting.map((finding) => `Supporting signal: ${finding.label}`)
@@ -174,7 +179,8 @@ function clusterRelatedRuntimeTopFindings(findings: CertScoreFinding[]) {
       ...primary.evidenceDetails,
       policyEvidenceDetails: {
         ...primary.evidenceDetails?.policyEvidenceDetails,
-        groupedRuntimeSignals: supportingRows
+        groupedRuntimeSignals: supportingRows,
+        primaryRuntimeSignal: { id: regulatoryRowId(primary), label: primary.label, shortSummary: primary.shortSummary }
       }
     }
   };

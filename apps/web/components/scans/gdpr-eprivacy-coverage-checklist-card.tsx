@@ -1,4 +1,5 @@
 "use client";
+import { readPreconsentTrackingTiming } from "../../lib/scans/preconsent-tracking-timing";
 
 import React from "react";
 import { cn } from "@website-signal-risk-scanner/ui";
@@ -1358,22 +1359,7 @@ function getSpecificChecklistRowRationale(item: GdprEprivacyCoverageChecklistIte
     if (evidenceLabel === "Not observed") {
       return "No request met the tracking-classified threshold before a recorded consent action. Broader third-party requests or embedded services, when present, are reported separately and do not by themselves establish tracking.";
     }
-    const canonicalSummary = getCanonicalRuntimeEvidenceSummary({
-      fallbackFirstSeenMs: firstSeenMs,
-      item,
-      lead: "Pre-consent non-essential tracking evidence was retained",
-      maxEntries: 2,
-      rowKind: "tracking"
-    });
-    if (canonicalSummary) {
-      return canonicalSummary;
-    }
-    return joinRationaleParts([
-      vendorPhrase
-        ? `Tracking-classified 3rd party requests fired before any recorded consent action: ${vendorPhrase}`
-        : "Tracking-classified 3rd party requests fired before any recorded consent action",
-      formatFirstSeenPhrase(firstSeenMs)
-    ]);
+    return deriveGdprEprivacyCoverageChecklistRowRationale(item);
   }
 
   if (item.id === "pre_consent_cookies_storage") {
@@ -2244,6 +2230,7 @@ function getEvidenceVendorNames(item: GdprEprivacyCoverageChecklistItem) {
 
 function getFirstEvidenceMs(item: GdprEprivacyCoverageChecklistItem) {
   const evidence = getRetainedEvidenceRecord(item);
+  if (item.id === "pre_consent_third_party_tracking") return minNumber(readPreconsentTrackingTiming(evidence.trackingRequestTiming).map(row => row.firstSeenMs));
   const direct = getFirstNumberFromRecord(evidence, [
     "firstObservedMs",
     "first_observed_ms",

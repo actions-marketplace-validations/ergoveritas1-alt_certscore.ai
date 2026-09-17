@@ -1,3 +1,4 @@
+import { INVENTORY_METRIC_LABELS } from "./inventory-resource-semantics";
 import { buildNetworkInventoryOverview, type NetworkInventoryOverview } from "./network-inventory-overview";
 import { createHash } from "node:crypto";
 import type { CrawlOccurrence } from "@website-signal-risk-scanner/shared";
@@ -58,7 +59,7 @@ export function buildSinglePageResourceInventory(pageId: string, rows: Inventory
     const key = { "Non-essential": "nonEssential", Review: "review", Unclassified: "unclassified", Contextual: "contextual", Essential: "essential" }[classifyCrawlInventoryResource(request)] as keyof typeof counts;
     counts[key] = (counts[key] ?? 0) + request.eventCount;
   }
-  return { requestMetric: requests ? { label: "Network requests", value: requests.reduce((sum, row) => sum + row.eventCount, 0), counts, overview: buildNetworkInventoryOverview([...services.values()]) } : undefined, resources: all, services: [...services.values()], mix: {
+  return { requestMetric: requests ? { label: INVENTORY_METRIC_LABELS.requests, value: requests.reduce((sum, row) => sum + row.eventCount, 0), counts, overview: buildNetworkInventoryOverview([...services.values()]) } : undefined, resources: all, services: [...services.values()], mix: {
     type: breakdown(row => row.kind), evidence: breakdown(row => row.inventoryEvidence),
     purpose: breakdown(row => inventoryPurposeGroups(row.purposes, row.relationships).join(", ") || "unknown"),
     relationship: breakdown(row => row.occurrence.relationship),

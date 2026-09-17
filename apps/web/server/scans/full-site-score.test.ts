@@ -203,3 +203,18 @@ test("verified browser scope survives concern policy and reconciles without chan
   assert.equal(getIdentity(project([cookie,{...cookie,partitionKey: "https://other.test"}])), undefined);
   assert.equal(getIdentity(project([cookie,{...cookie,domain: "example.test"}])), undefined);
 });
+
+test("embed counts merge admitted source identities across pages without multiplying scores", () => {
+  const embeds = (urls: string[]) => baseline().map(row => row.id !== "third_party_iframe_pre_consent" ? row : {
+    ...row, assessmentStatus: "gap_observed" as const, evidenceState: "observed" as const, status: "Gap observed" as const,
+    criticalEvidence: {...row.criticalEvidence, retainedEvidence: {embeddedFrameSources:urls}},
+  });
+  const home = embeds(["https://facebook.com/plugins/page.php"]);
+  const other = embeds(["https://facebook.com/plugins/page.php", "https://youtube.com/embed/video"]);
+  const merged = mergeSiteChecklistRows(home, [...other, ...other]);
+  assert.deepEqual(merged.find(row=>row.id === "third_party_iframe_pre_consent")?.criticalEvidence.retainedEvidence.embeddedFrameSources,
+    ["https://facebook.com/plugins/page.php", "https://youtube.com/embed/video"]);
+  assert.equal(score(merged),score(home));
+  const review=buildSitePriorityReview(merged,[{id:"home",url:"https://example.test",homepage:true,findingIds:["third_party_iframe_pre_consent"]},{id:"other",url:"https://example.test/other",homepage:false,findingIds:["third_party_iframe_pre_consent"]}]);
+  assert.match(review.find(row=>row.id.endsWith("third_party_iframe_pre_consent"))!.summary,/At least 2 distinct third-party embeds.*across 2 pages/);
+});

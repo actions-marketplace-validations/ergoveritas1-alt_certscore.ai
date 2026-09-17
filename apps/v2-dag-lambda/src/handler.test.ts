@@ -1,3 +1,4 @@
+import { siteIntegrityObservationFixture } from "../../../packages/certscore-contracts/src/site-integrity.fixture.js";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
@@ -3731,6 +3732,7 @@ test("three-lane merge keeps consent visuals, runtime coverage, and policy evide
     scanId: "scan-local-1",
     consentProof: canonicalBundleFixture("scan-local-1", {
       collectionSurfaceInventory: collectionSurfaceInventoryFixture("consent-lane-form"),
+      siteIntegrityObservation: { ...siteIntegrityObservationFixture, documentToken: "consent-document" },
       automatedAccessObservation: {
         status: "available",
         version: "automated-access-observation-v1",
@@ -3762,6 +3764,7 @@ test("three-lane merge keeps consent visuals, runtime coverage, and policy evide
     }),
     runtimeEvidence: canonicalBundleFixture("scan-local-1", {
       collectionSurfaceInventory: collectionSurfaceInventoryFixture("runtime-lane-form"),
+      siteIntegrityObservation: { ...siteIntegrityObservationFixture, documentToken: "runtime-document" },
       automatedAccessObservation: {
         status: "available",
         version: "automated-access-observation-v1",
@@ -3813,6 +3816,7 @@ test("three-lane merge keeps consent visuals, runtime coverage, and policy evide
     }),
     policyEvidence: canonicalBundleFixture("scan-local-1", {
       collectionSurfaceInventory: collectionSurfaceInventoryFixture("policy-lane-form"),
+      siteIntegrityObservation: { ...siteIntegrityObservationFixture, documentToken: "policy-document" },
       scanLaneRuns: [laneRunFixture("policy_evidence", "invoke-policy")],
       artifactRefs: [{
         artifactId: "policy_surface_text_privacy",
@@ -3840,6 +3844,7 @@ test("three-lane merge keeps consent visuals, runtime coverage, and policy evide
   assert.equal(merged.derivedRuntimeSignals.preConsentTrackingObserved, true);
   assert.equal(merged.runtimeCoverage?.coverageStatus, "usable");
   assert.equal(merged.collectionSurfaceInventory?.forms[0]?.title, "runtime-lane-form");
+  assert.equal(merged.siteIntegrityObservation?.documentToken, "runtime-document");
   assert.deepEqual(merged.automatedAccessObservation, {
     status: "available",
     version: "automated-access-observation-v1",

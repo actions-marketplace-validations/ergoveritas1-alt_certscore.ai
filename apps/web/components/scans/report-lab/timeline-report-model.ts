@@ -1,3 +1,5 @@
+import { projectExecutiveRuntimeCards } from "../../../lib/scans/executive-runtime-cards";
+import { selectSiteIntegrityFinding, projectStartingPageSiteIntegrityReport, projectSiteIntegrityPriority } from "../../../lib/scans/site-integrity-report";
 import { isAfterActionReportEligible, retainedConsentAssessment } from "../../../lib/scans/after-action-report-eligibility";
 import { readChoicePathExecution } from "../../../lib/scans/choice-path-execution";
 import { consentInspectionNotice } from "../../../lib/scans/consent-inspection-presentation";
@@ -446,8 +448,17 @@ function mapChecklistFinding(
     : finding.evidencePreview;
   return {
     correctionSteps: row?.correctionSteps.length ? row.correctionSteps : [finding.remediation],
-    evidence,
-    evidenceJson: row?.evidenceJson ?? {
+    evidence: [...evidence, ...[finding.evidenceDetails?.policyEvidenceDetails?.primaryRuntimeSignal,
+      ...(Array.isArray(finding.evidenceDetails?.policyEvidenceDetails?.groupedRuntimeSignals) ? finding.evidenceDetails.policyEvidenceDetails.groupedRuntimeSignals : [])]
+      .flatMap(signal => signal && typeof signal === "object" && "shortSummary" in signal && typeof signal.shortSummary === "string" ? [signal.shortSummary] : [])],
+    evidenceJson: {
+      ...(row?.evidenceJson ?? {}),
+      groupedEvidence: Array.isArray(policyEvidence?.groupedRuntimeSignals)
+        ? policyEvidence.groupedRuntimeSignals.flatMap(signal => {
+            const id = record(signal)?.id;
+            const supportingRow = evidenceRows.find(candidate => candidate.id === id);
+            return supportingRow ? [{ id, label: supportingRow.title, evidence: supportingRow.evidenceJson }] : [];
+          }) : [],
       evidenceDetails: finding.evidenceDetails,
       evidenceRefs: finding.evidenceRefs,
       findingId: finding.id,
@@ -686,11 +697,15 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
     ...buildChecklistConcernTopFindings(reportableChecklistRows),
     ...executiveUnifiedFindings,
   ]).map((finding, index) => mapChecklistFinding(finding, index + 1, evidenceRows));
+  const integrityPriority = projectSiteIntegrityPriority(canonical.ownerUnifiedFindings);
+  if (integrityPriority) findings.push({ ...integrityPriority, rank: findings.length + 1, focus: "Site integrity", vendors: [] });
+  findings.sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high"));
+  findings.forEach((finding, index) => { finding.rank = index + 1; });
   const inventoryProjection = buildRuntimeInventoryProjectionFromScan(scanRecord);
   const retainedRequests = buildRetainedRequestInventory(getHybridRuntimeEvidence(scanRecord.runtimeArtifacts));
   const resourceInventory = buildSinglePageResourceInventory(scanRecord.scan.id, inventoryProjection.ungroupedRows, retainedRequests, reviewedPolicies);
   const inventorySummary = inventoryProjection.inventorySummary.map(metric =>
-    metric.label === "Network requests" && resourceInventory.requestMetric ? resourceInventory.requestMetric : metric);
+    ["Requests", "Network requests"].includes(metric.label) && resourceInventory.requestMetric ? resourceInventory.requestMetric : metric);
   const inventory = inventoryProjection.ungroupedRows.map((row) => ({
     category: row.macroCategory,
     confidence: row.confidence.replace(/_/g, " "),
@@ -856,6 +871,10 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
       ...(acceptContradictionRow ? [acceptContradictionRow] : []),
     ],
     controls,
+    consentControlBehavior: (() => {
+      const behavior = record(reportableChecklistRows.find(row => row.id === "accept_consent_control")?.criticalEvidence.retainedEvidence?.consentControlBehavior);
+      return recordString(behavior, ["description"]);
+    })(),
     consentInspectionNotice: consentInspectionNotice(controls, assessment.success ? assessment.data : undefined),
     coverage: {
       concern: summaryCounts.gap_observed,
@@ -868,6 +887,8 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
       usableEvidence: Math.max(0, reportableChecklistRows.length - summaryCounts.technical_limitation),
     },
     findings,
+    siteIntegrity: selectSiteIntegrityFinding(canonical.ownerUnifiedFindings),
+    siteIntegritySummary: projectStartingPageSiteIntegrityReport(runtimeArtifacts?.siteIntegrity, canonical.ownerUnifiedFindings),
     executiveHeadline: "Executive overview",
     gdprTransparencyRows: privacyRows,
     inventory,
@@ -890,6 +911,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewe
       vendors: vendorSurface.resolvedVendorNames.length + vendorSurface.unresolvedVendorHosts.length,
     },
     nextStep,
+    executiveRuntimeCards: projectExecutiveRuntimeCards(reportableChecklistRows.map(row => ({ ...row, retainedEvidence: row.criticalEvidence.retainedEvidence }))),
     preConsentRuntimeRows: evidenceRows.filter((row) => CHECKLIST_GROUPS.runtime.has(row.id)),
     rejectPath,
     relatedRows: [],

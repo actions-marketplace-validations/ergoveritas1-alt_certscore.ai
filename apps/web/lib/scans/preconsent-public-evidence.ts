@@ -410,6 +410,7 @@ export function isPromotionGradePreconsentRequestRow(value: unknown) {
       hasPromotionGradeVendor &&
       category &&
       PROMOTION_TRACKING_CATEGORIES.has(category) &&
+      (!endpointVendor || PROMOTION_TRACKING_CATEGORIES.has(endpointVendor.vendorCategory)) &&
       isNonEssential(value) &&
       isPreconsent(value) &&
       firstSeenMs !== null &&
@@ -452,7 +453,7 @@ export function buildPromotionGradePreconsentRequests(input: {
     const rowVendorLooksBorrowed = Boolean(hostname && !endpointVendor && isHostBoundVendorBorrowed(hostname, rowVendorName));
     const vendorName = endpointVendor?.vendorName ?? (rowVendorLooksBorrowed ? hostname : rowVendorName);
     const vendorCategory = endpointVendor?.vendorCategory ?? (rowVendorLooksBorrowed ? "unknown" : rowVendorCategory);
-    if (!requestUrl || !hostname || !vendorName || !vendorCategory) {
+    if (!requestUrl || !hostname || !vendorName || !vendorCategory || !PROMOTION_TRACKING_CATEGORIES.has(vendorCategory)) {
       continue;
     }
     const projectionWarnings = uniqueStrings([

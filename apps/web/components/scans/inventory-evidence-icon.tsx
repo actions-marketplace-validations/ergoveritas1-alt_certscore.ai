@@ -1,4 +1,5 @@
 import React from "react";
+import { INVENTORY_CLASSIFICATION_ORDER, INVENTORY_CLASSIFICATION_LABELS, INVENTORY_CLASSIFICATION_DESCRIPTIONS } from "../../lib/scans/inventory-resource-semantics";
 
 const statuses = {
   "Non-essential": { color: "text-rose-500", path: "M12 3 2 21h20ZM12 9v5m0 3v1" },
@@ -14,7 +15,7 @@ export function InventoryEvidenceIcon({ evidence, legend = false, description: d
   }
   const label = evidence as keyof typeof statuses;
   const status = statuses[label];
-  const description = (detail ?? (label === "Unclassified" ? "Purpose unclassified" : label)).replace(/\bReview\b/g, "Classification review");
+  const description = (detail ?? `${INVENTORY_CLASSIFICATION_LABELS[label]}. ${INVENTORY_CLASSIFICATION_DESCRIPTIONS[label]}`).replace(/\bReview\b/g, "Classification review");
   return <span role="img" aria-label={description} title={description} tabIndex={legend ? undefined : 0} className={`inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500 ${status.color}`}>
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={status.path}/></svg>
   </span>;
@@ -22,7 +23,7 @@ export function InventoryEvidenceIcon({ evidence, legend = false, description: d
 
 export function InventoryEvidenceLegend() {
   return <span aria-label="Evidence classification legend" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-normal text-slate-600">
-    <span>Inventory classifications are separate from priority findings. Purpose unclassified means the purpose is unresolved; contextual does not mean essential.</span>
-    {Object.keys(statuses).map(label => <span key={label} className="inline-flex items-center gap-1.5"><InventoryEvidenceIcon evidence={label} legend />{label === "Review" ? "Classification review" : label === "Unclassified" ? "Purpose unclassified" : label}</span>)}
+    <span>Inventory classifications are separate from priority findings. Unknown purpose means the retained evidence does not establish a purpose. Contextual records an observation; it does not establish necessity or consent exemption.</span>
+    {INVENTORY_CLASSIFICATION_ORDER.map(label => <span key={label} className="inline-flex items-center gap-1.5"><InventoryEvidenceIcon evidence={label} legend />{INVENTORY_CLASSIFICATION_LABELS[label]}</span>)}
   </span>;
 }

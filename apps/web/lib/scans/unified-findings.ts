@@ -1,3 +1,4 @@
+import { SITE_INTEGRITY_FINDING_ID, siteIntegrityProjectionSchema, type SiteIntegrityProjection } from "@certscore/contracts";
 import { REJECT_CLICK_TRACKING_COPY } from "./consent-action-copy";
 import {
   type MergedSignalRecord,
@@ -101,6 +102,7 @@ import { REJECT_TRACKING_CONFIRMATION_MIN_MS } from "./reject-tracking-policy";
 import { buildPromotionGradePreconsentRequests } from "./preconsent-public-evidence";
 
 export type UnifiedFindingDetails =
+  | { family: "site_integrity"; projection: SiteIntegrityProjection }
   | {
       family: "coverage_gap";
       gapKind: "surface_missing" | "fetch_failed" | "bounded_discovery_unresolved";
@@ -1783,6 +1785,10 @@ function buildUnifiedFindingDetails(input: {
   observedValue: string | null;
   summary: string;
 }) {
+  if (input.findingId === SITE_INTEGRITY_FINDING_ID) {
+    const projection = siteIntegrityProjectionSchema.safeParse(input.fallbackEvidence?.siteIntegrity);
+    return projection.success ? { family: "site_integrity", projection: projection.data } satisfies UnifiedFindingDetails : undefined;
+  }
   const family = getFindingFamily(input.findingId);
 
   if (family === "coverage_gap") {

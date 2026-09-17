@@ -24,7 +24,7 @@ import {
   REPORT_SECTIONS
 } from "./report-pillars";
 
-test("defines the v1 pillar order", () => {
+test("preserves privacy pillar order and appends the separate integrity pillar", () => {
   assert.deepEqual(
     REPORT_PRIMARY_PILLARS.map((pillar) => pillar.id),
     [
@@ -32,13 +32,14 @@ test("defines the v1 pillar order", () => {
       "consent_tracking_data_collection",
       "consumer_protection_commercial_practices",
       "accessibility",
-      "regulatory_enforcement_overlay"
+      "regulatory_enforcement_overlay",
+      "site_integrity"
     ]
   );
 });
 
 test("keeps each section attached to exactly one pillar", () => {
-  assert.equal(REPORT_SECTIONS.length, 19);
+  assert.equal(REPORT_SECTIONS.length, 20);
   assert.ok(
     REPORT_SECTIONS.every((section) =>
       REPORT_PRIMARY_PILLARS.some((pillar) => pillar.id === section.pillarId && pillar.sectionIds.includes(section.id))
@@ -47,7 +48,7 @@ test("keeps each section attached to exactly one pillar", () => {
 });
 
 test("keeps each evidence category attached to exactly one section", () => {
-  assert.equal(REPORT_EVIDENCE_CATEGORIES.length, 70);
+  assert.equal(REPORT_EVIDENCE_CATEGORIES.length, 71);
   assert.ok(
     REPORT_EVIDENCE_CATEGORIES.every((category) =>
       REPORT_SECTIONS.some(
@@ -65,7 +66,7 @@ test("defines a source-aware signal registry", () => {
 });
 
 test("defines the unified-finding registry with one owner alignment", () => {
-  assert.equal(REPORT_UNIFIED_FINDINGS.length, 163);
+  assert.equal(REPORT_UNIFIED_FINDINGS.length, 164);
   assert.ok(
     REPORT_UNIFIED_FINDINGS.every(
       (finding) => finding.categoryAlignments.filter((alignment) => alignment.relation === "owner").length === 1

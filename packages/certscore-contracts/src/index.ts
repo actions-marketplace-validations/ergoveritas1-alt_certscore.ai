@@ -1,3 +1,5 @@
+import { siteIntegrityObservationSchema } from "./site-integrity";
+export * from "./site-integrity";
 export * from "./policy-date-evidence";
 import { gpcObservationSessionSchema, type GpcObservationSession, gpcPrototypeSessionBindingSchema } from "./gpc-observation-session";
 import { gpcImpactCaptureSchema } from "./gpc-impact";
@@ -3477,6 +3479,7 @@ const canonicalEvidenceBundleBaseSchema = z.object({
   consentActionAttempts: z.array(consentActionAttemptSchema).default([]),
   consentFlowComparisons: z.array(consentFlowComparisonSchema).default([]),
   policySurfaceObservations: z.array(canonicalPolicyObservationSchema).default([]),
+  siteIntegrityObservation: siteIntegrityObservationSchema.optional(),
   transportSecurityObservations: z.array(transportSecurityObservationSchema).default([]),
   cmpRuntimeObservations: z.array(cmpRuntimeObservationSchema).default([]),
   screenshots: z.array(screenshotArtifactSchema),

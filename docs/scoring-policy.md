@@ -5,8 +5,8 @@ The owner-approved September 6, 2026 scoring table is defined in
 this registry directly. Change the registry rather than copying policy numbers
 into report components or documentation.
 
-Versions: `gdpr-eprivacy-posture.v14`, `overall-posture.v3`, and
-`full-site-distinct-findings.v2`. The California GPC evidence policy remains v1;
+Versions: `gdpr-eprivacy-posture.v14`, `overall-posture.v4`, and
+`full-site-distinct-findings.v3`. The California GPC evidence policy remains v1;
 its existing eligible 15-point effect is unchanged.
 
 The score starts at 100, subtracts eligible deductions after shared family caps,
@@ -31,6 +31,33 @@ Sensitive-surface tracking deducts 12. Each of embedded content, social embeds,
 and third-party iframes deducts 5, sharing the 20-point embed cap. Privacy-notice
 availability remains 12. Transport and eligible California GPC retain the
 registry's existing deductions. Zero-deduction checks are omitted from the table.
+
+## Hidden outbound links — September 17, 2026 update
+
+The owner approved an overall-score deduction of 10 points for the first verified
+hidden outbound link occurrence and 5 for each additional occurrence, capped at
+40 across the entire report. Seven occurrences reach the cap. The scoring review
+sheet includes this rule from the same registry used by the engine.
+
+Policy `certscore.site-integrity-policy.v3` accepts one or more verified retained
+hidden links. The previous three-link/two-domain/two-method threshold is replaced;
+strict evidence, provenance and capture verification remain unchanged. Typed
+projection → normalized concern → concern policy → unified finding score effect
+is required. There is no regulatory checklist deduction or inferred legal gap.
+
+Each scan/page/link reference counts once; duplicate copies of a page projection
+do not multiply points. Separate occurrences on different pages count separately.
+Destination URLs are not retained, so these are not claimed as unique destinations.
+Truncated captures contribute only actually retained qualifying links. Missing,
+empty, malformed or unverifiable evidence remains neutral. The family cap applies
+once after unioning eligible homepage and additional-page score effects, then the
+shared score floor applies. Existing California GPC scoring is independent.
+
+New materializations record overall policy v4. The owner-requested local report
+is explicitly rematerialized; no bulk historical rewrite is performed. Existing
+full-site scores recalculate through versioned cache invalidation. The added bounded
+score-effect metadata is estimated below $0.10/month at 1,000 ten-page reports with
+three months of retention; no new scans, model calls or infrastructure are added.
 
 ## Single-page and full-site scope
 

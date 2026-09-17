@@ -182,3 +182,22 @@ test("local estimates reflect the faster pipeline while hosted estimates remain 
   assert.equal(estimateScanProgressForOptions({ profileValue: "tiny", runtime: "local" }).estimatedDurationMs, 8_000);
   assert.equal(estimateScanProgressForOptions({ profileValue: "standard", runtime: "hosted" }).estimatedDurationMs, 24_000);
 });
+
+test("in-flight progress renders identical hydration markup despite clock drift", async (t) => {
+  const { LocalV2DagScanProgressCard } = await import("./scan-submit-progress");
+  const clock = t.mock.method(Date, "now", () => 120_000);
+  for (const props of [
+    { startedAtMs: 1_000 },
+    { startedAt: "2026-09-17T17:44:00.000Z" },
+    { createdAt: "2026-09-17T17:44:00.000Z", initialProgressValue: 42 },
+    {},
+  ]) {
+    clock.mock.mockImplementation(() => 120_000);
+    const server = renderToStaticMarkup(<LocalV2DagScanProgressCard scanStatus="running" {...props} />);
+    clock.mock.mockImplementation(() => 124_000);
+    const client = renderToStaticMarkup(<LocalV2DagScanProgressCard scanStatus="running" {...props} />);
+    assert.equal(client, server);
+    assert.match(server, /0s elapsed/);
+    assert.match(server, new RegExp(`aria-valuenow="${props.initialProgressValue ?? 0}"`));
+  }
+});

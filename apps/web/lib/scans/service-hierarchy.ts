@@ -42,10 +42,8 @@ export function buildServiceHierarchy(services: Service[]): ServiceBranch[] {
       residual: !parent && Boolean(service.origins?.length), };
   };
   const roots = services.flatMap(service => ["", "site:document"].filter(parent => assigned.get(service.key)?.has(parent)).map(parent => make(service, parent, new Set())));
-  // Supporting assets without complete ancestry are not independent integrations.
-  // This is an organizational bucket, never an inferred loading relationship.
-  const supportingNames = new Set(["Google Fonts", "Google Static Assets", "Unclassified resources"]);
-  const other = roots.filter(branch => !branch.directSite && (branch.residual || supportingNames.has(branch.service.name)));
+  // Identified services remain visible even when loading ancestry is incomplete.
+  const other = roots.filter(branch => !branch.directSite && !branch.service.context.identity);
   const first = other[0];
   if (!first) return roots;
   const resources = [...new Map(other.flatMap(branch => branch.service.resources).map(row => [row.key, row])).values()];

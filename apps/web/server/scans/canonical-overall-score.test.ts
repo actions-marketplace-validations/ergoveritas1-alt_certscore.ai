@@ -52,3 +52,33 @@ test("canonical overall score rejects malformed or differently valued GPC score 
     unifiedFindings: [gpcFinding(5)],
   }), 100);
 });
+
+import { siteIntegrityProjectionFixture } from "../../../../packages/certscore-contracts/src/site-integrity.fixture";
+import { buildUnifiedFindingDisplayPackets } from "../../lib/scans/unified-findings";
+
+function integrityFindings(count: number, page?: string) {
+  const base = siteIntegrityProjectionFixture;
+  const observation = { ...base.observation, links: Array.from({length: count}, (_, index) => ({ evidenceRef: `site_integrity:link:${index}`, destinationDomain: "external.example", concealment: "offscreen_position" })) };
+  const projection = page ? { ...base, contractVersion: "certscore.site-integrity-projection.v2", pageId: page, attemptId: "10000000-0000-4000-8000-000000000001", configurationHash: "c".repeat(64), evidenceRef: `full-site:${page}:10000000-0000-4000-8000-000000000001:evidence.json#siteIntegrityObservation`, observation: {...observation, contractVersion: "certscore.site-integrity-observation.v2", scope: "additional_page_main_document"} } : {...base, observation};
+  return buildUnifiedFindingDisplayPackets({runtimeArtifacts: {siteIntegrity: projection}, reviewFindingCandidates: [], validationFindings: [], validationFindingLookup: new Map()});
+}
+const scoreIntegrity = (unifiedFindings: UnifiedFindingDisplayPacket[]) => deriveCanonicalOverallScoreForReport({scanRecord: {runtimeArtifacts: null}, checklistRows: checkedChecklist, unifiedFindings});
+
+test("verified hidden links use 10 then 5 with a 40-point site cap", () => {
+  for (const [count, expected] of [[0,100],[1,90],[2,85],[6,65],[7,60],[12,60]]) assert.equal(scoreIntegrity(integrityFindings(count!)), expected);
+});
+test("site-wide link identities union across pages and duplicate projections do not multiply deductions", () => {
+  const home = integrityFindings(1);
+  const page = integrityFindings(2, "20000000-0000-4000-8000-000000000001");
+  assert.equal(scoreIntegrity([...home, ...home]), 90);
+  assert.equal(scoreIntegrity([...home, ...page, ...page]), 80);
+  assert.equal(scoreIntegrity([...integrityFindings(6), ...page]), 60);
+  assert.equal(scoreIntegrity([...integrityFindings(12),gpcFinding(15)]),45);
+});
+test("missing, stale, and malformed integrity score effects fail closed", () => {
+  const finding = integrityFindings(1)[0]!;
+  assert.equal(scoreIntegrity([{...finding, scoreEffects: []}]),100);
+  for (const change of [{policyVersion: "certscore.site-integrity-policy.v2"}, {deductionPoints: 40}, {observedActivity: ["guessed"]}, {evidenceRefs: []}]) {
+    assert.equal(scoreIntegrity([{...finding, scoreEffects: finding.scoreEffects!.map(effect => ({...effect,...change}))}]),100);
+  }
+});

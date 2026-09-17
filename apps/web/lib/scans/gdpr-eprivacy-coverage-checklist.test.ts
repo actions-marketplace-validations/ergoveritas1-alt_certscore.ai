@@ -3162,7 +3162,7 @@ test("deriveGdprEprivacyCoverageChecklist carries canonical source refs into che
   ]);
 });
 
-test("deriveGdprEprivacyCoverageChecklist retains executive evidence highlights for matching unified rows", () => {
+test("deriveGdprEprivacyCoverageChecklist withholds unbound executive tracking prose from request highlights", () => {
   const items = deriveGdprEprivacyCoverageChecklist({
     coverageLimited: false,
     projectedFindings: [
@@ -3189,9 +3189,7 @@ test("deriveGdprEprivacyCoverageChecklist retains executive evidence highlights 
     ]
   });
 
-  assert.deepEqual(byId(items, "pre_consent_third_party_tracking").criticalEvidence.retainedEvidence.evidenceHighlights, [
-    "Cloudflare Web Analytics fired before consent"
-  ]);
+  assert.deepEqual(byId(items, "pre_consent_third_party_tracking").criticalEvidence.retainedEvidence.evidenceHighlights, []);
 });
 
 test("deriveGdprEprivacyCoverageChecklist does not describe security and performance vendors as advertising", () => {
@@ -3332,10 +3330,7 @@ test("deriveGdprEprivacyCoverageChecklist keeps pre-consent tracking highlights 
   });
 
   const highlights = byId(items, "pre_consent_third_party_tracking").criticalEvidence.retainedEvidence.evidenceHighlights;
-  assert.deepEqual(highlights, [
-    "Tracking requests observed before consent: Google Analytics; first seen 0.311s after scan start.",
-    "\"Google Analytics\", \"preConsent\": true, \"firstSeenMs\": 311, \"category\": \"analytics\""
-  ]);
+  assert.deepEqual(highlights, [], "unbound vendor aggregates cannot supply request timing");
   assert.doesNotMatch(JSON.stringify(highlights), /runtime_vendor_not_disclosed|consent_governance_disclosure_gap/i);
 });
 
@@ -3419,11 +3414,7 @@ test("deriveGdprEprivacyCoverageChecklist does not display epoch timestamps as f
   });
 
   const highlights = byId(items, "pre_consent_third_party_tracking").criticalEvidence.retainedEvidence.evidenceHighlights;
-  assert.deepEqual(highlights, [
-    "Tracking requests observed before consent: Google Tag Manager and Contentsquare.",
-    "\"Google Tag Manager\", \"preConsent\": true, \"category\": \"tag_management\"",
-    "\"Contentsquare\", \"preConsent\": true, \"category\": \"session_replay\""
-  ]);
+  assert.deepEqual(highlights, [], "unbound vendor aggregates cannot supply request timing");
   assert.doesNotMatch(JSON.stringify(highlights), /1780863330295/);
 });
 
@@ -3520,7 +3511,7 @@ test("deriveGdprEprivacyCoverageChecklist normalizes pre-consent tracking vendor
               preConsent: true,
               representativeUrl: "https://www.googletagmanager.com/gtm.js?id=GTM-123"
             }
-          ]
+          ].map(row => ({ ...row, runtimePhase: "pre_consent", essentiality: "non_essential", collectionEndpointObserved: true, confidence: .99 }))
         },
         id: "preconsent_tracking",
         label: "Pre-consent tracking"
@@ -3533,11 +3524,11 @@ test("deriveGdprEprivacyCoverageChecklist normalizes pre-consent tracking vendor
   });
 
   const highlights = byId(items, "pre_consent_third_party_tracking").criticalEvidence.retainedEvidence.evidenceHighlights;
-  assert.deepEqual(highlights, [
-    "Tracking requests observed before consent: Microsoft Clarity, Google Analytics, and Google Tag Manager; first seen 0.906s after scan start.",
-    "\"Microsoft Clarity\", \"preConsent\": true, \"firstSeenMs\": 906, \"category\": \"session_replay\"",
-    "\"Google Analytics\", \"preConsent\": true, \"firstSeenMs\": 120, \"category\": \"analytics\""
-  ]);
+  assert.ok(Array.isArray(highlights));
+  assert.match(String(highlights[0]), /Google Analytics at 0.120s/);
+  assert.match(String(highlights[1]), /"vendor":"Google Analytics".*"category":"analytics".*"firstSeenMs":120/);
+  assert.match(String(highlights[2]), /"vendor":"Microsoft Clarity".*"category":"session_replay".*"firstSeenMs":906/);
+  assert.doesNotMatch(JSON.stringify(highlights), /Google Tag Manager/);
 });
 
 test("deriveGdprEprivacyCoverageChecklist prefers pre-consent cookie evidence for cookie storage rows", () => {
@@ -3664,12 +3655,7 @@ test("deriveGdprEprivacyCoverageChecklist keeps adtech vendor categories out of 
   const renderedHighlights = JSON.stringify(
     byId(items, "pre_consent_third_party_tracking").criticalEvidence.retainedEvidence.evidenceHighlights
   );
-  assert.match(renderedHighlights, /AppNexus \/ Xandr.*advertising/);
-  assert.match(renderedHighlights, /DoubleClick.*advertising/);
-  assert.match(renderedHighlights, /Google Ads.*advertising/);
-  assert.doesNotMatch(renderedHighlights, /AppNexus \/ Xandr.*analytics/);
-  assert.doesNotMatch(renderedHighlights, /DoubleClick.*tag_manager/);
-  assert.doesNotMatch(renderedHighlights, /Google Ads.*tag_manager/);
+  assert.equal(renderedHighlights, "[]", "untimed, unbound product labels remain inventory context");
 });
 
 test("deriveGdprEprivacyCoverageChecklist leads cross-border highlights with transfer-relevant vendors", () => {

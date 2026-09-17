@@ -1,3 +1,5 @@
+import { canonicalEvidenceVendorName as normalizeEvidenceVendorName } from "./canonical-evidence-vendor-name";
+import { projectPreconsentTrackingTiming, readPreconsentTrackingTiming } from "./preconsent-tracking-timing";
 import type { UnifiedFindingDisplayPacket } from "./unified-findings";
 import type { CertScoreFindingEvidenceDetails } from "./finding-registry";
 import type {
@@ -990,6 +992,8 @@ function getCoverageOutcomePreconsentTimingRetainedEvidence(
   }
 
   return {
+    ...(readPreconsentTrackingTiming(retained.trackingRequestTiming).length > 0
+      ? { trackingRequestTiming: retained.trackingRequestTiming } : {}),
     firstPreconsentThirdPartyTrackingObservedMs: retained.firstPreconsentThirdPartyTrackingObservedMs,
     firstPreconsentThirdPartyTrackingObservationBasis: retained.firstPreconsentThirdPartyTrackingObservationBasis,
     preconsentThirdPartyTrackingObservedMs: retained.preconsentThirdPartyTrackingObservedMs,
@@ -1677,33 +1681,6 @@ function formatVendorPhrase(vendors: string[]) {
   return `${vendors.slice(0, -1).join(", ")}, and ${vendors.at(-1)}`;
 }
 
-function normalizeEvidenceVendorName(value: string) {
-  if (/cloudflare/i.test(value)) {
-    return null;
-  }
-  if (/linkedin insight|linkedin ads|px\.ads\.linkedin|snap\.licdn/i.test(value)) {
-    return "LinkedIn Insight Tag";
-  }
-  if (/meta pixel|facebook pixel|connect\.facebook|facebook\.com\/tr/i.test(value)) {
-    return "Meta Pixel";
-  }
-  if (/google tag manager|googletagmanager|\bgtm\b/i.test(value)) {
-    return "Google Tag Manager";
-  }
-  if (/google analytics|google-analytics|analytics\.google|google\.com\/g\/collect|^_ga/i.test(value)) {
-    return "Google Analytics";
-  }
-  if (/reddit/i.test(value)) {
-    return "Reddit Pixel";
-  }
-  if (/heap/i.test(value)) {
-    return "Heap";
-  }
-  if (/zoominfo|zi-scripts/i.test(value)) {
-    return "ZoomInfo";
-  }
-  return value.trim();
-}
 
 function getCanonicalVendors(values: Array<string | null | undefined>) {
   return uniqueEntityStrings(values.flatMap((value) => {
@@ -1759,7 +1736,7 @@ function getProjectedFindingEntityRows(findings: ProjectedGdprFinding[], keys: s
     const evidenceDetails = finding.evidenceDetails && typeof finding.evidenceDetails === "object"
       ? finding.evidenceDetails as Record<string, unknown>
       : null;
-    return getRecordRows(evidenceDetails, keys);
+    return [...getRecordRows(evidenceDetails, keys), ...getRecordRows(getRecordValue(evidenceDetails?.trackingEvidence), keys)];
   });
 }
 
@@ -1769,8 +1746,11 @@ function getPreconsentTrackingRows(input: {
 }) {
   const keys = [
     "preconsent_tracker_vendor_evidence",
+    "requestPurposeClassificationConfidence",
+    "request_purpose_classification_confidence",
     "representativeRequests",
     "runtimeVendorEvidence",
+    "runtimeVendors",
     "vendors"
   ];
   return [
@@ -2803,6 +2783,7 @@ function getUnifiedFindingCriticalEvidence(
       severity: finding.severity
     })),
     retainedEvidence: {
+      ...(rowId === "pre_consent_third_party_tracking" ? { trackingRequestTiming: projectPreconsentTrackingTiming(getPreconsentTrackingRows({ findings, projectedFindings })) } : {}),
       evidenceHighlights: getRowEvidenceHighlights({ findings, projectedFindings, rowId }),
       evidenceRefs: getEvidenceRefs(findings),
       findingEntities: findings.map((finding) => ({
@@ -2845,6 +2826,9 @@ function getProjectedFindingCriticalEvidence(
       label: finding.label
     })),
     retainedEvidence: {
+      ...(rowId === "pre_consent_third_party_tracking"
+        ? { trackingRequestTiming: projectPreconsentTrackingTiming(getPreconsentTrackingRows({ findings: [], projectedFindings: findings })) }
+        : {}),
       evidenceHighlights: findings.flatMap(buildRegulatoryChecklistEvidenceHighlights).slice(0, 3),
       evidenceRefs: getProjectedEvidenceRefs(findings),
       projectedFindingPreview: findings.map((finding) => ({

@@ -14,7 +14,7 @@ const paths: Record<string, string> = {
 };
 
 export function InventoryTypeIcon({ kind }: { kind: string }) {
-  const label = kind.replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
+  const label = ({ embed: "Embedded frame", storage: "Browser storage" } as Record<string, string>)[kind] ?? kind.replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
   return <span role="img" aria-label={label} title={label} tabIndex={0} className="inline-flex items-center justify-center rounded-sm text-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500">
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round"><path d={paths[kind] ?? paths.document}/></svg>
   </span>;

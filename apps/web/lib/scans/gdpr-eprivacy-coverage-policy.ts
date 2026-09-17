@@ -1,3 +1,4 @@
+import { projectPreconsentTrackingTiming } from "./preconsent-tracking-timing";
 import { readChoicePathExecution } from "./choice-path-execution";
 import { checklistRemediation } from "./checklist-remediation";
 import { getRuntimeVendorDisclosureEvidence } from "./runtime-vendor-disclosure";
@@ -832,64 +833,17 @@ function getPreconsentCookieStorageTimingSummary(runtimeArtifacts: Record<string
 
 function getPreconsentThirdPartyTrackingTimingSummary(runtimeArtifacts: Record<string, unknown> | null | undefined) {
   const hybridRuntimeEvidence = getHybridRuntimeEvidence(runtimeArtifacts);
-  const timelineMarkers = getHybridTimelineMarkers(runtimeArtifacts);
-  const networkSummary = getHybridNetworkSummary(runtimeArtifacts);
-  const navigationStartMs = getNumber(timelineMarkers, ["navigationStartMs", "navigation_start_ms"]);
-  const state0Rows = getObjectArray(hybridRuntimeEvidence, [
-    "preconsentState0RequestObservations",
-    "preconsent_state0_request_observations"
+  const keys = ["requestPurposeClassificationConfidence", "request_purpose_classification_confidence"];
+  const trackingRequestTiming = projectPreconsentTrackingTiming([
+    ...getObjectArray(runtimeArtifacts, keys), ...getObjectArray(hybridRuntimeEvidence, keys),
   ]);
-  const classifiedRows = getObjectArray(hybridRuntimeEvidence, [
-    "requestPurposeClassificationConfidence",
-    "request_purpose_classification_confidence"
-  ]);
-  const requestRows = getObjectArray(hybridRuntimeEvidence, ["requestObservations", "request_observations"]);
-  const preconsentThirdPartyCount =
-    getNumber(networkSummary, ["preConsentThirdPartyRequestCount", "pre_consent_third_party_request_count"]) ?? 0;
-  const rows = [
-    ...state0Rows,
-    ...classifiedRows.filter(rowHasPreconsentTimingEvidence),
-    ...requestRows.filter((row) =>
-      getBoolean(row, ["thirdParty", "third_party"]) === true &&
-      (rowHasPreconsentTimingEvidence(row) || preconsentThirdPartyCount > 0)
-    )
-  ];
-  const observedMs = getSortedUniqueMs([
-    ...rows.map((row) =>
-      getRuntimeObservedMs(row, [
-        "firstSeenMs",
-        "first_seen_ms",
-        "firstRequestMs",
-        "first_request_ms",
-        "firstObservedMs",
-        "first_observed_ms",
-        "tsMs",
-        "ts_ms",
-        "timestampMs",
-        "timestamp_ms"
-      ], navigationStartMs)
-    ),
-    getRuntimeObservedMs(timelineMarkers, [
-      "firstThirdPartyTrackingRequestMs",
-      "first_third_party_tracking_request_ms",
-      "firstThirdPartyRequestMs",
-      "first_third_party_request_ms"
-    ], navigationStartMs),
-    getRuntimeObservedMs(networkSummary, [
-      "firstThirdPartyTrackingRequestMs",
-      "first_third_party_tracking_request_ms",
-      "firstThirdPartyRequestMs",
-      "first_third_party_request_ms"
-    ], navigationStartMs)
-  ]);
-
+  const observedMs = getSortedUniqueMs(trackingRequestTiming.requests.map(row => row.firstSeenMs));
   return compactRecord({
+    trackingRequestTiming,
     firstPreconsentThirdPartyTrackingObservedMs: observedMs[0] ?? null,
-    firstPreconsentThirdPartyTrackingObservationBasis: observedMs.length > 0
-      ? "runtime_third_party_request_timing"
-      : null,
+    firstPreconsentThirdPartyTrackingObservationBasis: observedMs.length ? "classified_request_timing.v1" : null,
     preconsentThirdPartyTrackingObservedMs: compactArray(observedMs, 6),
-    preconsentThirdPartyTrackingTimedObservationCount: observedMs.length
+    preconsentThirdPartyTrackingTimedObservationCount: trackingRequestTiming.requests.length,
   });
 }
 
@@ -4205,6 +4159,9 @@ function deriveThirdPartyIframePreConsentOutcome(input: GdprEprivacyCoveragePoli
           embeddedContentObservedMs: compactArray(evidence.observedMs, 6),
           embeddedContentPurposeBuckets: evidence.purposeBuckets,
           firstEmbeddedContentObservedMs: evidence.observedMs[0] ?? null,
+          // Query-free source URLs give a conservative distinct-embed lower bound.
+          // Only rows already admitted by this concern policy participate.
+          embeddedFrameSources: compactArray(uniqueStrings(evidence.embeddedRows.map(row => boundedRuntimeEvidenceUrl(getString(row, ["frameUrl", "frame_url", "url"])))), 8),
           iframeObservationCount: observedCount,
           preConsentIframeCount: evidence.preConsentIframeCount ?? observedCount
         }
@@ -5395,11 +5352,12 @@ function deriveAcceptConsentControlOutcome(input: GdprEprivacyCoveragePolicyInpu
       return makeOutcome(
         "accept_consent_control",
         "Observed",
-        "A structured accept, accept-all, or allow-all consent control was observed in the policy-gated normalized first-layer inventory.",
+        getString(getObject(inventoryEvidence, ["consentControlBehavior"]), ["description"]) ?? "A structured accept, accept-all, or allow-all consent control was observed in the policy-gated normalized first-layer inventory.",
         controlInventoryConcern.evidenceBundle.runtimeArtifacts,
         {
           retainedEvidence: {
             acceptControlObserved: true,
+            consentControlBehavior: inventoryEvidence.consentControlBehavior,
             consentControlInventoryConcern: {
               canonicalConcernKey: controlInventoryConcern.canonicalConcernKey,
               originKey: controlInventoryConcern.originKey

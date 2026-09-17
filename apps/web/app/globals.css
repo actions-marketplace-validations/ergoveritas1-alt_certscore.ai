@@ -240,3 +240,8 @@ a {
     background-position: -240% 50%;
   }
 }
+
+/* Keep full-site, single-page and preview report canvases white. */
+body:has([aria-label="Executive overview"]), body:has([data-full-site-report]) {
+  background-color: #fff;
+}

@@ -274,16 +274,15 @@ test("GPC appears as a quiet snapshot signal and a dedicated evidence-index comp
   const consentPlatformIndex = snapshotSource.indexOf(">Consent platform<");
   const consentControlsIndex = snapshotSource.indexOf(">Consent controls<");
   const gpcIndex = snapshotSource.indexOf(">Global Privacy Control (GPC)<");
-  const trackerFootprintIndex = snapshotSource.indexOf(">Tracker footprint<");
-  const transportSecurityIndex = snapshotSource.indexOf(">HTTPS / TLS<");
+  const transportSecurityIndex = snapshotSource.indexOf(">Transport security<");
   const runtimeIndex = evidenceDirectorySource.indexOf(">Storage &amp; tracking techniques{");
   const gpcCardIndex = evidenceDirectorySource.indexOf("<GpcEvidenceIndexCard");
   const transportIndex = evidenceDirectorySource.indexOf(">Transport security{");
 
   assert.ok(consentPlatformIndex >= 0);
   assert.ok(consentPlatformIndex < consentControlsIndex);
-  assert.ok(consentControlsIndex < trackerFootprintIndex);
-  assert.ok(trackerFootprintIndex < transportSecurityIndex);
+  assert.doesNotMatch(snapshotSource, />Detected integrations</);
+  assert.ok(consentControlsIndex < transportSecurityIndex);
   assert.ok(transportSecurityIndex < gpcIndex);
   assert.match(snapshotSource, /<VendorBrandLogo label=\{consentVendor\} \/>/);
   assert.match(snapshotSource, /report\.gpcResponse\.headline/);

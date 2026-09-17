@@ -178,6 +178,7 @@ export async function runFullSitePage(event: unknown, options: { s3Client?: S3Cl
   let evidenceBody: string;
   try {
     const visit = await runInventoryOnly({
+      parentScanId: grant.scanId,
       url: grant.url,
       region: grant.region,
       profile: grant.configuration.profile,

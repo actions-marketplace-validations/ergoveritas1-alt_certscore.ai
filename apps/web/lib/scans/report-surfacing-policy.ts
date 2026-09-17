@@ -1,3 +1,4 @@
+import { SITE_INTEGRITY_FINDING_ID } from "@certscore/contracts";
 import {
   REPORT_UNIFIED_FINDINGS,
   type ReportUnifiedFindingId
@@ -358,6 +359,7 @@ const ACCESSIBILITY_IDS = [
 ] as const satisfies ReportUnifiedFindingId[];
 
 const CONTEXT_IDS = [
+  SITE_INTEGRITY_FINDING_ID,
   "regulator_operated_mock_investment_example",
   "scan_quality_visual_artifact_missing",
   "scan_quality_visual_no_go",
@@ -1862,6 +1864,14 @@ function overrideDecision(
 
 function applyFindingSpecificRules(context: PolicyEvaluationContext) {
   const { packet, decision } = context;
+  if (packet.unifiedFindingId === SITE_INTEGRITY_FINDING_ID) {
+    const eligible = packet.details?.family === "site_integrity" &&
+      packet.concernContext?.promotionEligibilities.includes("eligible") &&
+      packet.concernContext?.externalSurfacingEligibilities.includes("eligible");
+    overrideDecision(decision, { state: eligible ? "review" : "suppressed", lane: eligible ? "main" : "suppressed",
+      tier: "section", reason: "Canonical site-integrity concern policy; review only, with no regulatory or score effect.", ruleId: "evidence.context.keep_review" });
+    return;
+  }
   const evidenceFlags = new Set(packet.evidence?.flags ?? []);
   const negativeFlags = getNegativeEvidenceFlags(packet);
   const policyExtractionDetails = packet.details?.family === "policy_extraction" ? packet.details : null;

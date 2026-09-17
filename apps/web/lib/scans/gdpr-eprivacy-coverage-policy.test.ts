@@ -2093,9 +2093,9 @@ test("deriveGdprEprivacyCoveragePolicyOutcomes uses the earliest eligible non-es
   );
   assert.equal(
     outcomes.pre_consent_third_party_tracking?.criticalEvidence.retainedEvidence.firstPreconsentThirdPartyTrackingObservedMs,
-    478
+    undefined
   );
-  assert.match(
+  assert.doesNotMatch(
     outcomes.pre_consent_third_party_tracking?.evidenceRefs.join(" ") ?? "",
     /0.478s after scan start/
   );
@@ -7286,4 +7286,10 @@ test("policy provenance never borrows another document's title or update date", 
   assert.equal(provenance.sectionHeading, "Legal bases");
   assert.equal(provenance.policyTitle, undefined);
   assert.equal(provenance.lastUpdatedText, undefined);
+});
+
+test("embed source counts keep admitted query-free sources and deduplicate repeated observations", () => {
+  const frame = {firstSeenMs:928, frameUrl:"https://www.youtube.com/embed/abc123?visitor=secret#fragment", hostname:"www.youtube.com",preConsent:true,thirdParty:true};
+  const result=deriveGdprEprivacyCoveragePolicyOutcomes({...completedInputBase,runtimeArtifacts:{hybridRuntimeEvidence:{iframeSummary:{iframeEvents:[frame,frame],preConsentIframeCount:2}}}});
+  assert.deepEqual(result.third_party_iframe_pre_consent?.criticalEvidence.retainedEvidence.embeddedFrameSources,["https://www.youtube.com/embed/abc123"]);
 });

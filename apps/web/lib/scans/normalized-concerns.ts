@@ -1,3 +1,5 @@
+import { projectConsentControlBehavior } from "./consent-control-behavior";
+import { siteIntegrityProjectionSchema, SITE_INTEGRITY_FINDING_ID, SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY, SITE_INTEGRITY_POLICY_VERSION, SITE_INTEGRITY_SEVERITY } from "@certscore/contracts";
 import { describeGpcBoundedObservation } from "@certscore/contracts";
 import { REJECT_CLICK_TRACKING_COPY } from "./consent-action-copy";
 import { assessRejectClickTracking, readRejectClickTrackingAssessment, REJECT_CLICK_TRACKING_SIGNAL } from "./reject-click-tracking-policy";
@@ -163,7 +165,7 @@ export type NormalizedConcernScoreEffect = {
   appliesTo: "certscore_overall";
   deductionPoints: number;
   evidenceRefs: string[];
-  framework: "california";
+  framework: "california" | "site_integrity";
   observedActivity: string[];
   policyKey: string;
   policyVersion: string;
@@ -3695,6 +3697,7 @@ function buildConsentControlInventoryConcerns(
         consentControlAssessmentSourceHash: assessment.provenance.sourceHash,
         consentControlAssessmentStatus: assessment.assessmentStatus,
         consentControlCoverageStatus: assessment.coverage.status,
+        consentControlBehavior: projectConsentControlBehavior(assessment),
         consentControlInventoryEvidence: true,
         consentControlInventoryComplete: inventoryComplete,
         consentSurfaceStatus: assessment.surface.status,
@@ -4414,6 +4417,23 @@ function resolveGdprTransparencyConcernConflicts(concerns: NormalizedConcern[]) 
 }
 
 
+function buildSiteIntegrityConcerns(runtimeArtifacts: Record<string, unknown> | null | undefined) {
+  const result = siteIntegrityProjectionSchema.safeParse(runtimeArtifacts?.siteIntegrity);
+  if (!result.success) return [];
+  const projection = result.data;
+  return [buildConcernFromSharedInput({
+    categoryId: "site_integrity", originType: "runtime_artifact", originKey: SITE_INTEGRITY_SIGNAL,
+    title: SITE_INTEGRITY_COPY.title, description: SITE_INTEGRITY_COPY.description,
+    observedValue: `${projection.observation.links.length} retained concealed outbound links`,
+    severity: SITE_INTEGRITY_SEVERITY, sourceType: "signal", signalSource: "runtime_artifact_signal",
+    signalKey: SITE_INTEGRITY_SIGNAL, signalLabel: SITE_INTEGRITY_COPY.title,
+    evidence: [projection.observation.documentUrl],
+    rawEvidence: { siteIntegrity: projection, siteIntegrityPolicyVersion: SITE_INTEGRITY_POLICY_VERSION,
+      unifiedFindingId: SITE_INTEGRITY_FINDING_ID, pageUrl: projection.observation.documentUrl,
+      runtimeEvidenceArtifacts: [projection.evidenceRef, ...projection.observation.links.map(link => link.evidenceRef)] },
+  })];
+}
+
 export function buildNormalizedConcerns(input: {
   domainContext?: ScanDomainContext;
   reviewFindingCandidates: ReviewFindingCandidateInput[];
@@ -4435,6 +4455,7 @@ export function buildNormalizedConcerns(input: {
       const normalizedFinding = normalizeScanValidationFinding(finding);
       return normalizedFinding ? [normalizeConcernFromValidationFinding(normalizedFinding, input.domainContext, consentControlAssessment)] : [];
     }),
+    ...buildSiteIntegrityConcerns(input.runtimeArtifacts),
     ...buildScanNoGoAssessmentConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildRuntimeCoverageLimitationConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildCollectionSurfaceAssessmentConcerns(input.runtimeArtifacts, input.domainContext),

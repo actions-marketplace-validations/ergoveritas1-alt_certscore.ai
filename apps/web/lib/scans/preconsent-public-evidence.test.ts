@@ -419,112 +419,15 @@ test("uses canonical endpoint attribution for retained pre-consent example reque
     maxItems: 22
   });
 
-  assert.equal(requests[0]?.vendorName, "Sourcepoint CMP");
-  assert.equal(requests[0]?.vendorCategory, "cmp");
-  assert.equal(requests[0]?.rawObservedVendor, "Amazon Ads");
-  assert.equal(requests[0]?.rawObservedVendorCategory, "advertising");
-  assert.equal(requests[0]?.resolvedEndpointVendor, "Sourcepoint CMP");
-  assert.equal(requests[0]?.resolvedEndpointVendorCategory, "cmp");
-  assert.equal(requests[0]?.requestUrl, "https://cdn.privacy-mgmt.com/wrapperMessagingWithoutDetection.js?redacted=1");
-  assert.equal(requests[0]?.frameUrl, "https://cmp.example/frame.html?redacted=1");
-  assert.equal(requests[0]?.finalUrl, "https://cdn.privacy-mgmt.com/wrapperMessagingWithoutDetection.js?redacted=1");
-  assert.equal(requests[0]?.initiatorHost, "example.com");
-  assert.equal(requests[0]?.initiatorType, "script");
-  assert.equal(requests[0]?.initiatorUrl, "https://example.com/app.js?redacted=1");
-  assert.deepEqual(requests[0]?.redirectChain, ["https://privacy-mgmt.example/redirect?redacted=1"]);
-  assert.equal(requests[0]?.resourceType, "script");
-  assert.equal(requests[0]?.relatedOrInitiatingVendor, "Amazon Ads");
-  assert.match(requests[0]?.vendorAttributionBasis ?? "", /canonical_vendor_resolver/);
-  assert.deepEqual(requests[0]?.projectionWarnings, ["canonical_endpoint_vendor_replaced_raw_vendor"]);
+  assert.ok(requests.length > 0);
+  assert.ok(requests.every(request => !["cmp", "infrastructure", "security", "tag_management", "unknown"].includes(request.vendorCategory)));
+  const segment = requests.find(request => request.vendorName === "Segment");
+  assert.equal(segment?.vendorCategory, "analytics");
+  assert.equal(segment?.relatedOrInitiatingVendor, "Adobe Analytics / Experience Cloud");
+  assert.match(segment?.vendorAttributionBasis ?? "", /canonical_vendor_resolver/);
+  assert.ok(requests.some(request => request.vendorName === "Hotjar"));
+  assert.equal(requests.some(request => /fonts\.|privacy-mgmt|recaptcha|tildacdn|ctfassets/.test(request.requestUrl)), false);
 
-  assert.equal(requests[1]?.vendorName, "Contentful Assets");
-  assert.equal(requests[1]?.vendorCategory, "infrastructure");
-  assert.equal(requests[1]?.relatedOrInitiatingVendor, "DoubleClick Floodlight");
-
-  assert.equal(requests[2]?.vendorName, "jsDelivr CDN");
-  assert.equal(requests[2]?.vendorCategory, "infrastructure");
-  assert.equal(requests[2]?.relatedOrInitiatingVendor, "Google Tag Manager");
-
-  assert.equal(requests[3]?.vendorName, "Google Fonts");
-  assert.equal(requests[3]?.vendorCategory, "infrastructure");
-  assert.equal(requests[3]?.relatedOrInitiatingVendor, "Google Static Assets");
-
-  assert.equal(requests[4]?.vendorName, "Google Static Assets");
-  assert.equal(requests[4]?.vendorCategory, "infrastructure");
-  assert.equal(requests[4]?.relatedOrInitiatingVendor, "Google Fonts");
-
-  assert.equal(requests[5]?.vendorName, "Segment");
-  assert.equal(requests[5]?.vendorCategory, "analytics");
-  assert.equal(requests[5]?.relatedOrInitiatingVendor, "Adobe Analytics / Experience Cloud");
-
-  assert.equal(requests[6]?.vendorName, "unpkg CDN");
-  assert.equal(requests[6]?.vendorCategory, "infrastructure");
-  assert.equal(requests[6]?.relatedOrInitiatingVendor, "jsDelivr CDN");
-
-  assert.equal(requests[7]?.vendorName, "Adobe Fonts / Typekit");
-  assert.equal(requests[7]?.vendorCategory, "infrastructure");
-  assert.equal(requests[7]?.relatedOrInitiatingVendor, "Amazon Ads");
-
-  assert.equal(requests[8]?.vendorName, "Google Tag Manager");
-  assert.equal(requests[8]?.vendorCategory, "tag_management");
-  assert.equal(requests[8]?.relatedOrInitiatingVendor, "Google Fonts");
-
-  assert.equal(requests[9]?.vendorName, "CloudFront Distribution");
-  assert.equal(requests[9]?.vendorCategory, "infrastructure");
-  assert.equal(requests[9]?.relatedOrInitiatingVendor, "Google Tag Manager");
-
-  assert.equal(requests[10]?.vendorName, "Visual Website Optimizer");
-  assert.equal(requests[10]?.vendorCategory, "analytics");
-  assert.equal(requests[10]?.relatedOrInitiatingVendor, "CloudFront Distribution");
-
-  assert.equal(requests[11]?.vendorName, "YouTube Image CDN");
-  assert.equal(requests[11]?.vendorCategory, "infrastructure");
-  assert.equal(requests[11]?.relatedOrInitiatingVendor, "Taboola");
-
-  assert.equal(requests[12]?.vendorName, "BootstrapCDN");
-  assert.equal(requests[12]?.vendorCategory, "infrastructure");
-  assert.equal(requests[12]?.relatedOrInitiatingVendor, "Google Fonts");
-
-  assert.equal(requests[13]?.vendorName, "Osano CMP");
-  assert.equal(requests[13]?.vendorCategory, "cmp");
-  assert.equal(requests[13]?.relatedOrInitiatingVendor, "Akamai Bot Manager / Edge");
-
-  assert.equal(requests[14]?.vendorName, "Hotjar");
-  assert.equal(requests[14]?.vendorCategory, "session_replay");
-  assert.equal(requests[14]?.relatedOrInitiatingVendor, "Microsoft Clarity");
-
-  assert.equal(requests[15]?.vendorName, "Adobe Audience Manager / Experience Cloud");
-  assert.equal(requests[15]?.vendorCategory, "advertising");
-  assert.equal(requests[15]?.relatedOrInitiatingVendor, "Piano (Tinypass)");
-
-  assert.equal(requests[16]?.vendorName, "Google Fonts");
-  assert.equal(requests[16]?.vendorCategory, "infrastructure");
-  assert.equal(requests[16]?.relatedOrInitiatingVendor, "Google Analytics");
-
-  assert.equal(requests[17]?.vendorName, "Google reCAPTCHA");
-  assert.equal(requests[17]?.vendorCategory, "security");
-  assert.equal(requests[17]?.requestUrl, "https://www.google.com/recaptcha/api.js?redacted=1");
-  assert.equal(requests[17]?.relatedOrInitiatingVendor, "Google Fonts");
-
-  assert.equal(requests[18]?.vendorName, "Tilda CDN");
-  assert.equal(requests[18]?.vendorCategory, "infrastructure");
-  assert.equal(requests[18]?.relatedOrInitiatingVendor, "jsDelivr CDN");
-
-  assert.equal(requests[19]?.vendorName, "Framer Analytics");
-  assert.equal(requests[19]?.vendorCategory, "analytics");
-  assert.equal(requests[19]?.relatedOrInitiatingVendor, "Google Fonts");
-
-  assert.equal(requests[20]?.vendorName, "TrustArc CMP");
-  assert.equal(requests[20]?.vendorCategory, "cmp");
-  assert.equal(requests[20]?.relatedOrInitiatingVendor, "Google Tag Manager");
-
-  assert.equal(requests[21]?.vendorName, "Contentful Assets");
-  assert.equal(requests[21]?.vendorCategory, "infrastructure");
-  assert.equal(requests[21]?.relatedOrInitiatingVendor, "Google Tag Manager");
-  assert.deepEqual(
-    requests.filter((request) => request.hostname === "images.ctfassets.net").map((request) => request.vendorName),
-    ["Contentful Assets", "Contentful Assets"]
-  );
 });
 
 test("resolves Batch 3 through 6 endpoint hosts through the canonical vendor resolver", () => {
@@ -801,47 +704,8 @@ test("suppresses borrowed host-bound vendor labels on unresolved endpoint hosts"
     maxItems: 8
   });
 
-  assert.equal(requests[0]?.vendorName, "newcreatework.monster");
-  assert.equal(requests[0]?.vendorCategory, "unknown");
-  assert.equal(requests[0]?.rawObservedVendor, "jsDelivr CDN");
-  assert.equal(requests[0]?.resolvedEndpointVendor, null);
-  assert.equal(requests[0]?.relatedOrInitiatingVendor, "jsDelivr CDN");
-  assert.match(requests[0]?.vendorAttributionBasis ?? "", /borrowed_host_bound_vendor_suppressed/);
-  assert.deepEqual(requests[0]?.projectionWarnings, ["borrowed_host_bound_vendor_suppressed"]);
+  assert.deepEqual(requests, [], "unresolved borrowed names and non-tracking CDN traffic cannot become tracking requests");
 
-  assert.equal(requests[1]?.vendorName, "adxserve.com");
-  assert.equal(requests[1]?.vendorCategory, "unknown");
-  assert.equal(requests[1]?.requestUrl, "https://www.adxserve.com/adx/www/delivery/afr.php?redacted=1");
-  assert.equal(requests[1]?.relatedOrInitiatingVendor, "Google Fonts");
-  assert.match(requests[1]?.vendorAttributionBasis ?? "", /borrowed_host_bound_vendor_suppressed/);
-
-  assert.equal(requests[2]?.vendorName, "jsDelivr CDN");
-  assert.equal(requests[2]?.vendorCategory, "infrastructure");
-  assert.equal(requests[2]?.relatedOrInitiatingVendor, "HubSpot Scripts");
-  assert.match(requests[2]?.vendorAttributionBasis ?? "", /canonical_vendor_resolver/);
-
-  assert.equal(requests[3]?.vendorName, "http2.mlstatic.com");
-  assert.equal(requests[3]?.vendorCategory, "unknown");
-  assert.equal(requests[3]?.relatedOrInitiatingVendor, "Hotjar");
-  assert.match(requests[3]?.vendorAttributionBasis ?? "", /borrowed_host_bound_vendor_suppressed/);
-
-  assert.equal(requests[4]?.vendorName, "http2.mlstatic.com");
-  assert.equal(requests[4]?.vendorCategory, "unknown");
-  assert.equal(requests[4]?.relatedOrInitiatingVendor, "Google Sign-in");
-  assert.match(requests[4]?.vendorAttributionBasis ?? "", /borrowed_host_bound_vendor_suppressed/);
-
-  assert.equal(requests[5]?.vendorName, "assets.example.test");
-  assert.equal(requests[5]?.vendorCategory, "unknown");
-  assert.equal(requests[5]?.relatedOrInitiatingVendor, "unpkg CDN");
-  assert.match(requests[5]?.vendorAttributionBasis ?? "", /borrowed_host_bound_vendor_suppressed/);
-
-  assert.equal(requests[6]?.vendorName, "kbdlabimages.s3.us-east-2.amazonaws.com");
-  assert.equal(requests[6]?.vendorCategory, "unknown");
-  assert.equal(requests[6]?.rawObservedVendor, "Google Analytics");
-  assert.equal(requests[6]?.relatedOrInitiatingVendor, "Google Analytics");
-  assert.match(requests[6]?.vendorAttributionBasis ?? "", /borrowed_host_bound_vendor_suppressed/);
-
-  assert.equal(requests.some((request) => request.requestUrl.includes("/tag/js/gpt.js")), false);
 });
 
 test("does not promote generic or unknown static bundle rows as pre-consent tracking evidence", () => {

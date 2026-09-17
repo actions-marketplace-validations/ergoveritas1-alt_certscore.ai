@@ -1,3 +1,4 @@
+import { resolveCanonicalVendor } from "@certscore/vendor-resolver";
 import { detectKnownCmps } from "../../../../packages/shared/src/known-cmps";
 
 export type HighRiskTrackingVendor = {
@@ -78,8 +79,8 @@ const HIGH_RISK_VENDOR_RULES: VendorRule[] = [
     name: "reCAPTCHA Enterprise",
     category: "enterprise_device_risk",
     role: "bot and device-risk telemetry",
-    domains: ["google.com", "www.google.com", "gstatic.com", "www.gstatic.com"],
-    patterns: [/\/recaptcha\/enterprise(?:\.js|\/)/i, /\brecaptcha enterprise\b/i]
+    domains: [],
+    patterns: []
   },
   {
     name: "FullStory",
@@ -99,8 +100,8 @@ const HIGH_RISK_VENDOR_RULES: VendorRule[] = [
     name: "Meta Pixel",
     category: "adtech",
     role: "advertising pixel",
-    domains: ["connect.facebook.net", "facebook.com", "www.facebook.com"],
-    patterns: [/\bfbevents\.js\b/i, /\bmeta pixel\b/i, /\bfacebook pixel\b/i]
+    domains: [],
+    patterns: []
   },
   {
     name: "Reddit Pixel",
@@ -315,7 +316,14 @@ export function deriveHighRiskTrackingContext(input: {
       : null;
 
   const highRiskVendors = HIGH_RISK_VENDOR_RULES.flatMap((rule): HighRiskTrackingVendor[] => {
-    const evidence = uniqueStrings([
+    // Shared host ownership cannot establish a specific Google/Meta product.
+    const canonicalProductEvidence = rule.name === "Meta Pixel" || rule.name === "reCAPTCHA Enterprise"
+      ? evidenceUrls.filter(url => {
+          const resolved = resolveCanonicalVendor({ type: "request", url, sourceEventType: "network_request", matchSource: "network_request" }).observation;
+          return rule.name === "Meta Pixel" ? resolved?.product === "Meta Pixel"
+            : resolved?.registryAttribution?.ruleIds.includes("google_recaptcha_enterprise_security_runtime") === true;
+        }) : null;
+    const evidence = canonicalProductEvidence ?? uniqueStrings([
       ...thirdPartyDomains.filter((domain) => (rule.domains ?? []).some((ruleDomain) => domainMatches(domain, ruleDomain))),
       ...textValues.filter((value) => (rule.patterns ?? []).some((pattern) => pattern.test(value))).slice(0, 4)
     ]);

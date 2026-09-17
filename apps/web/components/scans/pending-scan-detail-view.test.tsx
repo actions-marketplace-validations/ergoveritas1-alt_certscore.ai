@@ -54,7 +54,7 @@ test("pending workspace displays retained checkpoint observations before its fir
   assert.match(html, /role="progressbar"/);
   assert.match(html, /data-full-site-report/);
   assert.match(html, /Executive overview/);
-  assert.match(html, /Resources &amp; services/);
+  assert.match(html, /Services &amp; Resources/);
   assert.match(html, /Assessment in progress/);
   assert.match(html, /aria-label="Inventory summary"/);
   assert.doesNotMatch(html, /0 priority issues|aria-label="Sitewide priority review"/);

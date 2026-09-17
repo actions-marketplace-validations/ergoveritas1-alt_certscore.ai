@@ -1,3 +1,5 @@
+import { projectAdditionalPageSiteIntegrity } from "./site-integrity-projection";
+import { selectSiteIntegrityFinding, siteIntegritySiteReportSchema, type SiteIntegritySiteReport } from "../../lib/scans/site-integrity-report";
 import { retainedCookieInventoryIdentity } from "../../lib/scans/retained-cookie-inventory-identity";
 import { canAssessRetainedCrawl } from "../../lib/scans/full-site-crawl-limitation";
 import { projectSitewideEvidencePage, sitewideEvidencePageSchema, type SitewideEvidencePage } from "../../lib/scans/sitewide-evidence-index";
@@ -5,7 +7,7 @@ import { projectScanReportNoGo } from "../../lib/scans/scan-report-disposition";
 import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { cookieEventSchema, networkEventSchema, iframeEventSchema, runtimeEvidenceEventSchema, scanModuleRunSchema, collectionSurfaceObservationSchema } from "@certscore/contracts";
+import { siteIntegrityProjectionSchema, cookieEventSchema, networkEventSchema, iframeEventSchema, runtimeEvidenceEventSchema, scanModuleRunSchema, collectionSurfaceObservationSchema } from "@certscore/contracts";
 import { resolveCanonicalVendor } from "@certscore/vendor-resolver";
 import { query, readFullSiteArtifact, type FullSiteCrawlRow } from "@website-signal-risk-scanner/db";
 import type { CrawlPage, CrawlObservation } from "@website-signal-risk-scanner/shared";
@@ -26,12 +28,13 @@ import { buildSitePriorityReview, sitePriorityFindingSchema, type SitePriorityFi
 import { buildChecklistConcernTopFindings } from "../../lib/scans/checklist-concern-top-findings";
 import { projectExecutiveFindingsFromUnifiedPackets } from "../../lib/scans/executive-findings-projection";
 const VERSION = FULL_SITE_SCORING_POLICY_VERSION;
-const PRIORITY_VERSION = "site-priority-review.v10";
+const PRIORITY_VERSION = "site-priority-review.v17";
 const persistedScoreSchema = z.object({
   version: z.literal(VERSION), value: z.number().int().min(0).max(100).nullable(),
   scoredPages: z.number().int().min(1), limitedPages: z.number().int().nonnegative(), scope: z.string(),
   priorityReview: z.array(sitePriorityFindingSchema),
   evidencePages: z.array(sitewideEvidencePageSchema),
+  siteIntegrity: siteIntegritySiteReportSchema,
   assessedStorageRecords: z.array(z.record(z.unknown())),
   assessedNonEssentialStorage: z.number().int().nonnegative().nullable(),
   sources: z.array(z.object({pageId: z.string(), sourceHash: z.string().regex(/^[a-f0-9]{64}$/), findingIds: z.array(z.string())})),
@@ -51,6 +54,7 @@ export type FullSiteScore = {
   scope: string;
   priorityReview: SitePriorityFinding[];
   evidencePages?: SitewideEvidencePage[];
+  siteIntegrity?: SiteIntegritySiteReport;
   assessedNonEssentialStorage: number | null;
   assessedStorageRecords?: Record<string, unknown>[];
   sources: Array<{ pageId: string; sourceHash: string; findingIds: string[] }>;
@@ -83,6 +87,14 @@ export function mergeSiteChecklistRows(home: GdprEprivacyCoverageChecklistItem[]
         ...strongest.criticalEvidence.retainedEvidence,
         [field]: { ...(strongest.criticalEvidence.retainedEvidence[field] as Record<string, unknown>), [key]: [...identities] },
       } } };
+    }
+    if (row.id === "third_party_iframe_pre_consent") {
+      const embeddedFrameSources = [...new Set(sources.flatMap(source => {
+        const values = source.criticalEvidence.retainedEvidence.embeddedFrameSources;
+        return Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : [];
+      }))];
+      return { ...sources[0]!, evidenceRefs: refs, criticalEvidence: { ...sources[0]!.criticalEvidence,
+        retainedEvidence: { ...sources[0]!.criticalEvidence.retainedEvidence, embeddedFrameSources } } };
     }
     // Flat runtime categories apply once across the site, retaining the strongest eligible projection.
     if (!["pre_consent_cookies_storage", "pre_consent_third_party_tracking"].includes(row.id)) return { ...sources[0]!, evidenceRefs: refs };
@@ -144,6 +156,14 @@ export async function loadFullSiteScore(crawl: FullSiteCrawlRow, pages: CrawlPag
       url: homePageEvidence?.finalUrl ?? homePageEvidence?.url ?? "",
       sourceHash: String(snapshot.report_projection_payload_sha256), homepage: true,
     }, canonical.checklistRows)];
+    const scoringFindings = [...canonical.globalUnifiedFindings];
+    const homeIntegrity = selectSiteIntegrityFinding(canonical.ownerUnifiedFindings);
+    const homeProjection = siteIntegrityProjectionSchema.safeParse(home.runtimeArtifacts?.siteIntegrity);
+    const siteIntegrity: SiteIntegritySiteReport = { findings: homeIntegrity ? [homeIntegrity] : [], coverage: pages.filter(page => !["excluded", "cancelled"].includes(page.status)).map(page => ({
+      pageId: page.id, url: page.finalUrl ?? page.url, homepage: page.source === "homepage",
+      status: page.source === "homepage" && homeProjection.success ? (homeProjection.data.observation.truncated ? "limited" : "captured") : "unavailable",
+      ...(page.source === "homepage" && homeProjection.success ? { sourceHash: homeProjection.data.sourceHash, retainedLinkCount: homeProjection.data.observation.links.length } : {}),
+    })) };
     const projected: GdprEprivacyCoverageChecklistItem[] = [];
     const sources: FullSiteScore["sources"] = [];
     let scoredPages = 1, limitedPages = 0;
@@ -154,7 +174,19 @@ export async function loadFullSiteScore(crawl: FullSiteCrawlRow, pages: CrawlPag
         const { rows: [attempt] } = await query<{ artifact_json: { bucket: string; evidenceKey: string; sourceHash: string } }>("select artifact_json from full_site_attempts where id=$1 and page_id=$2 and status='completed'", [observation.attemptId, page.id]);
         const artifact = attempt?.artifact_json;
         if (!artifact || artifact.bucket !== crawl.bucket || artifact.evidenceKey !== `${crawl.artifact_prefix}/${page.id}/${observation.attemptId}/evidence.json` || artifact.sourceHash !== observation.sourceHash) { limitedPages++; continue; }
-        const evidence = await readFullSiteArtifact({ bucket: artifact.bucket, key: artifact.evidenceKey, region: crawl.region, sha256: observation.sourceHash, sizeBytes: observation.runtimeGraph.sourceSizeBytes, maxBytes: 64 * 1024 * 1024 }) as { cookieEvents?: unknown; networkEvents?: unknown };
+        const evidence = await readFullSiteArtifact({ bucket: artifact.bucket, key: artifact.evidenceKey, region: crawl.region, sha256: observation.sourceHash, sizeBytes: observation.runtimeGraph.sourceSizeBytes, maxBytes: 64 * 1024 * 1024 }) as Record<string, unknown>;
+        const integrityProjection = projectAdditionalPageSiteIntegrity(evidence, observation, crawl.scan_id);
+        if (integrityProjection) {
+          const coverage = siteIntegrity.coverage.find(row => row.pageId === page.id)!;
+          coverage.status = integrityProjection.observation.truncated ? "limited" : "captured"; coverage.sourceHash = observation.sourceHash;
+          coverage.retainedLinkCount = integrityProjection.observation.links.length;
+          const integrityPackets = buildUnifiedFindingDisplayPackets({
+            runtimeArtifacts: { siteIntegrity: integrityProjection }, reviewFindingCandidates: [], validationFindings: [], validationFindingLookup: new Map(),
+          });
+          scoringFindings.push(...integrityPackets);
+          const finding = selectSiteIntegrityFinding(integrityPackets);
+          if (finding) siteIntegrity.findings.push(finding);
+        }
         const pageRows = projectFullSiteScoringEvidence(evidence, page.id, observation.sourceHash, observation.finalUrl ?? observation.requestedUrl);
         if (!pageRows) { limitedPages++; continue; }
         const runtimeCoverage = additionalRuntimeSchema.safeParse(evidence);
@@ -175,10 +207,10 @@ export async function loadFullSiteScore(crawl: FullSiteCrawlRow, pages: CrawlPag
     const priorityReview = buildSitePriorityReview(checklistRows, [
       ...(homePage ? [{ id: homePage.id, url: homePage.finalUrl ?? homePage.url, homepage: true, findingIds: [...homeFindingIds, ...executive.map(finding => finding.id)] }] : []),
       ...sources.map(source => { const page = pages.find(page => page.id === source.pageId)!; return { id: page.id, url: page.finalUrl ?? page.url, homepage: false, findingIds: source.findingIds }; }),
-    ], executive);
+    ], executive, canonical.ownerUnifiedFindings, siteIntegrity);
     const assessedNonEssentialStorage = countAssessedNonEssentialStorage(checklistRows);
     const assessedStorageRecords = (checklistRows.find(row => row.id === "pre_consent_cookies_storage")?.criticalEvidence.retainedEvidence.eligiblePreconsentCookieStorageRows ?? []) as Record<string, unknown>[];
-    const result = { assessedStorageRecords, evidencePages, assessedNonEssentialStorage, version: VERSION, priorityReview, value: deriveCanonicalOverallScoreForReport({ scanRecord: home, checklistRows, unifiedFindings: canonical.globalUnifiedFindings }), scoredPages, limitedPages, sources, scope: "Homepage audit plus eligible retained storage, tracking, session replay, fingerprinting, sensitive-surface and embed evidence across scanned pages; duplicate identities count once. Additional-page consent, policy and action checks remain unassessed." };
+    const result = { siteIntegrity, assessedStorageRecords, evidencePages, assessedNonEssentialStorage, version: VERSION, priorityReview, value: deriveCanonicalOverallScoreForReport({ scanRecord: home, checklistRows, unifiedFindings: scoringFindings }), scoredPages, limitedPages, sources, scope: "Homepage audit plus eligible retained storage, tracking, session replay, fingerprinting, sensitive-surface, embed and site-integrity evidence across scanned pages; duplicate identities count once. Additional-page consent, policy and action checks remain unassessed." };
     // Persist the versioned, evidence-bound result once; table filtering and downloads reuse it.
     if (!limitedPages) await query("update full_site_crawls set policy_json=jsonb_set(policy_json,'{fullSiteScore}',$2::jsonb) where scan_id=$1 and status='completed'", [crawl.scan_id, JSON.stringify({sourceHash: key, score: result})]);
     return result;

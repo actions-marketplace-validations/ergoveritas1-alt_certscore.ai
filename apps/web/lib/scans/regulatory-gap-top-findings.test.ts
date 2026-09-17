@@ -396,7 +396,7 @@ test("buildRegulatoryGapTopFindings groups duplicate iframe and embedded-service
   });
 
   assert.equal(findings.length, 1);
-  assert.equal(findings[0]?.label, "Third-party embedded services before consent");
+  assert.equal(findings[0]?.label, "Third-party embeds before consent");
   assert.doesNotMatch(findings[0]?.label ?? "", /tracking/i);
 });
 

@@ -1,3 +1,4 @@
+import type { SiteIntegrityReportFinding } from "../../../lib/scans/site-integrity-report";
 import type { ChoicePathExecution } from "@certscore/contracts";
 import type { ExternalScanNoGoProjection } from "@website-signal-risk-scanner/shared";
 import type { GpcResponseAssessment } from "@certscore/contracts";
@@ -71,6 +72,7 @@ export function isShadowReportVariant(value: string): value is ShadowReportVaria
 }
 
 export type ShadowFinding = {
+  priority?: "high";
   correctionSteps: string[];
   evidenceJson: Record<string, unknown>;
   id: string;
@@ -140,6 +142,9 @@ export type GpcResponseReportProjection = {
 };
 
 export type ShadowReportData = {
+  executiveRuntimeCards?: import("../../../lib/scans/executive-runtime-cards").ExecutiveRuntimeCard[];
+  siteIntegrity?: SiteIntegrityReportFinding | null;
+  siteIntegritySummary?: import("../../../lib/scans/site-integrity-report").SiteIntegritySiteReport;
   resultDisposition?: never;
   siteMetadata?: import("@certscore/contracts").SiteMetadataProjection | null;
   fullSite?: import("@website-signal-risk-scanner/shared").CrawlOptions;
@@ -174,6 +179,7 @@ export type ShadowReportData = {
   };
   controls: { accept: string; options: string; reject: string };
   consentInspectionNotice?: string | null;
+  consentControlBehavior?: string | null;
   consentVendor: string | null;
   gpcResponse?: GpcResponseReportProjection | null;
   gpcLaneStatus?: "completed" | "not_requested" | "unavailable";

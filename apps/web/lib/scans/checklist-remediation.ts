@@ -53,6 +53,11 @@ export function checklistRemediation(input: { rowId: string; status: string }): 
   const confirmedGap = input.status === "Gap observed";
   const runtimeSteps = runtimeChecks[input.rowId];
   if (runtimeSteps) return { kind: "steps", steps: runtimeSteps };
+  if (input.rowId === "reject_all_path_availability" && confirmedGap) return { kind: "steps", steps: [
+    "Provide a clear first-layer refusal or necessary-only choice alongside the observed acknowledgment or acceptance control.",
+    "Connect the visitor's choice to the relevant optional integrations. Adding a Reject button alone does not establish that refusal works.",
+    "Retest fresh sessions before a choice, after Reject, and after Accept. Verify that consent-dependent requests and storage respect the choice, and retain both control and runtime evidence.",
+  ] };
   if (consentChecks[input.rowId]) {
     return { kind: "steps", steps: [
       `Inspect ${subject} in a fresh browser session using the scan's location and page.`,
