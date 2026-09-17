@@ -1297,13 +1297,32 @@ test("discarded Privacy Shield evidence projects neutral transfer uncertainty wi
   assert.notEqual(outcomes.processing_purposes_disclosure?.status, "Observed");
   assert.equal(outcomes.international_transfers_disclosure?.status, "Not confirmed");
   assert.match(
-    outcomes.international_transfers_disclosure?.limitation ?? "",
+    outcomes.outdated_transfer_framework_reference?.limitation ?? "",
     /obsolete EU-US Privacy Shield reference/i
   );
   assert.match(
-    outcomes.international_transfers_disclosure?.evidenceRefs.join(" ") ?? "",
+    outcomes.outdated_transfer_framework_reference?.evidenceRefs.join(" ") ?? "",
     /Privacy Shield/i
   );
+  const disclosedSummary = {
+    ...summary,
+    gdprTransparencyEvidenceProfile: "gdpr_transparency_multilingual_article13_v1",
+    gdprTransparencyProductionEvidenceEnabled: true,
+    article13DisclosureSignals: [makeGdprTransparencyArticle13Signal({
+      disclosureType: "international_transfers",
+      evidenceText: "Wir übermitteln personenbezogene Daten in die USA. Unser Anbieter verweist auf den EU-US Privacy Shield.",
+    })],
+  };
+  const disclosedArtifacts = {policyDisclosureSummary: disclosedSummary};
+  const disclosedOutcomes = deriveGdprEprivacyCoveragePolicyOutcomes({
+    ...completedInputBase,
+    normalizedConcerns: buildNormalizedConcerns({reviewFindingCandidates: [], runtimeArtifacts: disclosedArtifacts, validationFindings: []}),
+    runtimeArtifacts: disclosedArtifacts,
+    snapshot: {privacy_policy_present: true},
+  });
+  assert.equal(disclosedOutcomes.international_transfers_disclosure?.status, "Observed");
+  assert.equal(disclosedOutcomes.outdated_transfer_framework_reference?.status, "Review signal");
+
 });
 
 test("deriveGdprEprivacyCoveragePolicyOutcomes does not treat deletion rights as retention disclosure", () => {
@@ -7292,4 +7311,13 @@ test("embed source counts keep admitted query-free sources and deduplicate repea
   const frame = {firstSeenMs:928, frameUrl:"https://www.youtube.com/embed/abc123?visitor=secret#fragment", hostname:"www.youtube.com",preConsent:true,thirdParty:true};
   const result=deriveGdprEprivacyCoveragePolicyOutcomes({...completedInputBase,runtimeArtifacts:{hybridRuntimeEvidence:{iframeSummary:{iframeEvents:[frame,frame],preConsentIframeCount:2}}}});
   assert.deepEqual(result.third_party_iframe_pre_consent?.criticalEvidence.retainedEvidence.embeddedFrameSources,["https://www.youtube.com/embed/abc123"]);
+});
+
+test("zero assessed forms cannot establish positive form transport", () => {
+  const outcomes = deriveGdprEprivacyCoveragePolicyOutcomes({
+    ...completedInputBase,
+    runtimeArtifacts: {transportSecuritySummary: {evidenceRetained: true, evidenceRefs: ["transport:0"], formTransportCount: 0, insecureFormTransportObserved: false}}
+  });
+  assert.equal(outcomes.transport_security_form_transport?.status, "Not testable");
+  assert.match(outcomes.transport_security_form_transport?.limitation ?? "", /No forms were observed on the assessed page/);
 });

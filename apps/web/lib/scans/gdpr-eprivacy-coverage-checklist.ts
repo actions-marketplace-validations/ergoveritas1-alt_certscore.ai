@@ -497,6 +497,15 @@ const CHECKLIST_ROWS: ChecklistRowDefinition[] = [
     requiresPublicWebCoverage: true
   },
   {
+    id: "outdated_transfer_framework_reference",
+    label: "Outdated transfer framework referenced",
+    explanation: "Whether a retained transfer-framework reference was invalidated, superseded or not yet effective at the scan date. Separate from transfer disclosure presence.",
+    findingIds: [],
+    defaultFindingStatus: "Review signal",
+    notObservedText: "No outdated transfer-framework reference was retained.",
+    requiresPublicWebCoverage: true
+  },
+  {
     id: "dpo_contact_point_disclosure",
     label: "DPO contact point (where applicable)",
     explanation: "Whether retained privacy-policy evidence identified a designated data protection officer or equivalent statutory DPO contact. A generic privacy mailbox is credited under controller/contact disclosure and does not by itself establish a DPO designation.",
@@ -3471,7 +3480,7 @@ export function deriveGdprEprivacyCoverageChecklist(
   const publicCoverageIsTestable = input.scanCompleted && !input.coverageLimited;
   const visualNoGoObserved = scanQualityVisualNoGoObserved(input);
 
-  const rows = CHECKLIST_ROWS.map((definition) => {
+  const rows = CHECKLIST_ROWS.filter((definition) => definition.id !== "outdated_transfer_framework_reference" || Boolean(input.coverageOutcomes?.[definition.id])).map((definition) => {
     const directCoverageOutcome = input.coverageOutcomes?.[definition.id];
     const canonicalPreconsentStorageOutcome =
       definition.id === "pre_consent_cookies_storage" &&

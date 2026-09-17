@@ -2723,3 +2723,11 @@ test("canonical evidence excerpts retain complete bounded sentence edges", () =>
   assert.match(match.evidenceExcerpt, /acts as the data controller\./);
   assert.match(match.evidenceExcerpt, /privacy@example\.test/);
 });
+
+test("German server-data disclosure establishes a hosting recipient category", () => {
+  const result = classifyGdprTransparencyTopics({text: "Aus technischen Gründen, insbesondere zur Gewährleistung eines sicheren und stabilen Internetauftritts, werden Daten durch Ihren Internet-Browser an uns bzw. an unseren Webspace-Provider übermittelt. Mit diesen Server-Logfiles werden die IP-Adresse und Zugriffszeit erhoben.", localeHints: ["de"]});
+  const match = result.matches.find(match => match.topic === "recipients_or_vendor_categories");
+  assert.ok(match);
+  assert.equal(article13DisclosureRejectReason(match.evidenceExcerpt, match.topic, {mode: "multilingual_classifier"}), null);
+  assert.match(match.evidenceExcerpt, /werden Daten/);
+});

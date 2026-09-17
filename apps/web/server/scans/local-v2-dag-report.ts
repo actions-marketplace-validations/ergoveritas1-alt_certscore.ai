@@ -3345,7 +3345,12 @@ export function summarizePolicySurfaces(
     policyEvidenceProvenanceContractVersion: "certscore.policy-evidence-provenance.v1",
     policyPrimaryLanguage,
     scannedPageLanguage: options.primaryLanguage ?? null,
-    cookiePolicyPresent: cookieSurfaces.length > 0,
+    // Keep the legacy key scoped to a dedicated document; disclosure in a
+    // privacy notice is an independent presence fact.
+    cookiePolicyPresent: cookieSurfaces.some(row => row.surface.surfaceType === "cookie_policy"),
+    dedicatedCookiePolicyPresent: cookieSurfaces.some(row => row.surface.surfaceType === "cookie_policy"),
+    cookieDisclosurePresent: cookieSurfaces.length > 0 || article13Surfaces.some(row =>
+      row.surface.observedTopics?.includes("cookies") || (row.surface.policyCookieDisclosures?.length ?? 0) > 0),
     cookiePolicyUrls: uniqueStrings(cookieSurfaces.map((row) => row.pageUrl ?? row.surface.normalizedUrl ?? row.surface.url)),
     cookieDisclosures: policyCookieDisclosures,
     cookie_disclosures: policyCookieDisclosures,
@@ -6089,7 +6094,10 @@ function buildMaterializedLocalV2Detail(
     consent_surface_inspection: consentSurfaceInspection,
     cookieNoticeObserved: consentRuntimeEvidenceReportable ? assessedConsentSurfaceObserved : null,
     cookie_notice_observed: consentRuntimeEvidenceReportable ? assessedConsentSurfaceObserved : null,
-    ...(cookieSurface ? { cookiePolicyPresent: true, cookie_policy_present: true } : {}),
+    cookiePolicyPresent: policySurfaceSummary.cookiePolicyPresent,
+    cookie_policy_present: policySurfaceSummary.cookiePolicyPresent,
+    dedicatedCookiePolicyPresent: policySurfaceSummary.dedicatedCookiePolicyPresent,
+    cookieDisclosurePresent: policySurfaceSummary.cookieDisclosurePresent,
     ...(consentRuntimeEvidenceReportable && cmpVendorName ? {
       consentPlatform: cmpVendorName,
       consent_platform: cmpVendorName,

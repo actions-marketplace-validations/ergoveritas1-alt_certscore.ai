@@ -324,3 +324,11 @@ test("rejects localized soft-404 policy documents before ownership and topic ext
     assert.equal(assessment.reasonCode, "soft_404", input.title);
   }
 });
+
+test("localized policy headings are not owner entities", () => {
+  for (const title of ["Datenschutz", "Datenschutzerklärung", "Privacy Policy"]) {
+    const result = classifyPolicyDocumentOwnership({documentTitle: title, documentUrl: "https://clinic.example/privacy", targetUrl: "https://clinic.example", text: "Privacy policy"});
+    assert.equal(result.documentOwnerEntity, "clinic.example");
+  }
+  assert.equal(classifyPolicyDocumentOwnership({documentTitle: "Datenschutz – Pferdeklinik-Roentorf.de", documentUrl: "https://clinic.example/privacy", targetUrl: "https://clinic.example", text: "Privacy policy"}).documentOwnerEntity, "Pferdeklinik Roentorf de");
+});

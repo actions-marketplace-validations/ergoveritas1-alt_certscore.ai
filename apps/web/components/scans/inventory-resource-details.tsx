@@ -1,5 +1,6 @@
 "use client";
 
+import { resourcePurposeLabels } from "../../lib/scans/service-integration-group";
 import React, { Children, cloneElement, createContext, useContext, useEffect, useId, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { apiRuntimeEvidenceGraphProjectionSchema, type ApiRuntimeEvidenceGraphProjection, type ApiRuntimeEvidenceGraph } from "@certscore/api-contracts";
 import { RetainedEvidenceFields } from "./retained-evidence-fields";
@@ -128,7 +129,7 @@ function MainRelationshipRow({ graph, edge, path, depth, evidencePage }: { evide
     <td className={cell}><ResourceKindIcon kind={node.kind}/></td>
     <td className={cell}><div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: indent }}><span className="inline-flex w-16 shrink-0 items-center border-l border-sky-200" ><span aria-hidden="true" className="text-sky-400">↳</span>{children.length > 0 && !cyclic ? <RelationshipButton count={children.length} open={expanded} onClick={() => setExpanded(!expanded)} /> : null}</span><span className="flex min-w-0 items-center gap-2"><VendorBrandIcon label={node.classification?.vendor ?? "Unknown"}/><span className="truncate">{node.classification?.vendor ?? "Unknown"}</span></span></div></td>
     <td className={cell}><div className="flex min-w-0 items-center gap-2" style={{ paddingLeft: indent }}><div className="min-w-0"><InventoryNameDisclosure compact fullName={resourceDisplayName(node)}/></div><span className={`shrink-0 text-[10px] ${edge.directness === "direct" ? "text-slate-500" : "text-amber-700"}`} title={`${RELATIONS[edge.relation]} · ${edge.directness}`}>{edge.directness}</span>{cyclic ? <span title="This resource already appears in this chain" className="text-[10px]">Cycle</span> : null}</div></td>
-    <td className={cell}><InventoryPurposeChip purpose={node.classification?.purpose ?? "Not retained"} /></td>
+    <td className={cell}><InventoryPurposeChip purpose={resourcePurposeLabels(node.classification, node.kind, [node.classification?.purpose ?? "Not retained"])[0]!} /></td>
     {evidencePage ? <td className={cell}><span title="Policy disclosure lookup is not available for this linked evidence occurrence.">Unknown</span></td> : null}
     {evidencePage ? <td className={cell}><span title="Transfer context is not available for this linked evidence occurrence.">Unknown / not verified</span></td> : null}
     <td className={`${cell} whitespace-nowrap tabular-nums`}>{observationTime(node.observedAtMs)}</td>

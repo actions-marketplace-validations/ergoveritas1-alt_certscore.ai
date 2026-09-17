@@ -2413,7 +2413,7 @@ test("ambiguous GDPR Transparency Article 13 evidence receives no checklist cred
   assert.equal(concern.regulatoryChecklistEligibility, "none");
 });
 
-test("GDPR Transparency concerns keep stale transfer frameworks as review-only evidence", () => {
+test("GDPR Transparency concerns separate transfer disclosure from stale framework validity", () => {
   const concerns = buildNormalizedConcerns({
     reviewFindingCandidates: [],
     runtimeArtifacts: {
@@ -2434,7 +2434,7 @@ test("GDPR Transparency concerns keep stale transfer frameworks as review-only e
   );
 
   assert.ok(concern);
-  assert.equal(concern.regulatoryChecklistEligibility, "review_signal");
+  assert.equal(concern.regulatoryChecklistEligibility, "observed");
   assert.equal(
     concern.evidenceBundle.rawEvidence?.staleLegalFrameworkReferenceObserved,
     true,

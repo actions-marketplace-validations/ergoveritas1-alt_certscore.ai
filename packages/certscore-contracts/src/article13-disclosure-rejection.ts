@@ -669,7 +669,7 @@ function hasLocalizedArticle13EvidenceContext(
     case "legal_basis":
       return /(?:legal basis|lawful basis|legitimate interest|article 6|rechtsgrundlage|base légale|base jurídica|base legal|base giuridica|basi giuridiche|grondslag|podstawa prawna|bases legais|legítimo interesse)/i.test(normalized);
     case "recipients_or_vendor_categories":
-      return /(?:recipients?|categories of recipients|service providers?|processors?|third parties|empfänger|dienstleister|destinataires|prestataires|destinatarios|proveedores|destinatari|fornitori|ontvangers|dienstverleners|odbiorcy|dostawcy|destinatários|prestadores de serviços|terceiros)/i.test(normalized);
+      return /(?:recipients?|categories of recipients|service providers?|processors?|third parties|empfänger|webspace-provider|hosting-provider|dienstleister|destinataires|prestataires|destinatarios|proveedores|destinatari|fornitori|ontvangers|dienstverleners|odbiorcy|dostawcy|destinatários|prestadores de serviços|terceiros)/i.test(normalized);
     case "data_retention":
       return /(?:retention|retain|kept|storage period|how long|aufbewahrung|speichern|gespeichert|conservation|conservons|conserv(?:é|e|és|ées)|durée nécessaire|conservación|conservamos|conservazione|conserviamo|bewaren|bewaartermijn|przechowywania|przechowujemy|retenção|prazo de conservação|tempo necessário)/i.test(normalized);
     case "data_subject_rights":

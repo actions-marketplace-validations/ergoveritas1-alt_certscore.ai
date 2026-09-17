@@ -45,3 +45,13 @@ test('single-page resources and services share verified policy lookup semantics'
    assert.equal('text' in (inventory.resources[0]!.context.policy.reviewed[0] ?? {}),false);
  }
 });
+
+test('ordinary first-party CSS and images remain resources, not identified privacy services', async () => {
+ const { buildSinglePageResourceInventory } = await import('./single-page-resource-inventory');
+ const requests=['https://example.com/styles/main.css','https://example.com/images/logo.png'].map((url,i)=>({...row(url),id:String(i),identity:String(i),eventCount:1,firstSeenMs:10,purpose:'infrastructure',relationship:'first_party',confidence:'1',assessment:'Not assessed',evidenceRefs:[],details:{},resourceType:i?'image':'stylesheet',serviceId:null,vendor:null}) as CrawlOccurrence);
+ const inventory=buildSinglePageResourceInventory('scan',[],requests);
+ assert.equal(inventory.resources.length,2);
+ assert.equal(inventory.requestMetric?.overview?.identifiedServices,0);
+ assert.ok(inventory.resources.every(resource=>resource.context.identity===null));
+ assert.deepEqual(inventory.services[0]!.purposes,['Unknown']);
+});

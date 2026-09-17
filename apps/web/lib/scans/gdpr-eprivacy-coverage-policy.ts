@@ -1953,12 +1953,15 @@ function deriveTransportSecurityOutcomes(input: GdprEprivacyCoveragePolicyInput)
     transportOutcomeFromBoolean({
       falseStatus: "Observed",
       falseText: "No insecure observed form transport was retained for the scanned page.",
-      nullText: "Observed form transport evidence was not retained.",
+      nullText: getNumber(summary, ["formTransportCount", "form_transport_count"]) === 0
+        ? "No forms were observed on the assessed page; form transport was not assessed. Forms found on other pages are outside this check."
+        : "Observed form transport evidence was not retained.",
       retainedEvidence,
       rowId: "transport_security_form_transport",
       trueStatus: "Gap observed",
       trueText: "An observed form resolved to insecure HTTP transport or was on an HTTP page.",
-      value: getBoolean(summary, ["insecureFormTransportObserved", "insecure_form_transport_observed"]),
+      value: getNumber(summary, ["formTransportCount", "form_transport_count"]) === 0
+        ? null : getBoolean(summary, ["insecureFormTransportObserved", "insecure_form_transport_observed"]),
     }),
   ];
 }
@@ -7179,14 +7182,8 @@ function getGdprTransparencyStaleLegalFrameworkConcern(
   }) ?? null;
 }
 
-function buildGdprTransparencyArticle13ConcernOutcome(
-  input: GdprEprivacyCoveragePolicyInput,
-  config: PolicyDisclosureRowConfig
-) {
-  const staleFrameworkConcern =
-    config.rowId === "international_transfers_disclosure"
-      ? getGdprTransparencyStaleLegalFrameworkConcern(input)
-      : null;
+function deriveStaleTransferFrameworkOutcome(input: GdprEprivacyCoveragePolicyInput) {
+  const staleFrameworkConcern = getGdprTransparencyStaleLegalFrameworkConcern(input);
   if (staleFrameworkConcern) {
     const rawEvidence = staleFrameworkConcern.evidenceBundle.rawEvidence ?? {};
     const matches = getObjectArray(rawEvidence, [
@@ -7201,7 +7198,7 @@ function buildGdprTransparencyArticle13ConcernOutcome(
         .find(Boolean) ??
       staleFrameworkConcern.description;
     return makeOutcome(
-      config.rowId,
+      "outdated_transfer_framework_reference",
       "Review signal",
       reviewMessage,
       [
@@ -7224,6 +7221,13 @@ function buildGdprTransparencyArticle13ConcernOutcome(
     );
   }
 
+  return null;
+}
+
+function buildGdprTransparencyArticle13ConcernOutcome(
+  input: GdprEprivacyCoveragePolicyInput,
+  config: PolicyDisclosureRowConfig
+) {
   const concern = getGdprTransparencyArticle13ChecklistConcern(input, config.rowId);
   if (!concern || concern.regulatoryChecklistEligibility === "none") {
     return null;
@@ -7264,11 +7268,6 @@ function buildGdprTransparencyArticle13ConcernOutcome(
     "legalFrameworkValidityMatches",
     "legal_framework_validity_matches"
   ]);
-  const staleLegalFrameworkReferenceObserved =
-    getBoolean(rawEvidence, [
-      "staleLegalFrameworkReferenceObserved",
-      "stale_legal_framework_reference_observed"
-    ]) === true;
   const automatedDecisionTopicObserved =
     topic === "automated_decision_making_or_profiling";
   const retainedEvidence = {
@@ -7327,29 +7326,6 @@ function buildGdprTransparencyArticle13ConcernOutcome(
         ? "not_observed_with_sufficient_coverage"
         : "partial"
   };
-
-  if (
-    config.rowId === "international_transfers_disclosure" &&
-    staleLegalFrameworkReferenceObserved
-  ) {
-    const reviewMessage =
-      legalFrameworkValidityMatches
-        .map((match) => getString(match, ["reviewMessage", "review_message"]))
-        .find(Boolean) ??
-      "An obsolete or no-longer-current transfer-framework reference was observed. The current transfer basis was not established by this scan; review the policy wording and safeguards actually in use.";
-    return makeOutcome(
-      config.rowId,
-      "Review signal",
-      reviewMessage,
-      evidenceRefs,
-      {
-        retainedEvidence: {
-          ...retainedEvidence,
-          signalObserved: "stale_legal_framework_reference"
-        }
-      }
-    );
-  }
 
   if (concern.regulatoryChecklistEligibility === "observed") {
     return makeOutcome(
@@ -8839,41 +8815,6 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
             getPolicyReviewScanDate(input, summary),
           )
         : [];
-    if (
-      config.rowId === "international_transfers_disclosure" &&
-      hasStaleLegalFrameworkReference(legalFrameworkValidityMatches)
-    ) {
-      const reviewMessage =
-        legalFrameworkValidityMatches
-          .map((match) => match.reviewMessage)
-          .find((value): value is string => Boolean(value)) ??
-        "An obsolete or no-longer-current transfer-framework reference was observed. The current transfer basis was not established by this scan; review the policy wording and safeguards actually in use.";
-      return makeOutcome(
-        config.rowId,
-        "Review signal",
-        reviewMessage,
-        [
-          "Evidence: international data movement or transfer safeguard disclosure",
-          displayTextMatchEvidence ? `Excerpt: ${displayTextMatchEvidence}` : null,
-          ...getStringArray(summary, ["privacyPolicyUrls", "privacy_policy_urls"])
-            .map((url) => `Policy URL: ${url}`)
-            .slice(0, 2)
-        ].filter((value): value is string => Boolean(value)),
-        {
-          retainedEvidence: {
-            article13Signal: retainedArticle13Signal,
-            legalFrameworkValidityMatches,
-            policySurfaceSummary: summary,
-            rowSpecificSectionEvidence: rowSpecificSectionEvidence?.sectionEvidence ?? undefined,
-            selectedEvidenceStrength: rowSpecificSectionEvidence?.selectedEvidenceStrength ?? undefined,
-            selectedPolicySectionHeading: rowSpecificSectionEvidence?.selectedPolicySectionHeading ?? undefined,
-            signalObserved: "stale_legal_framework_reference",
-            staleLegalFrameworkReferenceObserved: true,
-            supportSource: rowSpecificSectionEvidence?.evidenceType ?? undefined
-          }
-        }
-      );
-    }
     return makeOutcome(
       config.rowId,
       "Observed",
@@ -9619,6 +9560,7 @@ function derivePolicyDisclosureOutcomes(input: GdprEprivacyCoveragePolicyInput) 
       .map(canonicalizeGdprTransparencyDisclosureUncertainty)
       .map((outcome) => attachPolicyEvidenceProjection(input, outcome)),
     derivePolicyTextExtractionOutcome(input),
+    deriveStaleTransferFrameworkOutcome(input),
   ].filter((outcome): outcome is GdprEprivacyCoverageOutcome => Boolean(outcome));
 }
 

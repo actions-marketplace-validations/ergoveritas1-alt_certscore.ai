@@ -2689,9 +2689,7 @@ function buildGdprTransparencyArticle13Concerns(
           ? "ambiguous"
           : (!processingPurposesEvidenceSubstantive || !dpoDesignationConfirmed || !controllerContactConfirmed) && extractedState === "sufficient"
           ? "ambiguous"
-          : staleLegalFrameworkReferenceObserved && topic === "international_transfers"
-            ? "partial"
-            : extractedState;
+          : extractedState;
       const evidence = uniqueStrings([evidenceText, sourceUrl]);
 
       return buildConcernFromSharedInput({

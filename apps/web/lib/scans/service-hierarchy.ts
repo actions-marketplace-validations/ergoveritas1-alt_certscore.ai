@@ -1,4 +1,5 @@
 import type { FullSiteReportResponse } from "../../server/scans/full-site-report";
+import { serviceIntegrationPurposes } from "./service-integration-group";
 type Service = FullSiteReportResponse["services"][number];
 export type ServiceBranch = { service: Service; collection?: boolean; directSite?: boolean; children: ServiceBranch[]; inferred: boolean; residual: boolean; ownResources: Service["resources"] };
 
@@ -37,7 +38,7 @@ export function buildServiceHierarchy(services: Service[]): ServiceBranch[] {
     const primaryParent = assigned.get(service.key)?.has("site:document") ? "site:document" : assigned.get(service.key)?.has("") ? "" : [...(assigned.get(service.key)?.keys() ?? [])][0];
     const children = parent === primaryParent ? services.filter(child => !next.has(child.key) && assigned.get(child.key)?.has(service.key)).map(child => make(child, service.key, next)) : [];
     const resources = [...new Map([...ownResources, ...children.flatMap(child => child.service.resources)].map(row => [row.key, row])).values()];
-    return { directSite: parent === "site:document", service: {...service, resources, pageIds: [...new Set(resources.flatMap(row => row.pageIds))]}, ownResources, children,
+    return { directSite: parent === "site:document", service: {...service, purposes: serviceIntegrationPurposes(ownResources), resources, pageIds: [...new Set(resources.flatMap(row => row.pageIds))]}, ownResources, children,
       inferred: Boolean(parent) && (service.origins ?? []).some(link => link.key === parent && ownResources.some(row => row.key === link.resourceKey) && link.inferred),
       residual: !parent && Boolean(service.origins?.length), };
   };
@@ -49,7 +50,7 @@ export function buildServiceHierarchy(services: Service[]): ServiceBranch[] {
     // Verified branches beneath other services are intentionally left nested.
     const resources = [...new Map(branches.flatMap(branch => branch.service.resources).map(row => [row.key, row])).values()];
     return [{
-      service: { ...service, resources, pageIds: [...new Set(resources.flatMap(row => row.pageIds))] },
+      service: { ...service, purposes: serviceIntegrationPurposes(branches.flatMap(branch => branch.ownResources)), resources, pageIds: [...new Set(resources.flatMap(row => row.pageIds))] },
       ownResources: branches.flatMap(branch => branch.ownResources),
       children: branches.flatMap(branch => branch.children),
       directSite: false,

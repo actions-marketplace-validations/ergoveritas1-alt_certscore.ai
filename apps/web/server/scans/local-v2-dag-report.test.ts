@@ -9252,3 +9252,15 @@ test("canonical request attribution does not spread cookie vendors to the host's
     assert.equal(detail.snapshot?.preconsent_tracking_detected, true);
   } finally { process.env.NEXT_PUBLIC_APP_URL = previousAppUrl; await rm(outDir, { recursive: true, force: true }); }
 });
+
+test("cookie disclosure inside privacy policy is distinct from a dedicated cookie policy", async () => {
+  const { dedupePolicySurfaces, summarizePolicySurfaces } = await loadLocalV2DagReport();
+  const surfaces = dedupePolicySurfaces([{
+    observationId: "privacy-cookies", surfaceType: "privacy_policy", url: "https://example.test/privacy", normalizedUrl: "https://example.test/privacy", confidence: 0.96, status: "fetched",
+    observedTopics: ["cookies"], textExcerpt: "Cookies. We use cookies to remember preferences on your device.",
+  }] as never, "https://example.test/");
+  const summary = summarizePolicySurfaces(surfaces, "example.test");
+  assert.equal(summary.cookiePolicyPresent, false);
+  assert.equal(summary.dedicatedCookiePolicyPresent, false);
+  assert.equal(summary.cookieDisclosurePresent, true);
+});

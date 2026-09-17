@@ -17,7 +17,6 @@ import { InventoryPurposeList } from "./inventory-cell-formatting";
 
 import { buildServiceHierarchy, type ServiceBranch } from "../../lib/scans/service-hierarchy";
 
-import { inventoryPurposeGroups } from "../../lib/scans/inventory-purpose-presentation";
 
 type Service = FullSiteReportResponse["services"][number];
 type SortKey = "name" | "priority" | "time" | "purpose" | "policy" | "transfer" | "resources" | "pages";
@@ -80,6 +79,7 @@ export function FullSiteServices({ collapseVersion = 0, services, pageName, page
           const branchKey = JSON.stringify([...path, service.key, branch.directSite ? "site" : "service"]);
           const open = expanded.has(branchKey);
           const summary = summarizeService(service.resources);
+          const identitySummary = summarizeService(branch.ownResources);
           const toggle = () => setExpanded(current => { const next = new Set(current); if (next.has(branchKey)) next.delete(branchKey); else next.add(branchKey); return next; });
           return <Fragment key={branchKey}>
             <tr className={`h-11 border-b border-zinc-100 ${open ? "bg-sky-50/60" : "hover:bg-zinc-50"}`}>
@@ -87,7 +87,7 @@ export function FullSiteServices({ collapseVersion = 0, services, pageName, page
               <td className="px-3 text-center" title="Service"><InventoryTypeIcon kind="service"/></td>
               <th scope="row" className="px-3 font-normal"><div style={{ paddingLeft: path.length * 24 }} className="flex items-center gap-2">{path.length ? <span aria-hidden="true" className="text-slate-400">↳</span> : null}<ExpandRowsButton label={`${open ? "Collapse" : "Expand"} ${service.name}`} open={open} onClick={toggle} /><span className="inline-flex max-w-64 items-center gap-2 rounded-full border border-zinc-200 bg-white px-2 py-1 text-slate-800">{!branch.collection ? <VendorBrandIcon label={service.context.identity?.vendor ?? service.name} /> : null}<span className="min-w-0"><span title={service.name} className="block truncate">{service.name}</span>{branch.directSite || unattributed || path.length || branch.residual ? <span className="block truncate text-[10px] text-slate-500">{branch.directSite ? "Loaded directly by site" : unattributed || branch.residual ? "Origin not fully attributed" : branch.inferred ? "Loaded through parent · inferred" : "Loaded through parent"}</span> : null}</span></span></div></th>
               <td className="px-3 text-center">{summary.priority ? <InventoryEvidenceIcon evidence={summary.priority} description={`Highest branch priority · ${summary.priorityCount} ${summary.priority.toLowerCase()} ${summary.priorityCount === 1 ? "resource" : "resources"}`}/> : <span title="Unavailable">—</span>}</td>
-              <td className="px-3"><InventoryPurposeList purposes={[...new Set(service.resources.flatMap(resource => inventoryPurposeGroups(resource.purposes, resource.relationships)))]}/></td>
+              <td className="px-3"><InventoryPurposeList purposes={service.purposes}/></td>
               <td className="px-3">{branch.collection ? <span title="See individual services">—</span> : <PolicyDisclosure context={service.context} label={service.name} />}</td>
               <td className="px-3">{branch.collection ? <span title="See individual services for headquarters and destinations">—</span> : <DataTransferDisclosure location requestUrls={service.resources.filter(resource => resource.kind === "request").map(resource => resource.name)} context={service.context} serviceSummary label={service.name}
                 destinations={service.resources.flatMap(resource => resource.destinations ?? [])}
@@ -95,7 +95,7 @@ export function FullSiteServices({ collapseVersion = 0, services, pageName, page
                   total: service.resources.filter(row => row.kind === "request").reduce((total, row) => total + row.eventCount, 0),
                   missing: service.resources.reduce((total, row) => total + (row.destinationMissingCount ?? 0), 0),
                   truncated: service.resources.some(row => row.destinationsTruncated) }} />}</td>
-              <td className="whitespace-nowrap px-3 tabular-nums" title={summary.firstSeen === undefined ? "Unavailable" : "Earliest recorded time relative to a page’s scan start"}>{summary.firstSeen === undefined ? "—" : observationTime(summary.firstSeen)}</td><td className="px-3"><ServiceDomains domains={summary.domains}/></td><td className="whitespace-nowrap px-3" title={summary.relationship ? summary.relationshipHint : "Unavailable"}>{summary.relationship ?? "—"}</td>
+              <td className="whitespace-nowrap px-3 tabular-nums" title={identitySummary.firstSeen === undefined ? "Unavailable" : "Earliest recorded time relative to a page’s scan start"}>{identitySummary.firstSeen === undefined ? "—" : observationTime(identitySummary.firstSeen)}</td><td className="px-3"><ServiceDomains domains={identitySummary.domains}/></td><td className="whitespace-nowrap px-3" title={summary.relationship ? summary.relationshipHint : "Unavailable"}>{summary.relationship ?? "—"}</td>
               <td className="px-3"><PageCountDisclosure numberOnly pages={service.pageIds.map(pageName)} /></td>
               <td/>
             </tr>

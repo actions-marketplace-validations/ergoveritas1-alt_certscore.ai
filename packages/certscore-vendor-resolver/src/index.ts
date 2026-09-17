@@ -151,6 +151,7 @@ export function findCanonicalVendorMention(text: string, identity: Pick<Normaliz
   if (!matchingRules.length || text.length > 1_000_000) return undefined;
   const candidates = [
     ...[identity.product, ...matchingRules.flatMap(rule => rule.aliases ?? [])].map(term => ({ term, scope: "product" as const })),
+    ...matchingRules.flatMap(rule => rule.disclosureAliases ?? []).map(term => ({ term, scope: "vendor" as const })),
     { term: identity.vendor, scope: "vendor" as const }, { term: identity.entity, scope: "entity" as const },
   ];
   for (const { term, scope } of candidates) {
@@ -179,6 +180,8 @@ interface VendorRule {
   regulatoryRelevance: string[];
   confidence: number;
   aliases?: string[];
+  /** Disclosure names only; never used for endpoint or product attribution. */
+  disclosureAliases?: string[];
   hostPatterns?: RegExp[];
   urlPatterns?: RegExp[];
   cookiePatterns?: RegExp[];
@@ -4618,6 +4621,7 @@ const rules: VendorRule[] = [
     entity: "Meta Platforms, Inc.",
     vendor: "Meta",
     product: "Facebook Static Assets",
+    disclosureAliases: ["Facebook"],
     purpose: "infrastructure",
     servicePurpose: "CDN",
     regulatoryRelevance: ["cdn", "hosted_assets", "social_media"],

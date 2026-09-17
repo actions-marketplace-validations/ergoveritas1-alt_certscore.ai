@@ -234,6 +234,12 @@ const GDPR_TRANSPARENCY_SEMANTIC_RULES: readonly GdprTransparencySemanticRule[] 
   },
   {
     locale: "de",
+    matchedTerm: "datenübermittlung an hosting-dienstleister",
+    pattern: /\b(?:personenbezogene daten|daten|informationen|ip-adresse)\b.{0,120}\b(?:an|gegenuber)\b.{0,60}\b(?:webspace-provider|hosting-provider|hosting-dienstleister|auftragsverarbeiter)\b.{0,80}\b(?:ubermittelt|weitergegeben|offengelegt)\b/i,
+    topic: "recipients_or_vendor_categories",
+  },
+  {
+    locale: "de",
     matchedTerm: "benannter empfänger personenbezogener daten",
     pattern: /\b(?:soziales? netzwerk|plattform|anbieter|dienstleister|auftragsverarbeiter)\b.{0,260}\b(?:erhalt|empfangt|verarbeitet|zugriff|ubermittelt|weitergegeben)\b.{0,180}\b(?:ip-adresse|personenbezogene daten|ihre daten|informationen|daten)\b|\b(?:ip-adresse|personenbezogene daten|ihre daten|informationen|daten)\b.{0,180}\b(?:erhalt|empfangt|verarbeitet|zugriff|ubermittelt|weitergegeben)\b.{0,260}\b(?:soziales? netzwerk|plattform|anbieter|dienstleister|auftragsverarbeiter)\b/i,
     topic: "recipients_or_vendor_categories",
@@ -829,7 +835,6 @@ export const GDPR_TRANSPARENCY_TOPIC_PHRASE_REGISTRY: GdprTransparencyTopicPhras
     equivalent("recipients_or_vendor_categories", "welche empfänger von daten es geben kann"),
     equivalent("recipients_or_vendor_categories", "kategorien von empfängern personenbezogener daten"),
     equivalent("recipients_or_vendor_categories", "dienstleister die personenbezogene daten verarbeiten"),
-    equivalent("recipients_or_vendor_categories", "an unseren webspace-provider übermittelt", "requires_privacy_context"),
     equivalent("recipients_or_vendor_categories", "an unseren webspace provider übermittelt", "requires_privacy_context"),
     direct("data_retention", "speicherdauer personenbezogener daten"),
     equivalent("data_retention", "dauer der speicherung", "requires_privacy_context"),

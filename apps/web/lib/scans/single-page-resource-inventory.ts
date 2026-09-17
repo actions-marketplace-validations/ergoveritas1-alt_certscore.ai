@@ -6,7 +6,7 @@ import type { FullSiteReportResponse } from "../../server/scans/full-site-report
 import { classifyInventoryEvidence, getInventoryObservationNames, type InventoryGroupRow } from "./runtime-inventory-projection";
 import { classifyCrawlInventoryResource } from "./full-site-inventory-classification";
 import { describeCrawlService, identifyCrawlService, type ReviewedPolicy } from "./full-site-resource-context";
-import { serviceIntegrationGroup } from "./service-integration-group";
+import { serviceIntegrationGroup, serviceIntegrationPurposes } from "./service-integration-group";
 import { inventoryPurposeGroups } from "./inventory-purpose-presentation";
 
 type Resource = FullSiteReportResponse["services"][number]["resources"][number];
@@ -47,8 +47,9 @@ export function buildSinglePageResourceInventory(pageId: string, rows: Inventory
   for (const resource of all) {
     const { key, name } = serviceIntegrationGroup(resource.context.identity);
     const group = services.get(key) ?? { key, name, context: resource.context, pageIds: [pageId], purposes: [], resources: [], origins: [] };
-    group.resources.push(resource); group.purposes = [...new Set([...group.purposes, ...resource.purposes])]; services.set(key, group);
+    group.resources.push(resource); services.set(key, group);
   }
+  for (const service of services.values()) service.purposes = serviceIntegrationPurposes(service.resources);
   const breakdown = (field: (resource: Resource) => string) => {
     const counts = new Map<string, number>();
     for (const resource of all) { const label = field(resource); counts.set(label, (counts.get(label) ?? 0) + 1); }

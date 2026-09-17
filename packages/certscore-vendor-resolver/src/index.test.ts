@@ -3,6 +3,7 @@ import test from "node:test";
 import fixtures from "../../certscore-contracts/src/test-fixtures/vendor-service-purpose-v1.json";
 import {
   buildUnknownVendorCandidateQueue,
+  findCanonicalVendorMention,
   getCanonicalVendorPurposeDefinitions,
   resolveCanonicalServicePurpose,
   resolveCanonicalEntityOwner,
@@ -3016,4 +3017,9 @@ test("reCAPTCHA Enterprise attribution requires its canonical endpoint, not a sh
     assert.equal(result.observation?.registryAttribution?.ruleIds.includes("google_recaptcha_enterprise_security_runtime") ?? false, enterprise);
     if (enterprise) assert.equal(result.observation?.purpose, "security");
   }
+});
+
+ test("Facebook disclosure aliases apply to Facebook delivery dependencies only", () => {
+  assert.ok(findCanonicalVendorMention("Facebook Social Plug-in", {vendor: "Meta", product: "Facebook Static Assets", entity: "Meta Platforms, Inc."}));
+  assert.equal(findCanonicalVendorMention("Facebook Social Plug-in", {vendor: "Google", product: "Google Maps", entity: "Google LLC"}), undefined);
 });

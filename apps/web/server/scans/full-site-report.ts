@@ -3,7 +3,7 @@ import { buildNetworkInventoryOverview } from "../../lib/scans/network-inventory
 import { reconcileStorageInventory } from "../../lib/scans/storage-inventory-reconciliation";
 import { fullSiteFinalizationStartedAt } from "../../lib/scans/full-site-finalization";
 import { serviceEvidencePageIds } from "../../lib/scans/service-evidence-pages";
-import { serviceIntegrationGroup, groupedOrigin } from "../../lib/scans/service-integration-group";
+import { serviceIntegrationGroup, serviceIntegrationPurposes, groupedOrigin } from "../../lib/scans/service-integration-group";
 import { summarizeDiscoveredCoverage } from "../../lib/scans/full-site-coverage";
 import "server-only";
 import { inventoryPurposeGroups } from "../../lib/scans/inventory-purpose-presentation";
@@ -414,6 +414,7 @@ export async function loadFullSiteReport(
   return {
     finalizationStartedAt: fullSiteFinalizationStartedAt(crawl, records),
     services: [...serviceGroups.values()].map(service => ({ ...service,
+      purposes: serviceIntegrationPurposes(service.resources),
       context: { ...service.context, policy: {
         ...service.context.policy,
         status: service.resources.every(row => row.context.policy.status === "mentioned") ? "mentioned" as const : service.resources.every(row => row.context.policy.status === "not_found") ? "not_found" as const : "unknown" as const,

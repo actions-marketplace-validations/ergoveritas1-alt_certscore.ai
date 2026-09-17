@@ -64,3 +64,17 @@ test("merging identified roots retains linked children exactly once without merg
  assert.deepEqual(root.children.map(branch=>branch.service.key),["assets"]);
  assert.deepEqual(root.service.resources.map(row=>row.key).sort(),["asset","direct","unknown"]);
 });
+
+test("child function and delivery purposes never replace the parent's canonical purpose", () => {
+ const identity=(product:string,vendor='Google',entity='Google LLC')=>({identity:{product,vendor,entity}}) as Service['context'];
+ const mapsResource={...resource('map'),context:identity('Google Maps JavaScript API')};
+ const fontResource={...resource('font'),context:identity('Google Fonts')};
+ const maps={...service('maps',[mapsResource]),context:mapsResource.context};
+ const fonts={...service('fonts',[fontResource],[link('maps','font')]),context:fontResource.context};
+ const tree=buildServiceHierarchy([maps,fonts]);
+ assert.deepEqual(tree[0]!.service.purposes,['Maps / location services']);
+ assert.deepEqual(tree[0]!.children[0]!.service.purposes,['Font delivery']);
+ const inverse=buildServiceHierarchy([{...maps,origins:[link('fonts','map')]},{...fonts,origins:[]}]);
+ assert.deepEqual(inverse[0]!.service.purposes,['Font delivery']);
+ assert.deepEqual(inverse[0]!.children[0]!.service.purposes,['Maps / location services']);
+});

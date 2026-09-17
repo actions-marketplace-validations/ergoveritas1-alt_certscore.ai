@@ -6212,9 +6212,16 @@ function isDirectlyLinkedPolicyCandidate(candidate: PolicySurfaceCandidate): boo
 }
 
 function normalizedEntityToken(value: string | undefined): string | undefined {
-  const normalized = normalizeWhitespace(value ?? "")
+  const title = normalizeWhitespace(value ?? "");
+  if (/^[a-z]{2}(?:-[a-z]{2})?\s*[|–—]/i.test(title)) return undefined;
+  // A recognized policy heading is a document type, not an owner identity.
+  const parts = title.split(/\s+[|–—-]\s+/).filter(part => {
+    const match = classifyPrivacySurface({linkText: part});
+    return match.matchedTerm?.trim().toLowerCase() !== part.trim().toLowerCase();
+  });
+  const normalized = parts.join(" ")
     .replace(/\b(?:privacy|data protection|cookie)\s+(?:policy|notice|statement)\b/gi, " ")
-    .replace(/[|–—-].*$/, " ")
+    .replace(/[|–—].*$/, " ")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
   if (/^[a-z]{2}(?:\s+[a-z]{2})?$/i.test(normalized)) {
@@ -6639,7 +6646,7 @@ function classifierCandidateFields(classification: ReturnType<typeof classifySur
   };
 }
 
-function extractPolicyFacts(text: string): PolicyFacts {
+export function extractPolicyFacts(text: string): PolicyFacts {
   const textQuality = assessPolicyTextQuality(text);
   if (!textQuality.usable) {
     const gdprTransparencyTopicCandidates = textQuality.reason === "low_quality_access_challenge"
@@ -6662,7 +6669,7 @@ function extractPolicyFacts(text: string): PolicyFacts {
     ["sale_or_share", /\bsale\b|\bshare\b/i, "sale/share"],
     ["do_not_sell_or_share", /do not sell|do not share/i, "do not sell/share"],
     ["global_privacy_control", /global privacy control|\bGPC\b|opt[-\s]?out preference signal/i, "global privacy control"],
-    ["california_privacy_rights", /california|CCPA|CPRA/i, "california privacy rights"],
+    ["california_privacy_rights", /\b(?:CCPA|CPRA|California Consumer Privacy Act|California Privacy Rights Act|California privacy rights|privacy rights (?:of|for) California (?:residents|consumers)|California(?: and other state)? (?:residents|consumers) (?:may|can|have the right to) (?:access|delete|correct|opt out|request))\b/i, "california privacy rights"],
     ["notice_at_collection", /notice at collection|notice of collection|(?:information we collect|categories of personal information)[\s\S]{0,1200}(?:business purposes|commercial purpose|categories of sources)/i, "notice at collection"],
     ["sensitive_personal_information", /sensitive personal information/i, "sensitive personal information"],
     ["profiling_or_automated_decision_making", /profiling|automated decision/i, "profiling"],
