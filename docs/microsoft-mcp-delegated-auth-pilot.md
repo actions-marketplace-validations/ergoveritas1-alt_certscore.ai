@@ -99,7 +99,16 @@ tokens for the client cannot have the API's expected audience.
   `00000000-0000-4000-8000-000000000000` and returned `404/not_found`, not an
   authentication failure. Server logs also record the status-tool invocation.
   No scan was created. This validates the authenticated read error path only.
-- Token refresh after expiry, completed scan workflow and external
+- At 09:24–09:26 UTC, the OAuth-only Copilot test exercised all four tools for
+  publisher-owned `https://certscore.ai/`. Default freshness reused completed
+  scan `4792e2ad-fc6f-4bb6-bf99-8b9a4ffc2822` (original completion September 17).
+  Status explicitly returned `completed`; bundle retrieval succeeded and report
+  evidence pagination returned 76 + 6 entries (82 total), with export complete.
+  AWS MCP request logs corroborate all four tool invocations and both evidence
+  page calls. No fresh scan or additional scan compute was created. Report
+  coverage remains partial and GPC response indeterminate; successful retrieval
+  does not establish complete observation coverage or legal compliance.
+- Token refresh after expiry, fresh-scan lifecycle polling and external
   reviewer-tenant support remain separate verification requirements.
 
 - Delete/avoid the temporary-token connection; create a new connection using
