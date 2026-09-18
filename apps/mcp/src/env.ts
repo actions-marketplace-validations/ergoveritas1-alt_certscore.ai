@@ -18,6 +18,9 @@ const envSchema = z.object({
   CERTSCORE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CERTSCORE_MCP_INITIAL_PRECONSENT_PREVIEW_WAIT_MS: z.coerce.number().int().min(0).max(10000).default(10000),
   CERTSCORE_MICROSOFT_MCP_ENABLED: z.enum(["0", "1"]).default("0"),
+  CERTSCORE_MICROSOFT_DELEGATED_ENABLED: z.enum(["0", "1"]).default("0"),
+  CERTSCORE_MICROSOFT_DELEGATED_CLIENT_ID: optionalUuid,
+  CERTSCORE_MICROSOFT_DELEGATED_SCOPE: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]*$/).optional(),
   CERTSCORE_MICROSOFT_TENANT_ID: optionalUuid,
   CERTSCORE_MICROSOFT_RESOURCE_AUDIENCE: optionalUuid,
   CERTSCORE_MICROSOFT_ALLOWED_CLIENT_ID: optionalUuid,
@@ -34,6 +37,17 @@ export function getEnv() {
     throw new Error("CERTSCORE_OAUTH_JWT_SECRET or JWT_SIGNING_KEY is required.");
   }
   const microsoftMcpEnabled = parsed.CERTSCORE_MICROSOFT_MCP_ENABLED === "1";
+  const microsoftDelegatedEnabled = parsed.CERTSCORE_MICROSOFT_DELEGATED_ENABLED === "1";
+  if (microsoftDelegatedEnabled && (!microsoftMcpEnabled
+    || !parsed.CERTSCORE_MICROSOFT_DELEGATED_CLIENT_ID || !parsed.CERTSCORE_MICROSOFT_DELEGATED_SCOPE)) {
+    throw new Error("Microsoft delegated auth requires the Microsoft endpoint, an explicit delegated client ID, and scope.");
+  }
+  if (microsoftDelegatedEnabled && parsed.CERTSCORE_MICROSOFT_DELEGATED_CLIENT_ID === parsed.CERTSCORE_MICROSOFT_ALLOWED_CLIENT_ID) {
+    throw new Error("Use a separate delegated client registration; preserve the application-only client.");
+  }
+  if (microsoftDelegatedEnabled && parsed.CERTSCORE_MICROSOFT_DELEGATED_CLIENT_ID === parsed.CERTSCORE_MICROSOFT_RESOURCE_AUDIENCE) {
+    throw new Error("The delegated client registration must be distinct from the API resource audience.");
+  }
   if (microsoftMcpEnabled) {
     for (const name of [
       "CERTSCORE_MICROSOFT_TENANT_ID",
@@ -54,7 +68,8 @@ export function getEnv() {
   return {
     ...parsed,
     jwtSecret,
-    microsoftMcpEnabled
+    microsoftMcpEnabled,
+    microsoftDelegatedEnabled
   };
 }
 export function getAllowedOrigins(env: Pick<McpHttpEnv, "CORS_ALLOWED_ORIGINS">) {

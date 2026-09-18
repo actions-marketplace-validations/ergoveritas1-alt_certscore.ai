@@ -10,7 +10,8 @@ import {
 import {
   createMicrosoftEntraTokenValidator,
   microsoftEntraIssuer,
-  microsoftEntraJwksUrl
+  microsoftEntraJwksUrl,
+  microsoftEntraSessionBinding
 } from "./microsoft-entra-auth.js";
 
 const tenantId = "11111111-1111-4111-8111-111111111111";
@@ -18,7 +19,10 @@ const audience = "22222222-2222-4222-8222-222222222222";
 const allowedClientId = "33333333-3333-4333-8333-333333333333";
 const kid = "microsoft-test-key";
 
-async function fixture() {
+const delegatedClientId = "55555555-5555-4555-8555-555555555555";
+const objectId = "66666666-6666-4666-8666-666666666666";
+
+async function fixture(delegated = false) {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   const publicJwk = await exportJWK(publicKey);
   const getKey = createLocalJWKSet({ keys: [{ ...publicJwk, alg: "RS256", kid, use: "sig" }] });
@@ -26,7 +30,8 @@ async function fixture() {
     allowedClientId,
     audience,
     requiredRole: "Mcp.Access",
-    tenantId
+    tenantId,
+    delegated: delegated ? { allowedClientId: delegatedClientId, requiredScope: "Mcp.Invoke" } : undefined
   }, { getKey });
   const sign = async (overrides: JWTPayload = {}) => new SignJWT({
     azp: allowedClientId,
@@ -48,6 +53,38 @@ async function fixture() {
 test("Microsoft Entra endpoints are tenant-specific", () => {
   assert.equal(microsoftEntraIssuer(tenantId), `https://login.microsoftonline.com/${tenantId}/v2.0`);
   assert.equal(microsoftEntraJwksUrl(tenantId), `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`);
+});
+
+test("delegated pilot requires scope, user identity and separately allowed client; refresh preserves binding", async () => {
+  const { sign, validator } = await fixture(true);
+  const claims = { azp: delegatedClientId, oid: objectId, scp: "Mcp.Invoke", roles: undefined };
+  const first = await validator.verify(await sign(claims));
+  const refreshed = await validator.verify(await sign({ ...claims, exp: Math.floor(Date.now() / 1000) + 600 }));
+  assert.ok(first.ok && refreshed.ok);
+  assert.equal(microsoftEntraSessionBinding(first), microsoftEntraSessionBinding(refreshed));
+  const other = await validator.verify(await sign({ ...claims, oid: allowedClientId }));
+  assert.ok(other.ok);
+  assert.notEqual(microsoftEntraSessionBinding(first), microsoftEntraSessionBinding(other));
+  const app = await validator.verify(await sign());
+  assert.ok(app.ok);
+  assert.notEqual(microsoftEntraSessionBinding(first), microsoftEntraSessionBinding(app));
+  for (const [name, overrides, reason] of [
+    ["role cannot replace scope", { scp: "Other.Scope", roles: ["Mcp.Invoke"] }, "missing_scope"],
+    ["scope substring", { scp: "Mcp.Invoke.All" }, "missing_scope"],
+    ["missing user", { oid: undefined }, "invalid_token"],
+    ["malformed user", { oid: "ben@example.com" }, "invalid_token"],
+    ["application identity", { idtyp: "app" }, "invalid_token"],
+    ["wrong client", { azp: allowedClientId }, "wrong_client"],
+    ["wrong tenant", { tid: objectId }, "invalid_token"],
+    ["wrong audience", { aud: objectId }, "invalid_token"],
+    ["expired", { exp: Math.floor(Date.now() / 1000) - 60 }, "invalid_token"],
+    ["empty scope", { scp: "" }, "invalid_token"],
+    ["malformed scope", { scp: ["Mcp.Invoke"] }, "invalid_token"]
+  ] as const) {
+    assert.deepEqual(await validator.verify(await sign({ ...claims, ...overrides })), { ok: false, reason }, name);
+  }
+  // Without a scope this separate client cannot fall through to the app-only path.
+  assert.deepEqual(await validator.verify(await sign({ ...claims, scp: undefined, roles: ["Mcp.Access"] })), { ok: false, reason: "wrong_client" });
 });
 
 test("Microsoft Entra validator accepts only the configured app-only token", async () => {

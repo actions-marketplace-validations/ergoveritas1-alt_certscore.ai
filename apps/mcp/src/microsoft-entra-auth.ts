@@ -11,6 +11,8 @@ export type MicrosoftEntraAuthConfig = {
   jwksUrl?: string;
   requiredRole: string;
   tenantId: string;
+  // Explicit, tenant-restricted pilot. Omission preserves app-only behavior.
+  delegated?: { allowedClientId: string; requiredScope: string };
 };
 
 export type MicrosoftEntraClaims = JWTPayload & {
@@ -21,8 +23,15 @@ export type MicrosoftEntraClaims = JWTPayload & {
 };
 
 export type MicrosoftEntraAuthResult =
-  | { ok: true; claims: MicrosoftEntraClaims; clientId: string; tenantId: string }
-  | { ok: false; reason: "invalid_token" | "wrong_client" | "missing_role" };
+  | { ok: true; claims: MicrosoftEntraClaims; clientId: string; tenantId: string;
+      identity: { kind: "application" } | { kind: "delegated"; objectId: string } }
+  | { ok: false; reason: "invalid_token" | "wrong_client" | "missing_role" | "missing_scope" };
+
+export function microsoftEntraSessionBinding(auth: Extract<MicrosoftEntraAuthResult, { ok: true }>) {
+  return auth.identity.kind === "application"
+    ? `microsoft-entra:${auth.tenantId}:${auth.clientId}`
+    : `microsoft-entra-delegated:${auth.tenantId}:${auth.clientId}:${auth.identity.objectId}`;
+}
 
 export type MicrosoftEntraTokenValidator = {
   verify(token: string): Promise<MicrosoftEntraAuthResult>;
@@ -57,14 +66,32 @@ export function createMicrosoftEntraTokenValidator(
           algorithms: ["RS256"],
           audience: config.audience,
           clockTolerance: 5,
-          issuer
+          issuer,
+          requiredClaims: ["exp", "iat", "tid", "ver"]
         });
         if (payload.tid !== config.tenantId || payload.ver !== "2.0") {
           return { ok: false, reason: "invalid_token" };
         }
-        // App-only client-credentials tokens carry roles and no delegated scp claim.
-        if (typeof payload.scp === "string" && payload.scp.trim()) {
-          return { ok: false, reason: "invalid_token" };
+        // Never fall back to application roles for a malformed/delegated token.
+        if (payload.scp !== undefined) {
+          if (!config.delegated || typeof payload.scp !== "string" || !payload.scp.trim()
+            || payload.idtyp === "app" || typeof payload.oid !== "string"
+            || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.oid)) {
+            return { ok: false, reason: "invalid_token" };
+          }
+          if (payload.azp !== config.delegated.allowedClientId) {
+            return { ok: false, reason: "wrong_client" };
+          }
+          if (!payload.scp.split(/\s+/).includes(config.delegated.requiredScope)) {
+            return { ok: false, reason: "missing_scope" };
+          }
+          return {
+            ok: true,
+            claims: { ...payload, roles: [], tid: config.tenantId },
+            clientId: config.delegated.allowedClientId,
+            tenantId: config.tenantId,
+            identity: { kind: "delegated", objectId: payload.oid.toLowerCase() }
+          };
         }
         const clientId = typeof payload.azp === "string"
           ? payload.azp
@@ -84,7 +111,8 @@ export function createMicrosoftEntraTokenValidator(
           ok: true,
           claims: { ...payload, roles, tid: config.tenantId },
           clientId,
-          tenantId: config.tenantId
+          tenantId: config.tenantId,
+          identity: { kind: "application" }
         };
       } catch {
         return { ok: false, reason: "invalid_token" };

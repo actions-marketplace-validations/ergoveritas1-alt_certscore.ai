@@ -15,12 +15,22 @@ on:
       - "scripts/check-mcp-http-deploy-readiness.ts"
       - "scripts/smoke-certscore-mcp-http-tools-diff.ts"
       - "scripts/verify-mcp-source-tracked.ts"
+      - "scripts/configure-microsoft-mcp-pilot*.ts"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsconfig.base.json"
       - "turbo.json"
   workflow_dispatch:
+    inputs:
+      microsoft_delegated_pilot:
+        description: "Tenant-restricted Microsoft delegated pilot (requires owner approval)"
+        type: choice
+        default: preserve
+        options:
+          - preserve
+          - enable
+          - disable
 
 concurrency:
   group: mcp-aws-production
@@ -76,6 +86,7 @@ jobs:
       - name: Verify and test MCP source
         run: |
           pnpm ops:check:mcp-source
+          node --import tsx --test scripts/configure-microsoft-mcp-pilot.test.ts
           pnpm --filter @certscore/mcp-http build:deps
           pnpm --filter @certscore/api-contracts test
           pnpm --filter @certscore/sdk test
@@ -169,8 +180,11 @@ jobs:
           aws ecr put-image --repository-name "${ECR_MCP_REPOSITORY}" --image-tag "${RELEASE_TAG}" --image-manifest "${manifest}" >/dev/null
 
       - name: Register MCP task definition
+        env:
+          MICROSOFT_DELEGATED_PILOT: ${{ inputs.microsoft_delegated_pilot || 'preserve' }}
         run: |
           aws ecs describe-task-definition --task-definition "${PREVIOUS_TASK_DEFINITION_ARN}" | jq '.taskDefinition | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy) | .containerDefinitions = (.containerDefinitions | map(if .name == env.ECS_CONTAINER_NAME then .image = "\(env.MCP_IMAGE):\(env.GITHUB_SHA)" else . end))' > /tmp/mcp-task-definition.json
+          node --import tsx scripts/configure-microsoft-mcp-pilot.ts /tmp/mcp-task-definition.json "${MICROSOFT_DELEGATED_PILOT}"
           task_definition_arn="$(aws ecs register-task-definition --cli-input-json file:///tmp/mcp-task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)"
           echo "MCP_TASK_DEFINITION_ARN=${task_definition_arn}" >> "${GITHUB_ENV}"
 

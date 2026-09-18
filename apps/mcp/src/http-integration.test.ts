@@ -344,6 +344,9 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
       CERTSCORE_MICROSOFT_RESOURCE_AUDIENCE: microsoftAudience,
       CERTSCORE_MICROSOFT_ALLOWED_CLIENT_ID: microsoftClientId,
       CERTSCORE_MICROSOFT_REQUIRED_ROLE: "Mcp.Access",
+      CERTSCORE_MICROSOFT_DELEGATED_ENABLED: "1",
+      CERTSCORE_MICROSOFT_DELEGATED_CLIENT_ID: "55555555-5555-4555-8555-555555555555",
+      CERTSCORE_MICROSOFT_DELEGATED_SCOPE: "Mcp.Invoke",
       CERTSCORE_MICROSOFT_JWKS_URL: `${apiOrigin}/microsoft-jwks`
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -423,6 +426,51 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     assert.equal(anonymousRequesterIp, "198.51.100.81");
     assert.equal(apiAuthorization, undefined, "the Entra bearer token must not be forwarded as a CertScore API credential");
     await microsoftClient.close();
+
+    const delegatedClaims = {
+      azp: "55555555-5555-4555-8555-555555555555",
+      oid: "66666666-6666-4666-8666-666666666666",
+      scp: "Mcp.Invoke",
+      roles: undefined
+    };
+    const delegatedToken = await signMicrosoftToken(delegatedClaims);
+    const delegatedTransport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp/microsoft`), {
+      requestInit: { headers: { authorization: `Bearer ${delegatedToken}`, "x-forwarded-for": "198.51.100.82" } }
+    });
+    const delegatedClient = new Client({ name: "delegated-pilot", version: "0.1.0" });
+    await delegatedClient.connect(delegatedTransport);
+    assert.deepEqual((await delegatedClient.listTools()).tools.map(tool => tool.name).sort(), microsoftTools.tools.map(tool => tool.name).sort());
+    const refreshToken = await signMicrosoftToken({ ...delegatedClaims, exp: Math.floor(Date.now() / 1000) + 600 });
+    for (const [name, bearer, expected] of [
+      ["same user refreshed token", refreshToken, 200],
+      ["different user", await signMicrosoftToken({ ...delegatedClaims, oid: wrongMicrosoftClientId }), 401],
+      ["application cannot reuse user session", microsoftToken, 401],
+      ["scope lost", await signMicrosoftToken({ ...delegatedClaims, scp: "Other.Scope" }), 403],
+      ["expired user token", await signMicrosoftToken({ ...delegatedClaims, exp: Math.floor(Date.now() / 1000) - 60 }), 401]
+    ] as const) {
+      const result = await fetch(`${origin}/mcp/microsoft`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          "mcp-session-id": delegatedTransport.sessionId!,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "x-forwarded-for": "198.51.100.82"
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 9010, method: "tools/list" })
+      });
+      assert.equal(result.status, expected, name);
+      await result.text();
+    }
+    const delegatedScan = await delegatedClient.callTool({ name: "certscore_scan_site", arguments: { url: "https://example.com", waitForCompletion: false } });
+    assert.equal(delegatedScan.isError, undefined);
+    assert.equal(apiAuthorization, undefined, "delegated Entra credentials never enter private workspace APIs");
+    assert.equal(anonymousSurface, "mcp_light");
+    assert.equal(anonymousRequesterIp, "198.51.100.82");
+    await delegatedClient.close();
+    assert.equal(diagnostics.includes(delegatedToken), false);
+    assert.equal(diagnostics.includes(refreshToken), false);
+    assert.equal(diagnostics.includes(delegatedClaims.oid), false);
 
     assert.equal(diagnostics.includes(microsoftToken), false);
     assert.equal(diagnostics.includes("sensitive-malformed-jwt-marker"), false);

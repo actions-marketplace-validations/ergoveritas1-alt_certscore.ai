@@ -13,7 +13,7 @@ import { oauthSessionIdentity, oauthSessionMismatch, type OAuthSessionIdentity }
 import { McpReadThrottle, mcpReadCallsFromJsonRpc, mcpReadRateLimitGuidance } from "./read-throttle.js";
 import { anonymousMcpRequester, anonymousMcpRequesterFromHeaders, anonymousSessionBinding, authenticatedMcpCallerBinding } from "./requester-identity.js";
 import { createHostedMcpTelemetry } from "./telemetry.js";
-import { createMicrosoftEntraTokenValidator } from "./microsoft-entra-auth.js";
+import { createMicrosoftEntraTokenValidator, microsoftEntraSessionBinding } from "./microsoft-entra-auth.js";
 import type { McpTelemetrySurface } from "@website-signal-risk-scanner/shared";
 
 const OPENAI_APPS_CHALLENGE_TOKEN = "RVujVoFeQNvwzz4Upt8IPh_f2Xm3qf2Uqa_-tr3VTeQ";
@@ -26,7 +26,11 @@ const microsoftTokenValidator = env.microsoftMcpEnabled
       audience: env.CERTSCORE_MICROSOFT_RESOURCE_AUDIENCE!,
       jwksUrl: env.CERTSCORE_MICROSOFT_JWKS_URL,
       requiredRole: env.CERTSCORE_MICROSOFT_REQUIRED_ROLE,
-      tenantId: env.CERTSCORE_MICROSOFT_TENANT_ID!
+      tenantId: env.CERTSCORE_MICROSOFT_TENANT_ID!,
+      delegated: env.microsoftDelegatedEnabled ? {
+        allowedClientId: env.CERTSCORE_MICROSOFT_DELEGATED_CLIENT_ID!,
+        requiredScope: env.CERTSCORE_MICROSOFT_DELEGATED_SCOPE!
+      } : undefined
     })
   : null;
 const sessions = new McpHttpSessionStore({
@@ -140,15 +144,18 @@ function microsoftUnauthorized(
   reason: "missing_token" | "invalid_scheme" | "invalid_token" | "wrong_client" | "session_token_mismatch"
 ) {
   console.warn(JSON.stringify({ event: "mcp_http.microsoft_auth", outcome: "rejected", reason, source: "mcp-http", requestId: randomUUID(), route: "/mcp/microsoft", httpStatus: 401, stage: "before_tool_execution" }));
-  json(res, 401, { error: "unauthorized", error_description: "Valid Microsoft Entra application bearer token required." }, {
+  json(res, 401, { error: "unauthorized", error_description: "Valid authorized Microsoft Entra access token required." }, {
     ...corsHeaders(req),
     "WWW-Authenticate": "Bearer"
   });
 }
 
-function microsoftForbidden(res: ServerResponse, req: IncomingMessage) {
-  console.warn(JSON.stringify({ event: "mcp_http.microsoft_auth", outcome: "rejected", reason: "missing_role", source: "mcp-http", requestId: randomUUID(), route: "/mcp/microsoft", httpStatus: 403, stage: "before_tool_execution" }));
-  json(res, 403, { error: "forbidden", error_description: "The Microsoft Entra application token lacks the required application role." }, corsHeaders(req));
+function microsoftForbidden(res: ServerResponse, req: IncomingMessage, reason: "missing_role" | "missing_scope") {
+  console.warn(JSON.stringify({ event: "mcp_http.microsoft_auth", outcome: "rejected", reason, source: "mcp-http", requestId: randomUUID(), route: "/mcp/microsoft", httpStatus: 403, stage: "before_tool_execution" }));
+  json(res, 403, { error: "forbidden", error_description: "The Microsoft Entra access token lacks the required permission." }, {
+    ...corsHeaders(req),
+    "WWW-Authenticate": reason === "missing_scope" ? 'Bearer error="insufficient_scope"' : "Bearer"
+  });
 }
 
 async function readJsonBody(req: IncomingMessage) {
@@ -366,13 +373,13 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, anonymous: b
   if (microsoft) {
     const auth = await authenticateMicrosoft(req);
     if (!auth.ok) {
-      if (auth.reason === "missing_role") {
-        return microsoftForbidden(res, req);
+      if (auth.reason === "missing_role" || auth.reason === "missing_scope") {
+        return microsoftForbidden(res, req, auth.reason);
       }
       return microsoftUnauthorized(res, req, auth.reason);
     }
     microsoftIdentity = { clientId: auth.clientId, tenantId: auth.tenantId };
-    tokenHash = sessions.hashToken(`microsoft-entra:${auth.tenantId}:${auth.clientId}`);
+    tokenHash = sessions.hashToken(microsoftEntraSessionBinding(auth));
     authenticatedCallerHash = tokenHash;
   } else if (anonymous) {
     tokenHash = sessions.hashToken(light
