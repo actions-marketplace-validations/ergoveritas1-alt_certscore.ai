@@ -108,7 +108,18 @@ tokens for the client cannot have the API's expected audience.
   page calls. No fresh scan or additional scan compute was created. Report
   coverage remains partial and GPC response indeterminate; successful retrieval
   does not establish complete observation coverage or legal compliance.
-- Token refresh after expiry, fresh-scan lifecycle polling and external
+- A separate explicitly requested fresh OAuth scan (`freshness=refresh`) created
+  `1205ebad-00be-421e-b7a8-d419a76bcf15`, starting at 09:27:33.922 UTC and
+  completing at 09:27:54.752 UTC on September 18 (about 21 seconds). Copilot
+  observed running status before terminal completion; bundle and both evidence
+  pages were retrieved (75 + 17 entries, 92 total, export complete). AWS logs
+  corroborate scan creation, polling, bundle and evidence-page calls. The browser
+  tab crashed after the first report retrieval; a recovered test session
+  successfully re-read the same scan without creating another one. Coverage
+  remains partial and GPC response indeterminate. Estimated incremental compute
+  for this one fresh test is below $1, disclosed before execution; no capacity
+  or quota increase was made.
+- Token refresh after expiry and external
   reviewer-tenant support remain separate verification requirements.
 
 - Delete/avoid the temporary-token connection; create a new connection using
