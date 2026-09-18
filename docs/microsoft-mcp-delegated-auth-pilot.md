@@ -2,7 +2,8 @@
 
 Status: Azure registration, consent and exact connector callback configured;
 owner approved isolated AWS pilot deployment on September 18, 2026. Runtime
-implementation is **disabled by default and not yet deployed**. This is
+implementation remains disabled by default; the approved tenant pilot is now
+**deployed and enabled** on the isolated AWS MCP service. This is
 not proof that Microsoft's authentication finding is resolved. The temporary
 bearer-token demonstration is diagnostic only.
 
@@ -79,6 +80,27 @@ tokens for the client cannot have the API's expected audience.
    runtime. Do not replace the existing app-only credentials or weaken validation.
 
 ## Release evidence required before resubmitting
+
+### September 18 deployment and initial live verification
+
+- Source: `057d512a709488458242827c82977c2d84e96eb6`; workflow
+  [35328464231](https://github.com/ergoveritas1-alt/certscore.ai/actions/runs/35328464231)
+  completed successfully.
+- ECS `certscore-web-mcp:141` uses that immutable image; previous revision was
+  `140`. Existing one-task capacity and app-only settings were preserved.
+- 45 MCP HTTP tests, two configuration-guard tests and typechecking passed.
+- Copilot Studio's new OAuth connector successfully discovered all four tools
+  after deployment; the earlier 401 disappeared. Its connection manager shows
+  Connected. This proves discovery, not a completed scan or live refresh.
+- The old temporary-token diagnostic tool was disabled in the unpublished
+  validation agent so it cannot interfere with OAuth testing. It was not deleted.
+- With only the OAuth tool enabled, the test chat invoked
+  `certscore_get_scan_status` for the intentionally nonexistent
+  `00000000-0000-4000-8000-000000000000` and returned `404/not_found`, not an
+  authentication failure. Server logs also record the status-tool invocation.
+  No scan was created. This validates the authenticated read error path only.
+- Token refresh after expiry, completed scan workflow and external
+  reviewer-tenant support remain separate verification requirements.
 
 - Delete/avoid the temporary-token connection; create a new connection using
   interactive work-account sign-in without pasting an access token.
