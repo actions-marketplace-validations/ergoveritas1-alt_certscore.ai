@@ -92,6 +92,14 @@ function formatScanOutcome(value: string | null, noGo: boolean) {
   return `${formatFilterLabel(value)} (${noGo ? "No-go" : "Go"})`;
 }
 
+function InventoryCountCell({ value, label }: { value: { count: number; limited: boolean } | null | undefined; label: string }) {
+  const count = value && (!value.limited || value.count > 0) ? `${value.count}${value.limited ? "+" : ""}` : "—";
+  const title = value
+    ? `${label}: ${value.count} retained on the starting page${value.limited ? "; partial coverage, total unknown" : ""}`
+    : `${label}: starting-page evidence unavailable`;
+  return <td className="px-2.5 py-1.5 font-medium tabular-nums text-slate-800" title={title}>{count}</td>;
+}
+
 function ScanSizeCell({ matrix }: { matrix: AdminScanListItem["evidenceMatrix"] }) {
   const website = matrix?.sizeMetrics?.website;
   const policy = matrix?.sizeMetrics?.privacyPolicy;
@@ -409,11 +417,12 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
           showPageJump
         />
         <div className="w-full max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200">
-          <table className="w-[3147px] min-w-[3147px] table-fixed text-left text-xs">
+          <table className="w-[3477px] min-w-[3477px] table-fixed text-left text-xs">
             <colgroup>
               <col style={{ width: "100px" }} /><col style={{ width: "165px" }} /><col style={{ width: "115px" }} /><col style={{ width: "173px" }} /><col style={{ width: "190px" }} />
               <col style={{ width: "70px" }} /><col style={{ width: "60px" }} /><col style={{ width: "75px" }} /><col style={{ width: "156px" }} />
               <col style={{ width: "80px" }} /><col style={{ width: "205px" }} /><col style={{ width: "135px" }} /><col style={{ width: "145px" }} />
+              <col style={{ width: "65px" }} /><col style={{ width: "75px" }} /><col style={{ width: "190px" }} />
               <col style={{ width: "180px" }} /><col style={{ width: "130px" }} /><col style={{ width: "65px" }} /><col style={{ width: "100px" }} /><col style={{ width: "65px" }} />
               <col style={{ width: "80px" }} /><col style={{ width: "240px" }} /><col style={{ width: "160px" }} /><col style={{ width: "190px" }} /><col style={{ width: "190px" }} /><col style={{ width: "78px" }} />
             </colgroup>
@@ -423,7 +432,7 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
                   { label: "Status", className: "sticky left-0 z-30 bg-slate-50" },
                   { label: "Requester IP" }, { label: "Requested" }, { label: "Page" }, { label: "Created via" }, { label: "Tranco" },
                   { label: "Score" }, { label: "Top" }, { label: "Privacy / CMP" },
-                  { label: "A/R/O" }, { label: "Transparency" }, { label: "Transport" }, { label: "Runtime" }, { label: "Size" }, { label: "Time" }, { label: "Outcome" }, { label: "From" }, { label: "Freshness" }, { label: "Language" }, { label: "Access" }, { label: "Industry" },
+                  { label: "A/R/O" }, { label: "Transparency" }, { label: "Transport" }, { label: "Runtime" }, { label: "# HL" }, { label: "# Forms" }, { label: "CMS" }, { label: "Size" }, { label: "Time" }, { label: "Outcome" }, { label: "From" }, { label: "Freshness" }, { label: "Language" }, { label: "Access" }, { label: "Industry" },
                   { label: "Scan ID" }, { label: "Scanner egress" },
                   { label: "Open", className: "sticky right-0 z-30 bg-slate-50" }
                 ].map(({ label, className }) => <th key={label} className={`border-b border-slate-200 px-2.5 py-1.5 font-semibold ${className ?? ""}`}>{label}</th>)}
@@ -464,6 +473,9 @@ async function AdminScansContent({ resolvedSearchParams }: { resolvedSearchParam
                     <td className="px-2.5 py-1.5"><EvidenceGroupCell aggregate={matrix?.transparency.aggregate ?? null} labels={TRANSPARENCY_LABELS} policyEvidence={matrix?.policyEvidence} results={matrix?.transparency.results ?? null} /></td>
                     <td className="px-2.5 py-1.5"><EvidenceGroupCell aggregate={matrix?.transport.aggregate ?? null} labels={TRANSPORT_LABELS} results={matrix?.transport.results ?? null} /></td>
                     <td className="px-2.5 py-1.5"><EvidenceGroupCell aggregate={matrix?.runtime.aggregate ?? null} labels={RUNTIME_LABELS} results={matrix?.runtime.results ?? null} /></td>
+                    <InventoryCountCell value={scan.inventory?.hiddenLinks} label="Hidden outbound links" />
+                    <InventoryCountCell value={scan.inventory?.forms} label="Forms and input surfaces" />
+                    <td className="px-2.5 py-1.5 text-slate-700" title={scan.inventory?.cms ? `${scan.inventory.cms} · Passive starting-page detection; versions are page-declared, not confirmed runtime versions` : "CMS evidence unavailable"}><span className="line-clamp-2 break-words">{scan.inventory?.cms ?? "—"}</span></td>
                     <td className="px-2.5 py-1.5"><ScanSizeCell matrix={matrix} /></td>
                     <td className={`px-2.5 py-1.5 font-medium ${duration && (duration.includes("m") || Number.parseFloat(duration) > 60) ? "text-amber-700" : "text-slate-800"}`}>{duration ?? (scan.status === "running" ? "Running" : "—")}</td>
                     <td className="truncate px-2.5 py-1.5 text-slate-700" title={scan.scanOutcome ?? undefined}>{formatScanOutcome(scan.scanOutcome, scan.noGoFlag)}</td>

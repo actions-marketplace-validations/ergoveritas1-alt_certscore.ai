@@ -53,6 +53,7 @@ import { query } from "@website-signal-risk-scanner/db";
 import { resolveAdminPageUrl, type AdminPageUrlSource } from "../../lib/admin/admin-page-url";
 import { type ScanCreationAttribution, type ScanCreationSource } from "../../lib/admin/scan-creation-source";
 import { loadAdminScanCreationAttributions } from "./repository";
+import { projectAdminScanInventory, type AdminScanInventory } from "./admin-scan-inventory";
 
 function scannerEgressFromScanConfig(scanConfig: Record<string, unknown> | null | undefined) {
   if (shouldUseLocalV2DagScanTool()) {
@@ -103,6 +104,7 @@ export type AdminScanListItem = {
   cmpVendorName: string | null;
   consentAro: AdminConsentAro | null;
   evidenceMatrix: AdminEvidenceMatrix | null;
+  inventory?: AdminScanInventory;
   completedAt: string | null;
   createdAt: string;
   domainHostname: string | null;
@@ -474,6 +476,7 @@ export async function listAdminScansPage(
       }),
       consentAro: canonicalSummary.consentAro,
       evidenceMatrix: parseAdminEvidenceMatrix(overviewSnapshot?.admin_evidence_matrix),
+      inventory: projectAdminScanInventory(scan.id, overviewSnapshot, noGo.isNoGo),
       scannerEgressId: scannerEgress.id,
       scannerEgressProvider: scannerEgress.provider,
       trancoRank: overviewSnapshot?.tranco_rank ?? null,
@@ -613,6 +616,7 @@ function mapScanRequestRow(request: ScanRequestRow, linkedScan: AdminScanListIte
     cmpVendorName: linkedScan?.cmpVendorName ?? null,
     consentAro: linkedScan?.consentAro ?? null,
     evidenceMatrix: linkedScan?.evidenceMatrix ?? null,
+    inventory: linkedScan?.inventory,
     completedAt: linkedScan?.completedAt ?? request.reused_completed_at,
     createdAt: request.requested_at,
     domainHostname: request.scan_domain_hostname ?? request.normalized_domain,

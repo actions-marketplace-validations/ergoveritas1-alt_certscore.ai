@@ -149,6 +149,9 @@ export type AdminScanDetailSummaryRow = AdminScanQueryRow & {
 };
 
 export type AdminScanSnapshotRow = {
+  admin_site_integrity?: unknown;
+  admin_collection_surfaces?: unknown;
+  admin_cms_security?: unknown;
   admin_evidence_matrix?: Record<string, unknown> | null;
   admin_industry_label?: string | null;
   admin_summary_generated_at?: string | null;
@@ -1497,6 +1500,9 @@ export async function loadAdminScanListPageData(limit: number, offset = 0, reque
       ? query<AdminScanSnapshotRow>(
           `select scan_id,
                   admin_evidence_matrix,
+                  report_projection_payload #> '{runtimeArtifacts,siteIntegrity}' as admin_site_integrity,
+                  report_projection_payload #> '{canonicalReportProjection,collectionSurfaceAssessment}' as admin_collection_surfaces,
+                  report_projection_payload #> '{runtimeArtifacts,cmsSecurity}' as admin_cms_security,
                   certscore_overall,
                   admin_industry_label,
                   admin_summary_generated_at,
