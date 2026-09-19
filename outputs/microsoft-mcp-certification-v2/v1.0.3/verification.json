@@ -1,0 +1,89 @@
+{
+  "verifiedAt": "2026-09-18T09:45:07.237Z",
+  "version": "1.0.3",
+  "archive": "certscore-microsoft-mcp-package-v1.0.3.zip",
+  "sha256": "48fdb24f9d07f781ca59c242e1dd766c95ebe3e0ea9b440ed0163dfd6778d7bd",
+  "files": [
+    "color.png",
+    "intro.md",
+    "manifest.json",
+    "mcptools.json",
+    "outline.png"
+  ],
+  "schema": {
+    "url": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
+    "dialect": "draft-04",
+    "status": "passed",
+    "sha256": "8501efe27bc9369eae6a80f5af9242d8de9429bdf7844e8a5117f4341f962d1b"
+  },
+  "namingAndListingParity": "passed",
+  "icons": [
+    {
+      "file": "color.png",
+      "width": 192,
+      "height": 192,
+      "pixelChecks": "passed"
+    },
+    {
+      "file": "outline.png",
+      "width": 32,
+      "height": 32,
+      "pixelChecks": "passed"
+    }
+  ],
+  "links": [
+    {
+      "url": "https://certscore.ai/",
+      "finalUrl": "https://certscore.ai/",
+      "status": 200
+    },
+    {
+      "url": "https://certscore.ai/privacy",
+      "finalUrl": "https://certscore.ai/privacy",
+      "status": 200
+    },
+    {
+      "url": "https://certscore.ai/terms",
+      "finalUrl": "https://certscore.ai/terms",
+      "status": 200
+    },
+    {
+      "url": "https://certscore.ai/contact-sales",
+      "finalUrl": "https://certscore.ai/contact-sales",
+      "status": 200
+    },
+    {
+      "url": "https://certscore.ai/developers/mcp",
+      "finalUrl": "https://certscore.ai/developers/mcp",
+      "status": 200
+    },
+    {
+      "url": "https://certscore.ai/developers/reference",
+      "finalUrl": "https://certscore.ai/developers/reference",
+      "status": 200
+    }
+  ],
+  "health": {
+    "status": 200,
+    "serviceStatus": "ok",
+    "version": "0.2.21"
+  },
+  "microsoftEndpointWithoutToken": 401,
+  "publicLightToolParity": {
+    "status": "passed",
+    "tools": [
+      "certscore_scan_site",
+      "certscore_get_scan_status",
+      "certscore_get_report_evidence_page",
+      "certscore_get_scan_bundle"
+    ]
+  },
+  "scope": "Read-only diagnostics. No scan or authenticated Microsoft connection was performed. Public Light tool parity is not proof of Microsoft authentication or Copilot Studio compatibility.",
+  "remaining": [
+    "Microsoft grant-type confirmation",
+    "Authenticated end-to-end Microsoft/Copilot Studio test",
+    "Actual Copilot Studio screenshots and video",
+    "Partner Center draft updates",
+    "Publisher Attestation"
+  ]
+}

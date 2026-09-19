@@ -1,14 +1,20 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import sharp from "sharp";
 
 const outputRoot = resolve("outputs/microsoft-mcp-certification-v2");
-const packageDir = join(outputRoot, "package");
-const packageVersion = "1.0.2";
-const zipPath = join(outputRoot, `certscore-microsoft-mcp-package-v${packageVersion}.zip`);
+const packageVersion = "1.0.3";
+const releaseDir = join(outputRoot, `v${packageVersion}`);
+const packageDir = join(releaseDir, "package");
+const zipPath = join(releaseDir, `certscore-microsoft-mcp-package-v${packageVersion}.zip`);
+const appName = "CertScore Web Privacy Scanner";
+const productSummary = `${appName} offers free, usage-limited scanning of public websites and evidence-backed review of cookies, trackers, CMPs and consent controls, privacy-policy and disclosure signals, observable form and third-party embed activity, and HTTPS/TLS.`;
+const requirements = "Requirements: Access to Microsoft Copilot Studio and permission to add and use the connector in your organization's environment are required. Your Microsoft plan and administrator policies govern availability. This connector uses publisher-configured Microsoft Entra application authentication. No separate CertScore account, paid CertScore subscription, or personal CertScore API key is required. Scan and retrieval limits apply; see the documentation for current limits and retry guidance. Only publicly accessible websites are supported; authenticated pages and private-network targets are excluded.";
+const supportLinks = "Get started and help: https://certscore.ai/developers/mcp\nUsage limits and API documentation: https://certscore.ai/developers/reference\nContact us: https://certscore.ai/contact-sales\nEmail support: support@certscore.ai\nWebsite: https://certscore.ai/\nPrivacy: https://certscore.ai/privacy\nTerms: https://certscore.ai/terms";
+const fullDescription = `${productSummary}\n\nBuilt for developers and agencies reviewing websites for GDPR/ePrivacy and CCPA concerns. Use its MCP tools from a connected agent to request or reuse a scan, check progress, retrieve a report, and inspect paginated supporting evidence. Review observed signals and coverage limitations before deciding your next steps.\n\nConsent-choice observations are available only when the scan retains eligible evidence. A completed control interaction does not by itself establish consent or refusal registration. Results are review aids, not legal advice, certification, or a compliance determination.\n\n${requirements}\n\n${supportLinks}`;
 const templateKeyVaultUri = "https://REPLACE-WITH-CERTSCORE-MCP-KEY-VAULT.vault.azure.net/";
 const keyVaultUri = process.env.CERTSCORE_MICROSOFT_KEY_VAULT_URI?.trim() || templateKeyVaultUri;
 
@@ -38,7 +44,7 @@ const manifest = {
   developer: {
     name: "CertScore.ai",
     mpnId: "7150890",
-    websiteUrl: "https://certscore.ai/contact",
+    websiteUrl: "https://certscore.ai/",
     privacyUrl: "https://certscore.ai/privacy",
     termsOfUseUrl: "https://certscore.ai/terms",
     contactInfo: {
@@ -49,16 +55,16 @@ const manifest = {
     }
   },
   name: {
-    short: "CertScore Web Privacy Scanner",
-    full: "CertScore.ai Website Privacy Scanner MCP for Microsoft"
+    short: appName,
+    full: appName
   },
   description: {
-    short: "Scan consent and post-refusal tracking, cookies, CMPs, policies, and TLS.",
-    full: "Microsoft-authenticated CertScore.ai MCP Light scans public websites for observable privacy, consent, policy, tracker, cookie/storage, and HTTPS/TLS signals. For eligible scans, its bounded Reject Path can confirm refusal and retain evidence of qualifying non-essential activity or a contradictory consent signal afterward. Results support review and are not legal advice, certification, or a compliance determination."
+    short: "Free, usage-limited website privacy scans with findings and supporting evidence.",
+    full: fullDescription
   },
   agentConnectors: [{
     id: "certscore-microsoft-mcp",
-    displayName: "CertScore.ai Website Privacy Scanner MCP",
+    displayName: appName,
     description: "Scan or reuse a public-website assessment, check status, retrieve its bounded report bundle, and page through retained report evidence when needed.",
     toolSource: {
       remoteMcpServer: {
@@ -75,11 +81,17 @@ const manifest = {
   accentColor: "#020617"
 };
 
-const intro = `# CertScore.ai Website Privacy Scanner MCP
+const intro = `# ${appName}
 
-CertScore.ai provides evidence-backed website privacy scanning for public websites. It observes bounded public-web signals such as pre-consent cookies and browser storage, third-party trackers, CMP and consent controls, privacy-policy signals, GDPR/ePrivacy and CCPA/CPRA review signals, and HTTPS/TLS behavior. For eligible scans, its bounded Reject Path can perform one deterministic first-layer refusal and retain confirmed evidence of qualifying non-essential activity or a contradictory consent signal afterward.
+${productSummary}
 
-This is the Microsoft-authenticated edition of CertScore.ai MCP Light. Microsoft authenticates service-to-service with a tenant-bound Microsoft Entra application token. End users do not need separate CertScore credentials.
+## Requirements and getting started
+
+${requirements}
+
+This is the Microsoft-authenticated edition of CertScore MCP Light. Its endpoint is https://mcp.certscore.ai/mcp/microsoft. The submitted configuration references Azure Key Vault for publisher-managed Entra client-credentials authentication. An administrator or the Microsoft connector integration must configure the connection before the tools can be used. End users do not supply CertScore credentials. Direct interactive OAuth sign-in or dynamic client registration at this endpoint is not supported. If your client prompts you to register an OAuth application, contact support for the appropriate connection configuration.
+
+The general MCP setup page also describes other CertScore connection types; this package specifically uses the Microsoft endpoint and authentication above. The public Light endpoint and workspace OAuth endpoint are separate connection types.
 
 ## Four-tool lifecycle
 
@@ -101,23 +113,40 @@ Results are evidence-backed automated observations of public websites for human 
 - Scans cover observable public-web behavior from the selected execution region and time; site behavior can vary by location, session, account state, personalization, and later changes.
 - \`completed_limited\` is usable but has explicit coverage limitations. Read those limitations before interpreting findings.
 - Report-evidence pages are bounded. Follow the returned cursor to retrieve the complete available projection; a single page is not the complete report.
-- Reject Path observation is available only for eligible scans with a supported, deterministically resolved first-layer refusal control. Unsupported, unconfirmed, failed, or timed-out observations remain explicit, score-neutral coverage limitations.
-- A confirmed Reject Path observation may stop intentionally after qualifying evidence is retained. This establishes the returned observation, but it does not establish behavior outside the measured post-refusal window.
+- Consent-choice observations require an eligible, deterministically resolved first-layer control and retained evidence. Control activation, completed observation, and confirmed consent/refusal are distinct outcomes. Preserve the report's exact outcome and coverage limitations.
+- An unconfirmed action is not proof of consent or refusal. Separately verified after-click tracking may still produce a review finding. Missing or unverifiable evidence does not create a finding.
+- Bounded observations do not establish behavior outside the measured window.
 - Missing consent-action evidence does not establish Accept, Reject, Decline, or deeper preference behavior.
 - Do not extrapolate observed vendors, embeds, requests, cookies, fingerprinting, tracking, or processing beyond what the retained evidence supports.
 - Authentication is service-to-service. Microsoft Entra or Azure Key Vault configuration failures require administrator or publisher remediation rather than end-user CertScore login.
 
-## Support and policies
+## Get started, support, and policies
 
-- Support: https://certscore.ai/contact or support@certscore.ai
-- Privacy: https://certscore.ai/privacy
-- Terms: https://certscore.ai/terms
+${supportLinks}
 `;
 
-const outlineSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <path d="M16 2.2c3.7 1.9 8 2.9 13 3.2v7.9c0 8-5.2 13.9-13 16.7C8.2 27.2 3 21.3 3 13.3V5.4c5-.3 9.3-1.3 13-3.2Z" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
-  <path d="m10.6 15.7 3.9 3.8 8.8-9" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>`;
+// Derive monochrome artwork from the actual brand geometry, including its pixels
+// and checkmark, rather than drawing a second, visually different shield.
+async function brandIcons() {
+  const brand = await readFile("apps/web/public/certscore-mark-dark.svg", "utf8");
+  const group = brand.match(/<g\b[^>]*>[\s\S]*?<\/g>/)?.[0];
+  const check = group?.match(/<path\b[^>]*stroke="#fff"[^>]*\/>/)?.[0];
+  if (!group || !check) throw new Error("Canonical shield/checkmark geometry is missing.");
+  const white = group.replace(check, "")
+    .replace(/fill="[^"]*"/g, 'fill="#fff"')
+    .replace(/\sopacity="[^"]*"/g, "");
+  const cutout = check.replace('stroke="#fff"', 'stroke="#000"');
+  // Tight, proportion-preserving symbol bounds; no decorative outline padding.
+  const outline = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="5.8 7.5 53.6 53.6"><defs><mask id="check" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><rect width="64" height="64" fill="#fff"/><g transform="translate(1 0)">${cutout}</g></mask></defs><g mask="url(#check)">${white}</g></svg>`;
+  await Promise.all([
+    sharp(Buffer.from(brand)).resize(120, 120)
+      .extend({ top: 36, bottom: 36, left: 36, right: 36, background: "#020617" })
+      .flatten({ background: "#020617" }).png().toFile(join(packageDir, "color.png")),
+    sharp(Buffer.from(outline)).resize(32, 32).png().toFile(join(packageDir, "outline.png"))
+  ]);
+  await sharp(join(packageDir, "color.png")).resize(300, 300).png()
+    .toFile(join(releaseDir, "partner-center-icon-300.png"));
+}
 
 async function main() {
   await rm(packageDir, { force: true, recursive: true });
@@ -128,15 +157,11 @@ async function main() {
     writeFile(join(packageDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8"),
     writeFile(join(packageDir, "mcptools.json"), `${JSON.stringify({ tools }, null, 2)}\n`, "utf8"),
     writeFile(join(packageDir, "intro.md"), intro, "utf8"),
-    sharp("apps/web/public/certscore-mark-dark.svg")
-      .resize(120, 120)
-      .extend({ top: 36, bottom: 36, left: 36, right: 36, background: "#020617" })
-      .png()
-      .toFile(join(packageDir, "color.png")),
-    sharp(Buffer.from(outlineSvg)).resize(32, 32).png().toFile(join(packageDir, "outline.png"))
+    writeFile(join(releaseDir, "partner-center-listing.md"), `# Partner Center listing - ${packageVersion}\n\nApply these fields to the draft listing after the concierge team's instructions; this file does not update Partner Center.\n\n## Title\n\n${appName}\n\n## Short description\n\n${manifest.description.short}\n\n## Long description\n\n${fullDescription}\n\n## Assets\n\nUse partner-center-icon-300.png for the listing icon and the package color.png / outline.png for the app. Replace the current website-only screenshots and video with genuine Copilot Studio captures before marking issues 7, 8, and 10 resolved.\n`, "utf8"),
+    brandIcons()
   ]);
 
-  const packageTimestamp = new Date("2026-08-28T00:00:00.000Z");
+  const packageTimestamp = new Date("2026-09-18T00:00:00.000Z");
   await Promise.all(["manifest.json", "mcptools.json", "intro.md", "color.png", "outline.png"]
     .map((name) => utimes(join(packageDir, name), packageTimestamp, packageTimestamp)));
 
@@ -144,7 +169,7 @@ async function main() {
     cwd: packageDir,
     env: { ...process.env, TZ: "UTC" }
   });
-  console.log(JSON.stringify({ keyVaultTemplate: keyVaultUri === templateKeyVaultUri, outputRoot, packageDir, toolCount: tools.length, zipPath }));
+  console.log(JSON.stringify({ keyVaultTemplate: keyVaultUri === templateKeyVaultUri, releaseDir, packageDir, toolCount: tools.length, zipPath }));
 }
 
 main().catch((error) => {

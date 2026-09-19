@@ -142,6 +142,43 @@ tokens for the client cannot have the API's expected audience.
 
 ## Local validation
 
+### September 18 standalone VS Code OAuth verification
+
+The owner approved testing the existing standard endpoint separately from the
+Microsoft submission. VS Code registered an OAuth client automatically for
+`https://mcp.certscore.ai/mcp`, opened CertScore sign-in with `scan:read`,
+`scan:create`, and `mcp`, and returned a successful browser callback. VS Code
+then displayed Running with **14 tools and 3 prompts**. No manually supplied
+client ID, client secret, or temporary bearer token was needed. This verifies
+registration, interactive authorization and authenticated discovery only; it
+does not establish tool execution or refresh-after-expiry for this connection.
+
+This is the workspace/account endpoint, not the submitted four-tool public/light
+endpoint. Do not substitute it in the package without an explicit product
+decision: that changes account requirements, tool inventory, workspace access
+and potentially quotas. The submitted AzureKeyVault configuration and package
+remain unchanged.
+
+### Authentication decision before package alignment
+
+Recommended: retain the four-tool public/light product boundary. Ask Microsoft's
+concierge team to confirm the supported catalog authentication configuration and
+reviewer flow for publisher-managed authentication, citing the successful
+tenant-local Copilot pilot honestly. If interactive DCR is mandatory for that
+same endpoint, it requires a separately reviewed implementation that preserves
+public/light permissions and quotas; the tenant-local Entra pilot alone is not
+that implementation.
+
+Alternative requiring owner approval: change the submitted offer to the existing
+CertScore-account OAuth product. That would require matching the manifest auth
+schema, tool inventory, account/pricing requirements, reviewer instructions,
+listing copy and demonstration to the workspace endpoint, followed by end-to-end
+and refresh verification. Do not present this as a transparent URL change or as
+resolution of the current submitted endpoint's blocker.
+
+No package republishing, reviewer email, new scan, capacity increase or added
+infrastructure cost was performed for the VS Code discovery verification.
+
 ```sh
 node --import tsx --test apps/mcp/src/env.test.ts apps/mcp/src/microsoft-entra-auth.test.ts apps/mcp/src/http-integration.test.ts
 pnpm --filter @certscore/mcp-http typecheck
