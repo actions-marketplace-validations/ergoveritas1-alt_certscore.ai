@@ -1,0 +1,17 @@
+{
+  "Catalog": "AWSMarketplace",
+  "ClientRequestToken": "certscore-browser-public-20260920-v1",
+  "ChangeSetName": "Request Public review for free CertScore browser scanner",
+  "ChangeSet": [
+    {
+      "ChangeType": "UpdateVisibility",
+      "Entity": {
+        "Type": "SaaSProduct@1.0",
+        "Identifier": "prod-35ca6yuplccjo"
+      },
+      "DetailsDocument": {
+        "TargetVisibility": "Public"
+      }
+    }
+  ]
+}
