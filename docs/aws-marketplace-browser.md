@@ -231,9 +231,60 @@ new scans are refused. Ordinary workspace access remains available separately.
   and $0.00 contract total; free subscriptions have no end date and can be cancelled.
   The page's “Public offer” label describes the offer type; Catalog product
   visibility remains **Limited**. Do not confuse the two.
-- The first real subscription is prepared but not accepted: browser policy requires
-  action-time confirmation of the EULA. No real onboarding or scan is claimed yet.
+- The owner subsequently confirmed the first $0 subscription. Real buyer evidence
+  is recorded below; cancellation/re-subscription and Public gates remain separate.
 - AWS's “Deployed on AWS” designation is not asserted. It requires AWS review of
   the entire architecture, including applicable third-party data processors, not
   just ECS/Lambda hosting. See the [official SaaS guidelines](https://docs.aws.amazon.com/marketplace/latest/userguide/saas-guidelines.html).
   Continue using only repository-controlled AWS deployment workflows.
+
+### Real Limited onboarding — September 20, 2026
+
+- The owner approved the action-time EULA acceptance. The existing seller AWS
+  account successfully subscribed at $0.00; no second AWS account was needed.
+  Agreement: `agmt-9qpfb71l8jwnr3u95fifgghk7`; license:
+  `l-f67816f4ed3647d99f0fd0a3e2af56ea`. DescribeAgreement confirmed the exact
+  buyer, seller, browser product, offer and ACTIVE status, with no end date.
+- AWS Set up your account performed the real registration-token exchange. The
+  signed-in customer explicitly confirmed linking to separate workspace
+  `3fcc7798-18f4-4948-a835-b1789f0cbe6d`. Pending activation denied scanning;
+  a genuine lifecycle event at `2026-09-20T19:04:40Z` activated it. The actual
+  welcome email arrived with hub, allowance, support and disclaimer instructions.
+- The owned broad-baseline canary reused completed report
+  `ca74f3ca-d344-4f34-b5b0-dd8e8b0a0214` and consumed zero credits. The report
+  opened through the browser workspace and appeared in its history.
+- Fresh owned-target scan `9f2b9aca-88cd-4e6b-8dd9-71fb97bb2ac0` of
+  `https://ergoveritas.com/test2.html` completed. Its existing canonical report
+  displayed one page, retained evidence and explicit inspection limitations.
+  Customer usage changed from 0/50 to 1/50; admin confirmed the exact workspace,
+  license and completed dispatch attribution. Ordinary workspace selection worked.
+- One fresh test scan was executed so far: provisional cost estimate $0.10,
+  inside the approved $5 one-time envelope; this is not a measured unit cost.
+  No evidence/scanner configuration or retention was changed.
+- Report testing found the generic scan-next form was visible inside the browser
+  shell although its ordinary intake cannot spend Marketplace credits. Revision
+  `5c115313` replaces it with a hub link and uses full navigation for refreshed
+  subscription/usage/history. It passed affected preflight and all 10 existing
+  scan-form tests. AWS deployment `35531480885` succeeded.
+- Real cancellation is prepared against only this agreement. AWS's dialog warns
+  of irreversible subscription-data deletion, so the required action-time owner
+  confirmation is pending. No cancellation or replacement has been claimed yet.
+- This live test used an existing account with platform-admin privileges. It
+  verifies browser onboarding and attributable usage, not an independent live
+  non-admin cross-tenant security test. Ownership and alternate-intake denial
+  have isolated database/unit coverage. No new-account credential flow was tested.
+- Free agreements have no scheduled expiry. Expiry has automated coverage only.
+  Real concurrent agreements and re-subscription remain unverified. Do not request
+  Public before the remaining Limited gates and pilot-expansion decision.
+- A subsequent read-only production audit confirmed `source=marketplace-browser`,
+  one requested page, matching scan/usage workspace and owner, the expected
+  agreement/license, one debited credit, a sent welcome timestamp, and no retained
+  raw permit in scan config. Both inspected ordinary plans/memberships and all
+  three MCP license/key states still matched the pre-release baseline.
+- Reopening AWS Set up your account and explicitly linking again selected the
+  same existing workspace and retained 1/50 usage with 49 credits remaining. This
+  is repeat setup verification, not a substitute for cancellation/re-subscription.
+- After ECS stability, the live fresh report showed the corrected scan-next link.
+  Clicking it opened the Marketplace URL field with 49 remaining credits and both
+  completed reports in history. No additional scan was created by this verification.
+  All six PR checks passed for the deployed code revision.
