@@ -99,7 +99,7 @@ async function main() {
   checks.forEach((result, index) => {
     if (result.status === "rejected") check(["catalog inspection", "event delivery inspection", "public route inspection"][index], false, result.reason instanceof Error ? result.reason.message : "Check unavailable");
   });
-  console.log(JSON.stringify({ checkedAt: new Date().toISOString(), product, checks: results, acceptanceStillRequired: ["real cancellation and re-subscription", "fresh scan pending-to-terminal lifecycle", "independent buyer account", "assistant application compatibility", "missed-event recovery and alerting"] }, null, 2));
+  console.log(JSON.stringify({ checkedAt: new Date().toISOString(), product, checks: results, separateAcceptanceChecks: ["real cancellation and re-subscription", "fresh scan pending-to-terminal lifecycle", "independent buyer account", "assistant application compatibility", "missed-event recovery and alerting"] }, null, 2));
   if (results.some(result => !result.passed)) process.exitCode = 1;
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : "Readiness check failed"); process.exitCode = 1; });

@@ -129,9 +129,28 @@ MCP TypeScript SDK, independently of the Python HTTP verifier. These are protoco
 checks, not a claim that two assistant applications were certified.
 
 The owner has no second AWS account. A separate-buyer-account test is unverified;
-local two-license isolation tests do not replace that end-to-end test. Real AWS
-cancellation/re-subscription, fresh-scan lifecycle, and final production page
-verification remain release checks until recorded as completed below.
+local two-license isolation tests do not replace that end-to-end test.
+
+The setup hub deployed successfully at
+`d95ddb79e7f49239c31f497c1d9aa5cb297958f3` through
+[the canonical AWS web workflow](https://github.com/ergoveritas1-alt/certscore.ai/actions/runs/35524202367).
+The exact-image migration step and ECS stabilization passed; the live version
+endpoint reports that SHA and `ecs-fargate`, with 2/2 web tasks running and no
+pending tasks. Logged-out production HTTP inspection confirms the new content,
+sign-in return path, listing link, client guide, prompt builder and disclaimer.
+The secondary-host check was skipped because this release has no secondary host.
+
+A real authenticated `freshness: refresh` request created example.com scan
+`ca74f3ca-d344-4f34-b5b0-dd8e8b0a0214`. Status progressed from running through
+finalizing to completed. The result bundle and all 104 evidence items (84 + 20)
+were retrieved through the four Marketplace tools. No duplicate scan was
+started. Estimated one-time scanner verification cost: below $0.10; no recurring
+capacity change.
+
+Real AWS cancellation/re-subscription remains unverified. The cancellation
+dialog warns of irreversible deletion and awaits action-time owner confirmation.
+Final signed-in browser checks of the deployed key controls and test-key cleanup
+also await an unlocked Mac; local browser checks do not substitute for them.
 
 ## Read-only readiness and delivery recovery
 
