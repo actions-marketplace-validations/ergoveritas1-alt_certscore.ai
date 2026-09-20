@@ -220,6 +220,7 @@ jobs:
             apps/web/server/marketplace/sns.test.ts \
             scripts/configure-marketplace-light.test.ts \
             apps/web/server/marketplace-browser/agreement.test.ts \
+            apps/web/server/marketplace-browser/workspace-binding.test.ts \
             scripts/configure-marketplace-browser.test.ts \
             scripts/marketplace-browser-registration.test.ts
 

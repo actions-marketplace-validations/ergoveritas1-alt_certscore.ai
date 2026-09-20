@@ -7,6 +7,7 @@ import { BROWSER_PATH, BROWSER_CLAIM_COOKIE, BROWSER_WORKSPACE_COOKIE, requireBr
 import { claimBrowserLicense, getBrowserClaim, ownedBrowserWorkspace } from "./repository";
 import { verifyBrowserWorkspaceAccess, refreshBrowserBuyerLicenses } from "./aws";
 import { admitMarketplaceRequest } from "../marketplace/http";
+import { browserWorkspaceMatches } from "./workspace-binding";
 import { sendBrowserWelcome } from "./welcome";
 
 export type BrowserActionState = { message: string; scanId?: string; success?: boolean };
@@ -52,14 +53,14 @@ export async function browserScanAction(_state: BrowserActionState,form: FormDat
   requireBrowserEnabled();
   const { getDashboardContext }=await import("../auth");
   const context=await getDashboardContext();
-  if(!context.marketplaceBrowser) return {message:"Select your Marketplace workspace first."};
+  if(!browserWorkspaceMatches(context,form.get("organizationId"))) return {message:"Your workspace selection changed. Refresh this page and select the intended Marketplace workspace before scanning."};
   if(!admitMarketplaceRequest(`browser-scan:${context.user.id}`,10)) return {message:"Please wait a minute before starting another scan."};
   const requestId=String(form.get("requestId")??"");
   if(!/^[0-9a-f-]{36}$/i.test(requestId)) return {message:"Refresh the page and try again."};
   try {
     const { createOrQueueDomainScan }=await import("../domains/create-domain");
     const { getScanRequesterIpContext }=await import("../scans/requester-ip-context");
-    const result=await createOrQueueDomainScan({domain:String(form.get("domain")??""),allowExistingDomainRescan:true,
+    const result=await createOrQueueDomainScan({browserWorkspaceId:context.organization.id,domain:String(form.get("domain")??""),allowExistingDomainRescan:true,
       clientRequestId:requestId,localV2DagRunViaLambda:true,requesterIpContext:getScanRequesterIpContext(await headers())});
     if(result.error || !result.scanId) return {message:result.error??"The scan could not be started."};
     revalidatePath(BROWSER_PATH);

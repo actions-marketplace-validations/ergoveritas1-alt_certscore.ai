@@ -49,6 +49,7 @@ function getLocalAwareScanThrottleMs(userEmail: string): number | undefined {
 }
 
 export async function createOrQueueDomainScan(input: {
+  browserWorkspaceId?: string;
   fullSite?: unknown;
   crawlOptions?: unknown;
   allowExistingDomainRescan?: boolean;
@@ -74,6 +75,9 @@ export async function createOrQueueDomainScan(input: {
   scanFrom?: ScanFrom;
 }) {
   const dashboardContext = await getDashboardContext();
+  if(dashboardContext.marketplaceBrowser && input.browserWorkspaceId !== dashboardContext.organization.id) {
+    return {error:"Open your Marketplace workspace and submit its scan form. Your workspace selection may have changed.",scanId:null};
+  }
   try {
     validateFullSiteRequest(input,(fullSiteInternalEnabled() && canUseFullSite(dashboardContext.membership.role)),fullSitePolicy(process.env));
   } catch(error) {
@@ -133,6 +137,7 @@ export async function createOrQueueDomainScan(input: {
 
   if (existingDomain && input.allowExistingDomainRescan) {
     const queueResult = await queueFullScanForDomain({
+      browserWorkspaceId:input.browserWorkspaceId,
       fullSite: input.fullSite, crawlOptions: input.crawlOptions,
       domainId: existingDomain.id,
       clientRequestId: input.clientRequestId,
@@ -196,6 +201,7 @@ export async function createOrQueueDomainScan(input: {
   }
 
   const queueResult = await queueFullScanForDomain({
+      browserWorkspaceId:input.browserWorkspaceId,
       fullSite: input.fullSite, crawlOptions: input.crawlOptions,
     domainContext: {
       activeScanExists: false,

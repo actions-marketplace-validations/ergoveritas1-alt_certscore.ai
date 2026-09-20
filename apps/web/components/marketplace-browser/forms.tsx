@@ -8,9 +8,9 @@ export function BrowserAction({operation,organizationId,label}:{operation:string
   return <form action={action} className="space-y-2"><input type="hidden" name="operation" value={operation}/>{organizationId&&<input type="hidden" name="organizationId" value={organizationId}/>}
     <button className={button} disabled={pending}>{pending?"Working…":label}</button>{state.message&&<p role="status" className="max-w-xl text-sm leading-6 text-slate-600">{state.message}</p>}</form>;
 }
-export function BrowserScanForm({requestId,disabled}:{requestId:string;disabled:boolean}) {
+export function BrowserScanForm({requestId,organizationId,disabled}:{requestId:string;organizationId?:string;disabled:boolean}) {
   const [state,action,pending]=useActionState(browserScanAction,{message:"",scanId:undefined as string|undefined});
-  return <form action={action} className="space-y-4"><input type="hidden" name="requestId" value={requestId}/>
+  return <form action={action} className="space-y-4"><input type="hidden" name="requestId" value={requestId}/><input type="hidden" name="organizationId" value={organizationId??""}/>
     <label className="block text-sm font-semibold" htmlFor="browser-url">Public website URL</label>
     <input id="browser-url" name="domain" type="url" required placeholder="https://example.com" maxLength={2048} disabled={disabled||pending}
       className="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base outline-sky-700 disabled:bg-slate-50"/>

@@ -186,3 +186,9 @@ new scans are refused. Ordinary workspace access remains available separately.
 - Real token exchange, account email delivery, fresh production scan/report,
   cancellation, replacement/concurrent agreements, and expiry remain release gates.
   The original MCP Public request remains PREPARING on the latest read.
+
+- Cross-tab browser regression: with two local fixture workspaces, changing the
+  selection in tab B and submitting tab A's stale form produced an explicit
+  selection-changed error; the database confirmed zero fixture scans. Scan forms
+  carry their displayed workspace ID, and ordinary forms cannot implicitly spend
+  Marketplace credits. The added binding test passed and affected preflight passed.

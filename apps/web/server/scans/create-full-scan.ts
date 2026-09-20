@@ -81,6 +81,7 @@ const initialState: CreateFullScanActionState = {
 const LOCAL_INTERRUPTED_V2_DAG_CLEANUP_MS = 90_000;
 
 type QueueFullScanInput = {
+  browserWorkspaceId?: string;
   fullSite?: unknown;
   crawlOptions?: unknown;
   campaignAttribution?: CampaignAttribution | null;
@@ -177,7 +178,7 @@ export async function queueFullScanForDomain(input: QueueFullScanInput): Promise
   if (marketplaceBrowser) {
     const { getDashboardContext } = await import("../auth");
     const context = await getDashboardContext();
-    if (!context.marketplaceBrowser || context.organization.id !== input.organizationId || context.user.id !== input.submittedByUserId
+    if (!context.marketplaceBrowser || input.browserWorkspaceId !== input.organizationId || context.organization.id !== input.organizationId || context.user.id !== input.submittedByUserId
       || input.scanType === "scheduled" || input.fullSite || input.crawlOptions) {
       return { error: "Use your Marketplace workspace to run a manual single-page scan.", scanId: null };
     }
