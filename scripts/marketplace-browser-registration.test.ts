@@ -37,3 +37,16 @@ test("free pricing cannot introduce charges or an unbounded allowance", () => {
   assert.ok(metadata.SearchKeywords.join("").length <= 250);
   assert.ok(!changes.some(c => c.ChangeType === "AddDeliveryOptions"), "Do not submit unfinished fulfillment");
 });
+
+test("prepared fulfillment is browser-only and release targets only the new draft pair", () => {
+  const delivery=JSON.parse(readFileSync("infra/aws/marketplace-browser/add-delivery.json","utf8"));
+  assert.equal(delivery.ChangeSet.length,1);
+  assert.equal(delivery.ChangeSet[0].Entity.Identifier,"prod-35ca6yuplccjo");
+  const details=delivery.ChangeSet[0].DetailsDocument.DeliveryOptions[0].Details;
+  assert.deepEqual(Object.keys(details),["SaaSUrlDeliveryOptionDetails"]);
+  assert.equal(details.SaaSUrlDeliveryOptionDetails.FulfillmentUrl,"https://certscore.ai/api/marketplace/browser/register");
+  assert.equal(details.SaaSUrlDeliveryOptionDetails.QuickLaunchEnabled,false);
+  const release=JSON.parse(readFileSync("infra/aws/marketplace-browser/release-limited.json","utf8"));
+  assert.deepEqual(release.ChangeSet.map((c:{ChangeType:string;Entity:{Identifier:string}})=>[c.ChangeType,c.Entity.Identifier]),[["ReleaseProduct","prod-35ca6yuplccjo"],["ReleaseOffer","offer-igm3spsgqmmea"]]);
+  assert.ok(release.ChangeSet.every((c:{DetailsDocument:unknown})=>JSON.stringify(c.DetailsDocument)==="{}"));
+});
