@@ -60,13 +60,16 @@ export async function revokeMarketplaceKey(licenseArn: string, userId: string) {
     where k.license_arn=l.license_arn and l.license_arn=$1 and l.owner_user_id=$2`, [licenseArn, userId]);
 }
 
-export async function validateMarketplaceKey(token: string) {
-  if (!marketplaceKeyPattern.test(token)) return false;
-  const row = await queryOne(`select k.license_arn from marketplace_light_keys k
+export async function getActiveMarketplaceKey(token: string) {
+  if (!marketplaceKeyPattern.test(token)) return null;
+  return queryOne<{ license_arn: string; agreement_id: string | null; buyer_account_id: string }>(`select k.license_arn, l.agreement_id, l.buyer_account_id from marketplace_light_keys k
     join marketplace_light_licenses l using (license_arn)
     where k.token_hash=$1 and k.revoked_at is null and k.expires_at>now()
     and l.status='active' and (l.expires_at is null or l.expires_at>now())`, [hashIntegrationApiKey(token)]);
-  return Boolean(row);
+}
+
+export async function validateMarketplaceKey(token: string) {
+  return Boolean(await getActiveMarketplaceKey(token));
 }
 
 export function listMarketplaceLicenses(userId: string) {

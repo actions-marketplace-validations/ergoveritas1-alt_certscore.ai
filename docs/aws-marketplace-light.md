@@ -102,9 +102,8 @@ rule became Active:
 - A control request to anonymous `/mcp/light` retains the previous Python
   browser-signature rejection, confirming the exception's route scope.
 
-The free AWS subscription remains active. Real Marketplace cancellation and
-deprovisioning have **not** been verified; keep Limited visibility until the
-remaining release checks pass. This edge fix required no ECS deployment.
+The initial edge fix required no ECS deployment. Cancellation was subsequently
+verified as recorded below; public visibility still requires separate review.
 
 ## Setup-page verification (September 20, 2026)
 
@@ -147,10 +146,11 @@ were retrieved through the four Marketplace tools. No duplicate scan was
 started. Estimated one-time scanner verification cost: below $0.10; no recurring
 capacity change.
 
-Real AWS cancellation/re-subscription remains unverified. The cancellation
-dialog warns of irreversible deletion and awaits action-time owner confirmation.
-Final signed-in browser checks of the deployed key controls and test-key cleanup
-also await an unlocked Mac; local browser checks do not substitute for them.
+The deployed signed-in key replacement flow passed. On September 20, the owner-
+authorized cancellation of the real free agreement completed in AWS; DescribeAgreement
+reported CANCELLED. Both the already-initialized MCP session and a new session
+then rejected the former key with HTTP 401. Re-subscription and final replacement
+key cleanup remain outstanding; cancellation alone does not establish those results.
 
 ## Read-only readiness and delivery recovery
 
@@ -187,11 +187,58 @@ granting access. Deprovisioned licenses never reactivate from late updates.
 Do not remove a dead-letter message until delivery and the affected license's
 access state have been independently verified.
 
-Remaining operational gap: delivery has retries and a 14-day dead-letter queue,
-but this stack does not yet configure alert notifications or periodic agreement
-reconciliation. An empty queue does not prove no events were missed upstream.
-Do not describe cancellation enforcement as instant or failure-proof, and do
-not clear the public-release gate on protocol tests alone.
+## Launch hardening (September 20, 2026)
+
+The auth handler additionally checks AWS's current agreement status, buyer and
+validity window. A bounded, per-process five-minute cache coalesces requests;
+expired snapshots are never used after an AWS failure. PostgreSQL still checks
+key revocation and license state on every request and again after the AWS lookup,
+so a rotation while AWS is responding cannot authorize the superseded key.
+This bounds missed *agreement cancellation* enforcement to five minutes after
+AWS reports the cancellation. It is not periodic license reconciliation and
+cannot independently discover a license deprovisioned under a still-active
+agreement. AWS errors fail closed with 503. No new compute capacity or scheduled
+worker is introduced; this uses existing authorized DescribeAgreement access.
+
+The CloudFormation template adds an encrypted 14-day EventBridge target recovery
+queue separately from the existing SNS HTTPS redrive queue. Four standard
+CloudWatch alarms cover exhausted EventBridge delivery, SNS failures, and both
+queue backlogs. Their dedicated SNS topic uses a seller-account/alarm-scoped
+publish policy. The owner selected support@certscore.ai for notifications;
+the email subscription must be confirmed before alerts can reach that inbox.
+Estimated incremental recurring cost: about $0.40/month for four alarms plus
+negligible low-volume SNS/SQS charges (below $1/month preapproval). This does not
+increase scan allowances, model usage, retention on existing data, or capacity.
+Deployment and alert confirmation must be verified separately from the template.
+
+Recovery: inspect the queue corresponding to the failed hop. Extract the original
+EventBridge lifecycle event (SNS failures may contain the notification envelope),
+validate its product/account identities and timestamp, then republish that original
+event through the events SNS topic after fixing the cause. Never invent a new
+activation timestamp. Keep the retained message until corrected delivery and
+access state are verified. Neither an empty queue nor an OK alarm proves that no
+upstream events were missed.
+
+Validation: the change-aware web/worker preflight against the deployed setup-page
+SHA passed. Focused Marketplace tests, including the isolated PostgreSQL lifecycle,
+passed with five new agreement-cache tests (missed cancellation, dependency failure,
+concurrent lookup/rotation, immediate local revocation, and buyer/time binding).
+The broader origin/main preflight also selected unrelated scanner tests: two
+policy timing assertions failed; the observed-link case passed in isolation,
+while a long-policy locale case still exceeded its fixture capture budget. No
+scanner source is changed by this hardening release.
+
+## Buyer identity and usage attribution
+
+Setup and key management require a signed-in CertScore account. The license
+stores owner_user_id and the AWS buyer/account/agreement identity; the key hash
+maps to that license. Thus its owner can be resolved to the CertScore user's
+email. That email is obtained from CertScore sign-in, not an AWS buyer-email
+field. Holding a shared key does not establish the identity of its current human
+operator. The Marketplace MCP path currently supplies a caller hash but does not
+populate authenticatedUserId in activity telemetry, so it does not yet provide
+a reliable email-attributed per-scan activity view. The anonymous Light endpoint
+remains separate and anonymous.
 
 ## Copy-ready Marketplace usage instructions
 

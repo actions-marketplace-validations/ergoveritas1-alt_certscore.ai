@@ -9,7 +9,59 @@ Parameters:
   ProductId:
     Type: String
     Default: prod-eagvxckgntmxc
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: Owner-approved alert address; confirm the SNS subscription email after deployment.
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
 Resources:
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: certscore-marketplace-light-alerts
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+      TopicArn: !Ref AlertsTopic
+  AlertsPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref AlertsTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudwatch.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref AlertsTopic
+            Condition:
+              StringEquals: {aws:SourceAccount: !Ref AWS::AccountId}
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:certscore-marketplace-light-*
+  DeliveryDeadLetters:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: certscore-marketplace-light-delivery-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  DeliveryDeadLetterPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref DeliveryDeadLetters]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: events.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt DeliveryDeadLetters.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/certscore-marketplace-light-licenses
   EventsTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -36,6 +88,7 @@ Resources:
               ArnEquals: {aws:SourceArn: !Ref EventsTopic}
   LifecycleRule:
     Type: AWS::Events::Rule
+    DependsOn: DeliveryDeadLetterPolicy
     Properties:
       Name: certscore-marketplace-light-licenses
       EventPattern:
@@ -50,6 +103,8 @@ Resources:
         - Id: marketplace-light-sns
           Arn: !Ref EventsTopic
           RoleArn: !GetAtt EventDeliveryRole.Arn
+          DeadLetterConfig:
+            Arn: !GetAtt DeliveryDeadLetters.Arn
   EventDeliveryRole:
     Type: AWS::IAM::Role
     Properties:
@@ -93,7 +148,71 @@ Resources:
           - Effect: Allow
             Action: sns:ConfirmSubscription
             Resource: !Ref EventsTopic
+  DeliveryFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: certscore-marketplace-light-delivery-failed
+      AlarmDescription: Marketplace event delivery exhausted retries. Inspect the EventBridge delivery DLQ and target permissions.
+      Namespace: AWS/Events
+      MetricName: FailedInvocations
+      Dimensions: [{Name: RuleName, Value: !Ref LifecycleRule}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+  NotificationFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: certscore-marketplace-light-notification-failed
+      AlarmDescription: Marketplace HTTPS notification delivery failed. Inspect web endpoint health and the SNS redrive queue.
+      Namespace: AWS/SNS
+      MetricName: NumberOfNotificationsFailed
+      Dimensions: [{Name: TopicName, Value: !GetAtt EventsTopic.TopicName}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+  DeliveryBacklogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: certscore-marketplace-light-delivery-backlog
+      AlarmDescription: Undelivered EventBridge events retained for 14 days. Investigate and replay through the events SNS topic after fixing delivery.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt DeliveryDeadLetters.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+  NotificationBacklogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: certscore-marketplace-light-notification-backlog
+      AlarmDescription: Undelivered SNS notifications retained for 14 days. Investigate and replay original lifecycle events after fixing HTTPS delivery.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt EventsDeadLetters.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
 Outputs:
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic
+  DeliveryDeadLetterQueueUrl:
+    Value: !Ref DeliveryDeadLetters
   TopicArn:
     Value: !Ref EventsTopic
   DeadLetterQueueUrl:

@@ -10,6 +10,11 @@ const metering = new MarketplaceMeteringClient({ region: "us-east-1", maxAttempt
 const agreements = new MarketplaceAgreementClient({ region: "us-east-1", maxAttempts: 2 });
 const sns = new SNSClient({ region: "us-east-1", maxAttempts: 2 });
 
+export async function describeMarketplaceAgreement(agreementId: string) {
+  requireMarketplaceEnabled();
+  return agreements.send(new DescribeAgreementCommand({ agreementId }), { abortSignal: AbortSignal.timeout(10_000) });
+}
+
 export async function resolveMarketplaceCustomer(token: string) {
   const config = requireMarketplaceEnabled();
   const response = await metering.send(new ResolveCustomerCommand({ RegistrationToken: token }), { abortSignal: AbortSignal.timeout(10_000) });
@@ -32,6 +37,6 @@ export async function processMarketplaceEvent(value: unknown) {
     return;
   }
   // An update is not itself a grant. Check AWS's current agreement state, fail closed on errors.
-  const agreement = await agreements.send(new DescribeAgreementCommand({ agreementId: event.detail.agreement.id }), { abortSignal: AbortSignal.timeout(10_000) });
+  const agreement = await describeMarketplaceAgreement(event.detail.agreement.id);
   await applyLicenseEvent(event, agreementAllowsAccess(agreement, event.detail.acceptor.accountId), agreement.endTime ?? null);
 }

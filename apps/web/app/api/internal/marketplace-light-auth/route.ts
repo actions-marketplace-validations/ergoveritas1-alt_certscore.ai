@@ -1,5 +1,5 @@
 import { verifyMarketplaceKeyProof } from "@certscore/mcp-auth";
-import { validateMarketplaceKey } from "../../../../server/marketplace/repository";
+import { verifyMarketplaceAccess } from "../../../../server/marketplace/access";
 import { requireMarketplaceEnabled } from "../../../../server/marketplace/config";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +11,6 @@ export async function POST(request: Request) {
   if (!token || !secret || !verifyMarketplaceKeyProof(secret, timestamp, token, proof)) return new Response(null, { status: 401 });
   try {
     requireMarketplaceEnabled();
-    return new Response(null, { status: await validateMarketplaceKey(token) ? 204 : 401, headers: { "Cache-Control": "no-store" } });
-  } catch { return new Response(null, { status: 503 }); }
+    return new Response(null, { status: await verifyMarketplaceAccess(token) ? 204 : 401, headers: { "Cache-Control": "no-store" } });
+  } catch { return new Response(null, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "10" } }); }
 }

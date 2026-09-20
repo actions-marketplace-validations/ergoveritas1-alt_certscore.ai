@@ -10,6 +10,8 @@ const code = "a3p2vfccdufqnuhyn5r8lsx0q";
 const offer = "offer-jvsx7w2hpkafo";
 const topic = `arn:aws:sns:us-east-1:${account}:certscore-marketplace-light-events`;
 const queue = `https://sqs.us-east-1.amazonaws.com/${account}/certscore-marketplace-light-events-dlq`;
+const deliveryQueue = `https://sqs.us-east-1.amazonaws.com/${account}/certscore-marketplace-light-delivery-dlq`;
+const alertsTopic = `arn:aws:sns:us-east-1:${account}:certscore-marketplace-light-alerts`;
 const endpoint = "https://mcp.certscore.ai/mcp/marketplace/light";
 const registration = "https://certscore.ai/api/marketplace/light/register";
 const setup = "https://certscore.ai/marketplace/light";
@@ -55,7 +57,7 @@ async function checkCatalog() {
 async function checkDelivery() {
   const [rule, targets, subscriptions, dlq] = await Promise.all([
     aws<{ State: string; EventPattern: string }>(["events", "describe-rule", "--name", "certscore-marketplace-light-licenses"]),
-    aws<{ Targets: { Arn: string }[] }>(["events", "list-targets-by-rule", "--rule", "certscore-marketplace-light-licenses"]),
+    aws<{ Targets: { Arn: string; DeadLetterConfig?: { Arn: string } }[] }>(["events", "list-targets-by-rule", "--rule", "certscore-marketplace-light-licenses"]),
     aws<{ Subscriptions: { Protocol: string; Endpoint: string; SubscriptionArn: string }[] }>(["sns", "list-subscriptions-by-topic", "--topic-arn", topic]),
     aws<{ Attributes: Record<string, string> }>(["sqs", "get-queue-attributes", "--queue-url", queue, "--attribute-names", "ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"]),
   ]);
@@ -63,6 +65,7 @@ async function checkDelivery() {
   const exact = (actual: unknown, expected: string[]) => Array.isArray(actual) && actual.length === expected.length && expected.every(item => actual.includes(item));
   check("enabled license lifecycle rule with exact product scope", rule.State === "ENABLED" && exact(pattern.source, ["aws.agreement-marketplace"]) && exact(pattern.account, [account]) && exact(pattern["detail-type"], ["License Updated - Manufacturer", "License Deprovisioned - Manufacturer"]) && exact(pattern.detail?.product?.id, [product]) && exact(pattern.detail?.product?.code, [code]));
   check("lifecycle target is the signed delivery topic", targets.Targets.length === 1 && targets.Targets[0].Arn === topic);
+  check("EventBridge target recovery configured", targets.Targets[0]?.DeadLetterConfig?.Arn === `arn:aws:sqs:us-east-1:${account}:certscore-marketplace-light-delivery-dlq`);
   const subscription = subscriptions.Subscriptions.find(item => item.Protocol === "https" && item.Endpoint === "https://certscore.ai/api/marketplace/light/events");
   check("HTTPS lifecycle subscription confirmed", Boolean(subscription?.SubscriptionArn.startsWith(`${topic}:`)));
   if (subscription?.SubscriptionArn.startsWith(`${topic}:`)) {
@@ -72,6 +75,20 @@ async function checkDelivery() {
   }
   const counts = ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"].map(name => dlq.Attributes[name]);
   check("delivery dead-letter queue is empty", counts.every(value => value === "0"), counts.join(" / "));
+}
+
+async function checkAlerts() {
+  const [alarms, subscriptions, dlq] = await Promise.all([
+    aws<{ MetricAlarms: { AlarmName: string; ActionsEnabled: boolean; AlarmActions?: string[]; StateValue: string }[] }>(["cloudwatch", "describe-alarms", "--alarm-name-prefix", "certscore-marketplace-light-"]),
+    aws<{ Subscriptions: { Protocol: string; SubscriptionArn: string }[] }>(["sns", "list-subscriptions-by-topic", "--topic-arn", alertsTopic]),
+    aws<{ Attributes: Record<string, string> }>(["sqs", "get-queue-attributes", "--queue-url", deliveryQueue, "--attribute-names", "ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"]),
+  ]);
+  for (const name of ["delivery-failed", "notification-failed", "delivery-backlog", "notification-backlog"]) {
+    const alarm = alarms.MetricAlarms.find(item => item.AlarmName === `certscore-marketplace-light-${name}`);
+    check(`operational alarm: ${name}`, Boolean(alarm?.ActionsEnabled && alarm.AlarmActions?.includes(alertsTopic) && alarm.StateValue === "OK"), alarm?.StateValue ?? "missing");
+  }
+  check("alert email subscription confirmed", subscriptions.Subscriptions.some(item => item.Protocol === "email" && item.SubscriptionArn.startsWith(`${alertsTopic}:`)));
+  check("EventBridge recovery queue is empty", ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"].every(name => dlq.Attributes[name] === "0"));
 }
 
 async function checkPublicRoutes() {
@@ -95,9 +112,9 @@ async function checkPublicRoutes() {
 async function main() {
   const identity = await aws<{ Account: string }>(["sts", "get-caller-identity"]);
   if (identity.Account !== account) throw new Error("Use the CertScore seller account for these read-only checks.");
-  const checks = await Promise.allSettled([checkCatalog(), checkDelivery(), checkPublicRoutes()]);
+  const checks = await Promise.allSettled([checkCatalog(), checkDelivery(), checkPublicRoutes(), checkAlerts()]);
   checks.forEach((result, index) => {
-    if (result.status === "rejected") check(["catalog inspection", "event delivery inspection", "public route inspection"][index], false, result.reason instanceof Error ? result.reason.message : "Check unavailable");
+    if (result.status === "rejected") check(["catalog inspection", "event delivery inspection", "public route inspection", "operational alert inspection"][index], false, result.reason instanceof Error ? result.reason.message : "Check unavailable");
   });
   console.log(JSON.stringify({ checkedAt: new Date().toISOString(), product, checks: results, separateAcceptanceChecks: ["real cancellation and re-subscription", "fresh scan pending-to-terminal lifecycle", "independent buyer account", "assistant application compatibility", "missed-event recovery and alerting"] }, null, 2));
   if (results.some(result => !result.passed)) process.exitCode = 1;
