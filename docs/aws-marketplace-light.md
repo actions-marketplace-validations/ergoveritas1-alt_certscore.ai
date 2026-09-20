@@ -133,6 +133,47 @@ local two-license isolation tests do not replace that end-to-end test. Real AWS
 cancellation/re-subscription, fresh-scan lifecycle, and final production page
 verification remain release checks until recorded as completed below.
 
+## Read-only readiness and delivery recovery
+
+Run from the seller account using existing AWS CLI credentials:
+
+```bash
+pnpm exec tsx scripts/check-marketplace-light-readiness.ts
+```
+
+This checks the catalog product and zero-price offer, authenticated fulfillment
+copy and URLs, disabled Quick Launch/AgentCore, exact EventBridge product scope,
+confirmed HTTPS subscription and dead-letter policy, empty delivery DLQ, setup
+availability, and missing/invalid-key HTTP 401 responses. It creates no resources,
+keys, subscriptions, scans, or messages, and prints no signed catalog URLs or
+credentials. The September 20 run passed all 17 checks. Browser inspection also
+passed at 390px width without console errors. This command is an operator check,
+not a scheduled monitor or a substitute for buyer acceptance testing.
+
+If delivery fails, preserve Limited visibility and inspect the existing
+`certscore-marketplace-light-events-dlq` in us-east-1 and web logs for
+`marketplace_light.event_failed`. Check the EventBridge rule/target, SNS
+subscription confirmation/redrive policy, HTTPS route availability, and the
+web task's Marketplace permissions. Do not expose registration tokens, keys,
+signed URLs, or full notification bodies in tickets or logs.
+
+After restoring delivery, an authorized operator should inspect each retained
+event's seller, product, buyer, agreement, license, and original timestamp;
+compare the agreement to AWS's current state. Republish the original EventBridge
+event through the configured SNS topic so SNS signs a new delivery. Do not POST
+an unsigned payload to the web route or invent activation events. Preserve the
+original event timestamp: duplicate and late notifications must stay ordered.
+For updated licenses the handler re-checks current AWS agreement state before
+granting access. Deprovisioned licenses never reactivate from late updates.
+Do not remove a dead-letter message until delivery and the affected license's
+access state have been independently verified.
+
+Remaining operational gap: delivery has retries and a 14-day dead-letter queue,
+but this stack does not yet configure alert notifications or periodic agreement
+reconciliation. An empty queue does not prove no events were missed upstream.
+Do not describe cancellation enforcement as instant or failure-proof, and do
+not clear the public-release gate on protocol tests alone.
+
 ## Copy-ready Marketplace usage instructions
 
 Sign in or create a CertScore account after subscribing to this free offering.
