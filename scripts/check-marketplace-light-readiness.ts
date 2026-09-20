@@ -15,6 +15,7 @@ const alertsTopic = `arn:aws:sns:us-east-1:${account}:certscore-marketplace-ligh
 const endpoint = "https://mcp.certscore.ai/mcp/marketplace/light";
 const registration = "https://certscore.ai/api/marketplace/light/register";
 const setup = "https://certscore.ai/marketplace/light";
+const expectedVisibility = process.argv.includes("--expect-public") ? "Public" : "Limited";
 const results: { check: string; passed: boolean; detail?: string }[] = [];
 function check(name: string, passed: boolean, detail?: string) {
   results.push({ check: name, passed, ...(detail ? { detail } : {}) });
@@ -39,7 +40,7 @@ async function checkCatalog() {
   ]);
   const p = listing.DetailsDocument;
   check("product identity and active state", p.Description.ProductCode === code && p.Description.ProductState === "Active");
-  check("listing remains Limited for acceptance testing", p.Description.Visibility === "Limited", p.Description.Visibility);
+  check(`listing visibility is ${expectedVisibility}`, p.Description.Visibility === expectedVisibility, p.Description.Visibility);
   const deliveries = p.Versions.flatMap(version => version.DeliveryOptions);
   check("single expected Marketplace delivery option", deliveries.length === 1);
   const delivery = deliveries[0];
@@ -70,6 +71,7 @@ async function checkDelivery() {
   check("HTTPS lifecycle subscription confirmed", Boolean(subscription?.SubscriptionArn.startsWith(`${topic}:`)));
   if (subscription?.SubscriptionArn.startsWith(`${topic}:`)) {
     const settings = await aws<{ Attributes: Record<string, string> }>(["sns", "get-subscription-attributes", "--subscription-arn", subscription.SubscriptionArn]);
+    check("HTTPS subscription confirmation state", settings.Attributes.PendingConfirmation === "false");
     const policy = JSON.parse(settings.Attributes.RedrivePolicy ?? "{}");
     check("subscription dead-letter recovery configured", policy.deadLetterTargetArn === `arn:aws:sqs:us-east-1:${account}:certscore-marketplace-light-events-dlq`);
   }
@@ -87,7 +89,9 @@ async function checkAlerts() {
     const alarm = alarms.MetricAlarms.find(item => item.AlarmName === `certscore-marketplace-light-${name}`);
     check(`operational alarm: ${name}`, Boolean(alarm?.ActionsEnabled && alarm.AlarmActions?.includes(alertsTopic) && alarm.StateValue === "OK"), alarm?.StateValue ?? "missing");
   }
-  check("alert email subscription confirmed", subscriptions.Subscriptions.some(item => item.Protocol === "email" && item.SubscriptionArn.startsWith(`${alertsTopic}:`)));
+  const email = subscriptions.Subscriptions.find(item => item.Protocol === "email" && item.SubscriptionArn.startsWith(`${alertsTopic}:`));
+  const settings = email ? await aws<{ Attributes: Record<string, string> }>(["sns", "get-subscription-attributes", "--subscription-arn", email.SubscriptionArn]) : null;
+  check("alert email subscription confirmed", settings?.Attributes.PendingConfirmation === "false");
   check("EventBridge recovery queue is empty", ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "ApproximateNumberOfMessagesDelayed"].every(name => dlq.Attributes[name] === "0"));
 }
 
@@ -110,6 +114,7 @@ async function checkPublicRoutes() {
 }
 
 async function main() {
+  if (process.argv.slice(2).some(arg => arg !== "--expect-public")) throw new Error("Only --expect-public is supported.");
   const identity = await aws<{ Account: string }>(["sts", "get-caller-identity"]);
   if (identity.Account !== account) throw new Error("Use the CertScore seller account for these read-only checks.");
   const checks = await Promise.allSettled([checkCatalog(), checkDelivery(), checkPublicRoutes(), checkAlerts()]);

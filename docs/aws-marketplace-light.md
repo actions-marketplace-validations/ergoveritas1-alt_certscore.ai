@@ -149,8 +149,13 @@ capacity change.
 The deployed signed-in key replacement flow passed. On September 20, the owner-
 authorized cancellation of the real free agreement completed in AWS; DescribeAgreement
 reported CANCELLED. Both the already-initialized MCP session and a new session
-then rejected the former key with HTTP 401. Re-subscription and final replacement
-key cleanup remain outstanding; cancellation alone does not establish those results.
+then rejected the former key with HTTP 401. An owner-approved $0 re-subscription
+completed the AWS launch/registration handoff and explicit CertScore account link.
+The replacement license activated and its newly created key initialized with HTTP
+200 after the hardening deployment; the canceled license's old key still returned
+401. Revoking the disposable replacement key cleared the visible secret/key field
+and returned 401 on its next request. The local verifier was stopped. The new
+free subscription remains active, with its test key revoked.
 
 ## Read-only readiness and delivery recovery
 
@@ -165,8 +170,9 @@ copy and URLs, disabled Quick Launch/AgentCore, exact EventBridge product scope,
 confirmed HTTPS subscription and dead-letter policy, empty delivery DLQ, setup
 availability, and missing/invalid-key HTTP 401 responses. It creates no resources,
 keys, subscriptions, scans, or messages, and prints no signed catalog URLs or
-credentials. The September 20 run passed all 17 checks. Browser inspection also
-passed at 390px width without console errors. This command is an operator check,
+credentials. The final September 20 run passed all 25 checks, including the new recovery queue,
+four alarms and actual SNS confirmation state. Browser inspection also
+passed at 390px width without console errors. After AWS approves Public visibility, add `--expect-public`. This command is an operator check,
 not a scheduled monitor or a substitute for buyer acceptance testing.
 
 If delivery fails, preserve Limited visibility and inspect the existing
@@ -209,7 +215,10 @@ the email subscription must be confirmed before alerts can reach that inbox.
 Estimated incremental recurring cost: about $0.40/month for four alarms plus
 negligible low-volume SNS/SQS charges (below $1/month preapproval). This does not
 increase scan allowances, model usage, retention on existing data, or capacity.
-Deployment and alert confirmation must be verified separately from the template.
+The CloudFormation update completed successfully. All four alarms report OK,
+both recovery queues are empty, and SNS confirms PendingConfirmation=false for
+the support@certscore.ai email subscription. This verifies the notification
+configuration, not a simulated failure/email delivery drill.
 
 Recovery: inspect the queue corresponding to the failed hop. Extract the original
 EventBridge lifecycle event (SNS failures may contain the notification envelope),
@@ -273,3 +282,24 @@ Findings are automated observations, not legal advice or compliance certificatio
 Update all short/long descriptions and highlights that say "no account or API
 key required" to "Free Marketplace Light access with a CertScore account and
 API key." Public anonymous Light documentation does not need that change.
+
+
+## Public visibility request and deployed launch checks
+
+On September 20, 2026, the web hardening deployed at
+`a00c1493ff7001cead063003e6376f79713d6c1f` through
+[the canonical AWS workflow](https://github.com/ergoveritas1-alt/certscore.ai/actions/runs/35526396435).
+Exact-image migrations and ECS stabilization succeeded; the live version reports
+that SHA and ecs-fargate. The web service has 2/2 tasks running, zero pending, and
+task definition 633 with rollout COMPLETED. The focused Marketplace suite passed
+all 12 tests including its isolated PostgreSQL test. The deployment-specific
+preflight passed; unrelated broader scanner failures are recorded above.
+
+The owner-authorized request to change product visibility to Public was submitted
+with the free dimension still $0.00. Request `9bftg98xyev4v5b10u7454jov` is shown
+as Under review in the seller portal (Catalog API PREPARING at verification).
+[Review request](https://aws.amazon.com/marketplace/management/requests/9bftg98xyev4v5b10u7454jov).
+Product visibility remains Limited pending AWS review; a successful submission is
+not public approval. AWS may subscribe and request access for their review. The
+separate-buyer-account test remains unavailable, and assistant-specific UI
+compatibility has not been claimed from the SDK/HTTP protocol checks.
