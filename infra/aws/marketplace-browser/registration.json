@@ -1,0 +1,32 @@
+{
+  "verifiedAt": "2026-09-20",
+  "sellerAccount": "199536052647",
+  "region": "us-east-1",
+  "productId": "prod-35ca6yuplccjo",
+  "productCode": "1rlcf9he502qz0ix13gqfiaoc",
+  "offerId": "offer-igm3spsgqmmea",
+  "registrationChangeSetId": "ehphu2ry5kelq20h8bwfw14bq",
+  "changeSetStatus": "SUCCEEDED",
+  "productVisibility": "Draft",
+  "offerState": "Draft",
+  "pricingModelSubmitted": "Free",
+  "dimension": "browser_scans",
+  "priceUSD": "0.00",
+  "legalDocument": {
+    "type": "StandardEula",
+    "version": "2022-07-14"
+  },
+  "deliveryConfigured": false,
+  "publicVisibilityRequested": false,
+  "requestedBuyerAccounts": [
+    "199536052647"
+  ],
+  "effectiveBuyerAccounts": [
+    "155422166461",
+    "199536052647",
+    "297512042063",
+    "100458166471",
+    "782858285006",
+    "058264185180"
+  ]
+}
