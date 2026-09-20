@@ -13,13 +13,14 @@ initial price to free. AWS registration completed successfully:
 | Product code | 1rlcf9he502qz0ix13gqfiaoc |
 | Offer ID | offer-igm3spsgqmmea |
 | Change request | ehphu2ry5kelq20h8bwfw14bq — SUCCEEDED |
-| Product visibility / state | Draft / Draft |
-| Offer state | Draft |
+| Product visibility / state | Limited / Active |
+| Offer state | Released |
 | Submitted pricing model | Free |
 | Saved dimension / rate | browser_scans / USD 0.00 |
 | Legal terms | AWS StandardEula, version 2022-07-14 |
-| Delivery | Not yet configured |
-| Limited or Public release | Not requested |
+| Delivery | Website callback configured; request 8kzsthwv54nlalto15rmh7jp7 SUCCEEDED |
+| Limited release | bs4lizgnfd49qkmbf7ku6o7wl — SUCCEEDED |
+| Public release | Not requested |
 
 The submitted payload is
 `infra/aws/marketplace-browser/create-draft.json`; the verified identity and
@@ -32,10 +33,11 @@ updates against the saved product and offer IDs.
 The request targeted the seller account only. AWS's saved targeting additionally
 contains five accounts that were also present in the existing MCP listing's
 targeting. Record the returned list; do not remove AWS-added accounts or claim
-the effective targeting contains only the seller. The product remains Draft.
+the effective targeting contains only the seller. The product is now Limited.
 
 Use the AWS Marketplace seller console's SaaS product list to find the exact
-product ID above. No customer-facing listing URL is asserted at this stage.
+product ID above. Buyer listing: [CertScore.ai Website Scanner](https://aws.amazon.com/marketplace/pp/prodview-gtrsswq5vpqdc).
+This is a Limited listing, not Public availability.
 
 ## Offer and implementation contract
 
@@ -62,10 +64,10 @@ reporting, and release gates. Current membership storage allows one ordinary
 workspace per user; supporting separate Marketplace workspaces needs an explicit
 authorized selection path, not silently replacing the existing membership.
 
-Planned fulfillment: `https://certscore.ai/api/marketplace/browser/register`.
-Planned onboarding: `https://certscore.ai/marketplace/browser`.
-Neither is registered as an operational delivery option yet. Implement and
-verify fulfillment before adding it and requesting Limited release.
+Configured fulfillment: `https://certscore.ai/api/marketplace/browser/register`.
+Live onboarding: `https://certscore.ai/marketplace/browser`.
+AWS accepted the delivery option after the first production deployment succeeded.
+The final workspace-binding deployment succeeded. Limited subscription tests remain gates.
 
 ## Verification and limits
 
@@ -84,8 +86,9 @@ verify fulfillment before adding it and requesting Limited release.
 - Do not promote to Public before Limited integration testing. Do not describe
   registration or a Public request as a public launch.
 
-No new runtime infrastructure, capacity, scan, model call, or retention was
-introduced by draft registration: estimated recurring increase $0/month.
+Draft registration itself introduced no runtime infrastructure, capacity, scan,
+model call, or retention: estimated recurring increase $0/month. The subsequent
+production integration has the $1–$5/month overhead described below.
 The approved future operating envelope remains up to $60/month for an initial
 ten-customer cohort and up to $5 one-time testing. Free access provides no
 subscription revenue; cohort expansion requires reassessing the actual cost.
@@ -170,7 +173,7 @@ new scans are refused. Ordinary workspace access remains available separately.
 
 ### Verification evidence — implementation stage
 
-- Thirty-two targeted tests passed, including shared MCP signature/product regressions,
+- Thirty-three targeted tests passed, including shared MCP signature/product regressions,
   browser agreement identities/time, separate runtime flag, and free draft payload.
 - The isolated PostgreSQL lifecycle test created 51 scan attempts against a 50-credit
   allowance; exactly 50 committed. It verified single-use claims and permits, foreign
@@ -192,3 +195,45 @@ new scans are refused. Ordinary workspace access remains available separately.
   selection-changed error; the database confirmed zero fixture scans. Scan forms
   carry their displayed workspace ID, and ordinary forms cannot implicitly spend
   Marketplace credits. The added binding test passed and affected preflight passed.
+
+### Production rollout evidence — September 20, 2026
+
+- Initial web deployment `35529525478` succeeded at revision `2d2b565a`. Its
+  migration, contract checks, isolated PostgreSQL lifecycle suite and build passed.
+- Follow-up deployment `35530028150` succeeded at `aa2b18d6`, including the tested
+  stale-form workspace binding fix. Production `/api/version` confirmed that SHA.
+- The separate `certscore-marketplace-browser` stack reached CREATE_COMPLETE.
+  Its signed HTTPS notification subscription and `support@certscore.ai` alert
+  subscription are confirmed. The exact-product EventBridge rule is enabled.
+  Four alarms are OK; both encrypted 14-day recovery queues were empty.
+- Production hub returned HTTP 200 and rendered the branded free offer, signed-in
+  account, bounded allowance, support and disclaimer. Without a linked agreement,
+  scan intake is disabled. Health returned OK. These are not buyer lifecycle tests.
+- Website fulfillment request `8kzsthwv54nlalto15rmh7jp7` succeeded. AWS saved
+  `https://certscore.ai/api/marketplace/browser/register` as SoftwareRegistration.
+- All six current PR checks passed at `aa2b18d6`. The separate MCP Public request
+  remained PREPARING; no new request or mutation targeted that listing.
+- A bounded read-only production inspection confirmed zero browser workspaces,
+  licenses and usage rows before onboarding. The two inspected existing customer
+  plans/memberships and all three MCP license/key states matched the saved baseline.
+- Production negative probes rejected an unsupported registration content type
+  (415), an empty form registration token (400), and an unsigned lifecycle body
+  (503). Registration GET redirected to the fixed hub (303). No grant was issued.
+- The broad baseline preflight encountered four scanner policy-fixture budget
+  failures under parallel load; all four passed when rerun serially, without
+  evidence/policy/timeout changes. Both affected-change preflights passed. This
+  does not resolve or conceal the separate pre-existing PR 189 GPC fixture failure.
+- Limited release request `bs4lizgnfd49qkmbf7ku6o7wl` was submitted after the
+  final deployment succeeded. The request targets only the browser product/offer.
+
+- AWS reported Limited release SUCCEEDED, product Limited/Active and offer Released.
+  The buyer procurement page shows exact product/offer identity, $0.00 per unit
+  and $0.00 contract total; free subscriptions have no end date and can be cancelled.
+  The page's “Public offer” label describes the offer type; Catalog product
+  visibility remains **Limited**. Do not confuse the two.
+- The first real subscription is prepared but not accepted: browser policy requires
+  action-time confirmation of the EULA. No real onboarding or scan is claimed yet.
+- AWS's “Deployed on AWS” designation is not asserted. It requires AWS review of
+  the entire architecture, including applicable third-party data processors, not
+  just ECS/Lambda hosting. See the [official SaaS guidelines](https://docs.aws.amazon.com/marketplace/latest/userguide/saas-guidelines.html).
+  Continue using only repository-controlled AWS deployment workflows.

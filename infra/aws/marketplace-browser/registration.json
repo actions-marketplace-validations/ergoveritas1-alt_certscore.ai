@@ -7,8 +7,8 @@
   "offerId": "offer-igm3spsgqmmea",
   "registrationChangeSetId": "ehphu2ry5kelq20h8bwfw14bq",
   "changeSetStatus": "SUCCEEDED",
-  "productVisibility": "Draft",
-  "offerState": "Draft",
+  "productVisibility": "Limited",
+  "offerState": "Released",
   "pricingModelSubmitted": "Free",
   "dimension": "browser_scans",
   "priceUSD": "0.00",
@@ -16,7 +16,7 @@
     "type": "StandardEula",
     "version": "2022-07-14"
   },
-  "deliveryConfigured": false,
+  "deliveryConfigured": true,
   "publicVisibilityRequested": false,
   "requestedBuyerAccounts": [
     "199536052647"
@@ -28,5 +28,19 @@
     "100458166471",
     "782858285006",
     "058264185180"
-  ]
+  ],
+  "deliveryChangeSetId": "8kzsthwv54nlalto15rmh7jp7",
+  "deliveryChangeSetStatus": "SUCCEEDED",
+  "fulfillmentUrl": "https://certscore.ai/api/marketplace/browser/register",
+  "infrastructureStack": "certscore-marketplace-browser",
+  "infrastructureStatus": "CREATE_COMPLETE",
+  "httpsNotificationsConfirmed": true,
+  "alertEmailConfirmed": true,
+  "limitedReleaseChangeSetId": "bs4lizgnfd49qkmbf7ku6o7wl",
+  "limitedReleaseChangeSetStatus": "SUCCEEDED",
+  "deployedWebRevision": "aa2b18d64b38b051019192855d3abcfd0a9aa77b",
+  "webDeploymentRun": "35530028150",
+  "webDeploymentStatus": "success",
+  "productState": "Active",
+  "buyerListingUrl": "https://aws.amazon.com/marketplace/pp/prodview-gtrsswq5vpqdc"
 }
