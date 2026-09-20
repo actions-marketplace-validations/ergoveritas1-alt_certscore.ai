@@ -7,7 +7,7 @@ export const BROWSER_SELLER = "199536052647";
 export const BROWSER_TOPIC = "arn:aws:sns:us-east-1:199536052647:certscore-marketplace-browser-events";
 export const BROWSER_PATH = "/marketplace/browser";
 export const BROWSER_CLAIM_COOKIE = "certscore_marketplace_browser_claim";
-export const BROWSER_WORKSPACE_COOKIE = "certscore_marketplace_browser_workspace";
+export { BROWSER_WORKSPACE_COOKIE } from "../../lib/marketplace-browser-navigation";
 export const BROWSER_MONTHLY_LIMIT = 50;
 export const BROWSER_PILOT_LIMIT = 10;
 export function browserEnabled() { return process.env.CERTSCORE_MARKETPLACE_BROWSER_ENABLED === "1"; }
