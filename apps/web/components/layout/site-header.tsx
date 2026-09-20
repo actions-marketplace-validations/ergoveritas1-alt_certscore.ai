@@ -33,9 +33,10 @@ const resourceLinks = [
 type SiteHeaderProps = {
   mobilePrimaryAction?: "contact" | "sign-in";
   wide?: boolean;
+  accountLink?: { href: string; label: string };
 };
 
-export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: SiteHeaderProps = {}) {
+export function SiteHeader({ mobilePrimaryAction = "contact", wide = true, accountLink = { href: "/login", label: "Sign in" } }: SiteHeaderProps = {}) {
   const pathname = usePathname();
 
   function isActive(href: string) {
@@ -103,9 +104,9 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
           ))}
           <PendingButtonLink
             data-analytics-cta-location="header"
-            data-analytics-event="sign_in_clicked"
-            href="/login"
-            idleContent="Sign in"
+            data-analytics-event={accountLink.label === "Sign in" ? "sign_in_clicked" : undefined}
+            href={accountLink.href}
+            idleContent={accountLink.label}
             pendingContent="Opening..."
             size="sm"
             variant="secondary"
@@ -116,9 +117,9 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
           {mobilePrimaryAction === "sign-in" ? (
             <PendingButtonLink
               data-analytics-cta-location="header"
-              data-analytics-event="sign_in_clicked"
-              href="/login"
-              idleContent="Sign in"
+              data-analytics-event={accountLink.label === "Sign in" ? "sign_in_clicked" : undefined}
+              href={accountLink.href}
+              idleContent={accountLink.label}
               pendingContent="Opening..."
               size="sm"
               variant="secondary"
@@ -149,9 +150,9 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
                 <PendingButtonLink
                   className="w-full justify-center"
                   data-analytics-cta-location="header"
-                  data-analytics-event="sign_in_clicked"
-                  href="/login"
-                  idleContent="Sign in"
+                  data-analytics-event={accountLink.label === "Sign in" ? "sign_in_clicked" : undefined}
+                  href={accountLink.href}
+                  idleContent={accountLink.label}
                   pendingContent="Opening..."
                   size="sm"
                   variant="secondary"
