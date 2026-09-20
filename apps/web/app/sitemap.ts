@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { getEditorialDates } from "../lib/marketing/editorial-metadata";
 import { getFindingReferenceItems } from "../lib/marketing/finding-atlas";
 import { getPublishedReleases, releasePath } from "../lib/releases";
 import { SITE_URL } from "../lib/seo";
@@ -12,6 +13,11 @@ const staticPaths = [
   "/pricing",
   "/monitor-site",
   "/guides",
+  "/guides/test-global-privacy-control",
+  "/guides/google-analytics-meta-pixel-before-consent",
+  "/guides/consent-report-example",
+  "/editorial-policy",
+  "/ccpa",
   "/guides/mcp-website-privacy-scanner",
   "/regulatory",
   "/gdpr",
@@ -56,7 +62,6 @@ const staticPaths = [
   "/guides/cookie-consent-enforcement-checker",
   "/guides/third-party-cookie-checker",
   "/guides/cmp-verification",
-  "/guides/third-party-cookies-before-consent",
   "/guides/rtb-cookie-syncing",
   "/guides/session-replay-risk",
   "/guides/check-third-party-cookies-before-consent",
@@ -65,7 +70,6 @@ const staticPaths = [
   "/guides/reject-consent-tracking-test",
   "/guides/consent-enforcement-testing",
   "/guides/website-consent-audit-checklist",
-  "/guides/privacy-scanner-vs-cookie-scanner",
   "/guides/website-fingerprinting",
   "/guides/website-scanning-basics",
   "/guides/cookie-consent-laws",
@@ -83,5 +87,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const findingPaths = getFindingReferenceItems().map((finding) => `/findings/${finding.id}`);
   const releasePaths = getPublishedReleases().map(releasePath);
 
-  return [...staticPaths, ...releasePaths, ...findingPaths].map((path) => ({ url: `${SITE_URL}${path}` }));
+  return [...new Set([...staticPaths, ...releasePaths, ...findingPaths])].map((path) => {
+    const editorial = getEditorialDates(path);
+    const release = getPublishedReleases().find((item) => releasePath(item) === path);
+    const lastModified = editorial?.dateModified ?? release?.modifiedDate ?? release?.publicationDate;
+    return { url: `${SITE_URL}${path}`, ...(lastModified ? { lastModified } : {}) };
+  });
 }

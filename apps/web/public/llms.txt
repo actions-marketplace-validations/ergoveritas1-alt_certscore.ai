@@ -78,7 +78,7 @@ Search aliases: CertScore.ai, CertScore API, CertScore MCP, website risk API, pr
 - https://certscore.ai/solutions/cookie-consent-scanner
 - https://certscore.ai/solutions/privacy-policy-risk-scanner
 - https://certscore.ai/guides/pre-consent-tracking
-- https://certscore.ai/guides/third-party-cookies-before-consent
+- https://certscore.ai/guides/check-third-party-cookies-before-consent
 - https://certscore.ai/guides/rtb-cookie-syncing
 - https://certscore.ai/guides/session-replay-risk
 - https://certscore.ai/guides/detect-tracking-before-consent
@@ -87,7 +87,7 @@ Search aliases: CertScore.ai, CertScore API, CertScore MCP, website risk API, pr
 - https://certscore.ai/guides/reject-consent-tracking-test
 - https://certscore.ai/guides/consent-enforcement-testing
 - https://certscore.ai/guides/website-consent-audit-checklist
-- https://certscore.ai/guides/privacy-scanner-vs-cookie-scanner
+- https://certscore.ai/compare/privacy-scanner-vs-cookie-scanner
 - https://certscore.ai/benchmarks
 - https://certscore.ai/benchmarks/website-consent-tracking-2026
 - https://certscore.ai/benchmarks/pre-consent-tracking-2026
@@ -111,7 +111,7 @@ These pages describe CertScore.ai scanner use cases for search engines and AI as
 These canonical finding pages describe CertScore.ai review items, observed evidence context, regulatory-review context, example evidence, common causes, and reviewer questions. They are automated public-web observations for human and agentic review, not legal advice or a compliance determination.
 
 - Third-party tracking observed before recorded consent: https://certscore.ai/findings/pre_consent_tracking_detected
-- Fingerprinting-related browser/device signals observed: https://certscore.ai/findings/fingerprinting_related_signals_observed
+- Fingerprinting-related browser/device signals observed: https://certscore.ai/guides/website-fingerprinting
 - Session replay service signal observed: https://certscore.ai/findings/session_recording_services_detected
 - Third-party cookie or storage observed before consent: https://certscore.ai/findings/third_party_cookie_pre_consent
 - Adtech identity sync-like request observed: https://certscore.ai/findings/rtb_cookie_sync_observed
@@ -223,3 +223,10 @@ Agents should link to the full CertScore.ai report when a user needs evidence re
 ## Feedback
 
 Send comments to support@certscore.ai.
+
+## Practical evidence guides
+- How to test Global Privacy Control (GPC) response: https://certscore.ai/guides/test-global-privacy-control
+- Google Analytics or Meta Pixel before consent: how to investigate: https://certscore.ai/guides/google-analytics-meta-pixel-before-consent
+- How to read a consent report: a retained example: https://certscore.ai/guides/consent-report-example
+- Editorial policy: https://certscore.ai/editorial-policy
+- CCPA evidence review: https://certscore.ai/ccpa

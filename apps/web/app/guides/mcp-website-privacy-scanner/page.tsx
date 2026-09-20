@@ -1,3 +1,4 @@
+import { EditorialByline } from "../../../components/marketing/editorial-byline";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge, Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
@@ -121,6 +122,7 @@ export default function McpWebsitePrivacyScannerGuidePage() {
       <div className="max-w-3xl space-y-4">
         <Badge tone="neutral">Technical guide</Badge>
         <h1 className="text-4xl font-semibold tracking-tight text-slate-950">{title}</h1>
+        <EditorialByline path={"/guides/mcp-website-privacy-scanner"} />
         <p className="text-lg leading-8 text-slate-600">
           Connect a compatible agent to CertScore.ai MCP Light, preserve the scan lifecycle, and report only evidence the completed public-safe bundle supports.
         </p>

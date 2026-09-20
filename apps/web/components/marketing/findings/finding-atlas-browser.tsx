@@ -552,14 +552,14 @@ const CONSENT_RELATED_READING = [
 const TRACKING_RELATED_READING = [
   { href: "/guides/pre-consent-tracking", label: "Tracking before consent" },
   { href: "/guides/cookie-consent-enforcement-checker", label: "Cookie consent enforcement" },
-  { href: "/guides/third-party-cookies-before-consent", label: "Third-party cookies before consent" },
+  { href: "/guides/check-third-party-cookies-before-consent", label: "Third-party cookies before consent" },
   { href: "/guides/rtb-cookie-syncing", label: "Third-party cookies and RTB sync" }
 ];
 
 const FINGERPRINTING_RELATED_READING = [
   { href: "/guides/website-fingerprinting", label: "Website fingerprinting" },
   { href: "/guides/pre-consent-tracking", label: "Tracking before consent" },
-  { href: "/guides/third-party-cookies-before-consent", label: "Third-party cookies before consent" },
+  { href: "/guides/check-third-party-cookies-before-consent", label: "Third-party cookies before consent" },
   { href: "/guides/rtb-cookie-syncing", label: "Third-party cookies and RTB sync" }
 ];
 

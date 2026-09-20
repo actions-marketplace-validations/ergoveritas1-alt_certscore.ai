@@ -1,16 +1,5 @@
-import type { Metadata } from "next";
-import { AiVisibilityContent } from "../../../components/marketing/ai-visibility-content";
-import { createPageMetadata } from "../../../lib/seo";
-import { aiGuideContent, buildArticleSchema } from "../ai-guide-content";
+import { permanentRedirect } from "next/navigation";
 
-const guide = aiGuideContent.thirdPartyCookiesBeforeConsent;
-
-export const metadata: Metadata = createPageMetadata({
-  title: guide.title,
-  description: guide.description,
-  path: guide.path
-});
-
-export default function ThirdPartyCookiesBeforeConsentGuidePage() {
-  return <AiVisibilityContent badge={guide.badge} intro={guide.intro} path={guide.path} schema={buildArticleSchema(guide)} sections={guide.sections} title={guide.title} />;
+export default function ConsolidatedGuidePage() {
+  permanentRedirect("/guides/check-third-party-cookies-before-consent");
 }

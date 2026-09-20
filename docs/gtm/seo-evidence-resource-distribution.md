@@ -51,3 +51,24 @@ Use utm_source=x for the X version. Do not claim that a scan proves compliance, 
 ## Measure
 
 Use these campaign links only for external distribution; internal links stay untagged. Review consented referral visits and scan completions, plus first-party external product activity. Record earned links only after verifying that an independent page actually links to the resource. Search Console can lag and does not enumerate every backlink. Target usefulness to a few relevant teams rather than a bulk link count.
+
+## September 20 resource update
+
+Canonical product URL: https://certscore.ai. Keep this URL on official profiles; do not use an old deployment host. The GitHub repository homepage was corrected as part of this release.
+
+Additional publication-ready resources:
+
+- GPC testing: https://certscore.ai/guides/test-global-privacy-control
+- Analytics and pixel troubleshooting: https://certscore.ai/guides/google-analytics-meta-pixel-before-consent
+- Annotated owned-fixture report: https://certscore.ai/guides/consent-report-example
+- Editorial standards: https://certscore.ai/editorial-policy
+
+Suggested technical-community draft (not sent):
+
+> We published a practical GPC testing guide that separates actual signal delivery, comparable browser observations, and legal interpretation. It includes the evidence to retain and when a test should stay indeterminate. The companion report example shows why historical contract versions and newer execution fields should not be conflated.
+>
+> https://certscore.ai/guides/test-global-privacy-control?utm_source=developer_community&utm_medium=referral&utm_campaign=consent_evidence_2026_09
+>
+> Feedback from implementers on the test record and reproduction steps would be useful.
+
+Use the guide that matches the recipient's work. Do not distribute historical benchmark percentages as current prevalence: the aggregate now explicitly records incomplete provenance. No new outreach, social posting, or third-party directory submission is included in the deployment.

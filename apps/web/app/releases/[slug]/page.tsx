@@ -1,3 +1,4 @@
+import { EditorialByline } from "../../../components/marketing/editorial-byline";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -68,6 +69,7 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
           <h1 className="mt-6 text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
             {release.headline}
           </h1>
+        <EditorialByline path={releasePath(release)} />
           <p className="mt-6 max-w-3xl text-xl leading-9 text-slate-600">{release.shortDescription}</p>
         </div>
       </header>
