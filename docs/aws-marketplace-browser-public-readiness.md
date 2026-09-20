@@ -16,9 +16,9 @@ provided ordinary CertScore.ai operation is preserved. The request payload is
   fulfillment settings, IAM permissions, deployments, or MCP Light entities.
 - AWS manually reviews the request. Submission is not Public approval.
 
-## Capacity decision required before submission
+## Approved capacity change
 
-The deployed code's `BROWSER_PILOT_LIMIT=10` counts all browser workspaces,
+The initial deployment's `BROWSER_PILOT_LIMIT=10` counted all browser workspaces,
 including historical workspaces. At the limit, a new subscribed buyer cannot
 complete linking and is told that the pilot is full. The listing offers 50 scans
 to subscribers without disclosing a ten-workspace global enrollment cap. A
@@ -26,7 +26,7 @@ Public visibility request can result in publication after AWS review; it is not
 a harmless preview that guarantees another seller approval before publication.
 Do not knowingly expose that fulfillment failure to general enrollment.
 
-Recommended change, subject to explicit cost approval: remove only this global
+On September 20, the owner explicitly approved the following change and its variable operating cost: remove only this global
 pilot enrollment cap for Public launch. Preserve the per-workspace 50-credit
 ledger, owner checks, concurrent-agreement isolation, rate limits, cancellation,
 and ordinary-login fix. This requires a small Marketplace-only implementation
@@ -38,8 +38,9 @@ scan assumption: up to approximately $5 of scan processing per fully utilized
 workspace per month, plus $1–$5/month integration overhead. At 100 workspaces,
 approximately $501–$505/month; at 1,000, approximately $5,001–$5,005/month.
 These are planning estimates, not measured unit costs or a fixed bill ceiling;
-actual compute/model/storage costs and utilization vary. The existing $60/month
-approval covers only the ten-workspace pilot, not unrestricted Public enrollment.
+actual compute/model/storage costs and utilization vary. The new approval supersedes the $60/month ten-workspace operating envelope for
+Public enrollment; it is not a fixed $505/month spending ceiling. The per-workspace
+50-scan limit remains unchanged.
 
 The lower-cost alternative is retaining Limited visibility and the ten-workspace
 pilot under the existing $60/month envelope. A larger hidden enrollment cap would
@@ -47,7 +48,10 @@ only move the same post-subscription failure to a later customer.
 
 AGENTS.md requires explicit approval for implementation/deployment expected to
 increase monthly costs by at least $1. Public enrollment beyond the pilot crosses
-that threshold. No cost-increasing code change has been implemented here.
+that threshold; the explicit owner approval above satisfies this requirement.
+Implementation removes only the global enrollment guard and its stale admin label.
+A database regression links eleven additional buyers while retaining the existing
+50-credit limit, ownership, cancellation and re-subscription tests.
 
 ## Verification and limitations
 

@@ -89,9 +89,11 @@ The final workspace-binding deployment succeeded. Limited subscription tests rem
 Draft registration itself introduced no runtime infrastructure, capacity, scan,
 model call, or retention: estimated recurring increase $0/month. The subsequent
 production integration has the $1–$5/month overhead described below.
-The approved future operating envelope remains up to $60/month for an initial
-ten-customer cohort and up to $5 one-time testing. Free access provides no
-subscription revenue; cohort expansion requires reassessing the actual cost.
+The initial approval covered $60/month for ten workspaces and $5 one-time testing.
+On September 20, the owner additionally approved Public enrollment at variable
+planning cost of approximately $5 per fully utilized workspace/month plus $1–$5
+integration overhead (approximately $501–$505/month at 100 workspaces). This is
+not a fixed bill ceiling or measured unit cost. See the Public readiness record.
 
 ## AWS references
 
@@ -113,8 +115,8 @@ reuses the oldest cancelled/expired slot and its current-month counter. All slot
 for one AWS buyer have one CertScore owner; transfers require support review.
 Existing slots are refreshed against AWS before another is allocated. Pending or
 stale earlier activation blocks extra workspace allocation rather than granting
-another allowance. The pilot permits ten workspace slots total, including
-historical slots, not an unlimited sequence of ten active slots.
+another allowance. The owner-approved Public enrollment change removes the
+initial ten-workspace global cap; each workspace still has 50 credits per month.
 
 Each new scan verifies the exact AWS buyer, seller, agreement, browser product and
 free offer. AWS failure grants no access. Signed product-specific lifecycle events

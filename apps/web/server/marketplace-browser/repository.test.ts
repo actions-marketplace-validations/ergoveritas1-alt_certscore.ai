@@ -76,6 +76,17 @@ test("browser ownership, atomic quotas, recovery, event races and resubscription
     await assert.rejects(insert(await createBrowserScanPermit(replacement,user,randomUUID())),/50 single-page/);
     await query(`update marketplace_browser_licenses set expires_at=now()-interval '1 second' where license_arn=$1`,[arn("c")]);
     assert.equal(await currentBrowserLicense(org,user),null);
+    // Public enrollment must not strand the eleventh subscribed buyer. This
+    // expands enrollment, never an existing workspace's monthly allowance.
+    const publicWorkspaces = new Set<string>();
+    for (let index=0; index<11; index++) {
+      const publicBuyer=String(223456789000+index);
+      const publicToken=await createBrowserClaim({ProductCode:code,CustomerAWSAccountId:publicBuyer,
+        LicenseArn:`arn:aws:license-manager::${publicBuyer}:license:l-public-${index}`});
+      publicWorkspaces.add(await claimBrowserLicense(publicToken,user));
+    }
+    assert.equal(publicWorkspaces.size,11,"all eleven additional buyers can finish linking");
+    assert.equal((await usage())!.used,50,"public enrollment cannot reset existing usage");
     // Existing ordinary workspace inserts and billing remain unaffected.
     const ordinary=randomUUID(); await query(`insert into organizations(id,plan) values($1,'individual')`,[ordinary]);
     await query(`insert into scans(id,organization_id,pages_requested,scan_type) values($1,$2,5,'full')`,[randomUUID(),ordinary]);

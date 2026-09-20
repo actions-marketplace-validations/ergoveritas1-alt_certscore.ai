@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { query, queryOne, withWriteTransaction } from "@website-signal-risk-scanner/db";
 import type { LicenseEvent, ResolvedCustomer } from "../marketplace/contracts";
-import { BROWSER_PRODUCT_CODE, BROWSER_PILOT_LIMIT } from "./config";
+import { BROWSER_PRODUCT_CODE } from "./config";
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const validClaim = (token: string) => /^[A-Za-z0-9_-]{43}$/.test(token);
@@ -62,8 +62,6 @@ export async function claimBrowserLicense(token: string, userId: string) {
           where w.buyer_account_id=$1 and w.owner_user_id=$2 and l.status<>'revoked' and (l.expires_at is null or l.expires_at>now())
           and (l.status<>'active' or l.verified_at is null or l.verified_at<now()-interval '5 minutes') limit 1`,[license.buyer_account_id,userId]);
         if(unsettled.rowCount) throw new Error("An existing subscription needs verification before another workspace can be linked.");
-        const count = await client.query<{ count: string }>(`select count(*)::text as count from marketplace_browser_workspaces`);
-        if (Number(count.rows[0]?.count) >= BROWSER_PILOT_LIMIT) throw new Error("The initial Marketplace pilot is full. Contact support@certscore.ai for activation help.");
         org = randomUUID();
         await client.query(`insert into organizations(id,name,slug,plan,plan_status,marketplace_browser)
           values($1,'Marketplace Website Scanner',$2,'individual','active',true)`, [org,`marketplace-browser-${org}`]);

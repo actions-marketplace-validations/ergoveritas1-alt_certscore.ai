@@ -9,7 +9,6 @@ export const BROWSER_PATH = "/marketplace/browser";
 export const BROWSER_CLAIM_COOKIE = "certscore_marketplace_browser_claim";
 export { BROWSER_WORKSPACE_COOKIE } from "../../lib/marketplace-browser-navigation";
 export const BROWSER_MONTHLY_LIMIT = 50;
-export const BROWSER_PILOT_LIMIT = 10;
 export function browserEnabled() { return process.env.CERTSCORE_MARKETPLACE_BROWSER_ENABLED === "1"; }
 export function requireBrowserEnabled() {
   if (!browserEnabled()) throw new Error("Browser Marketplace setup is temporarily unavailable.");

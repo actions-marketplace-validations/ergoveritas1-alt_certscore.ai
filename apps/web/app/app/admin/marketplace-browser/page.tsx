@@ -15,7 +15,7 @@ export default async function BrowserMarketplaceAdmin() {
     select u.*,s.status,s.scan_config_json #>> '{execution,v2DagLambda,dispatchState}' as state
     from marketplace_browser_scan_usage u join scans s on s.id=u.scan_id order by u.created_at desc limit 100`);
   return <section className="space-y-6"><h2 className="text-2xl font-semibold">Browser Marketplace</h2>
-    <p className="text-sm text-slate-600">Free · 50 single-page scans per workspace per UTC month · 10-workspace pilot. Status below is the last stored verification; each new scan checks AWS.</p>
+    <p className="text-sm text-slate-600">Free · 50 single-page scans per workspace per UTC month. Status below is the last stored verification; each new scan checks AWS.</p>
     <p className="break-all text-xs">{BROWSER_PRODUCT_ID} · {BROWSER_PRODUCT_CODE} · {BROWSER_OFFER_ID}</p>
     <div className="overflow-auto"><table className="w-full text-left text-sm"><caption className="text-left font-semibold">Subscriptions (latest 100)</caption><thead><tr>{["Owner / buyer","Workspace / agreement / license","Status","This month","Verified / expires"].map(x=><th className="p-3" key={x}>{x}</th>)}</tr></thead><tbody>
       {licenses.rows.map(l=><tr key={l.license_arn} className="border-t"><td className="p-3">{l.email??"Unlinked"}<br/>{l.buyer_account_id}</td><td className="max-w-sm break-all p-3">{l.organization_id??"Unlinked"}<br/>{l.agreement_id??"Event pending"}<br/>{l.license_arn}</td><td className="p-3">{l.status}</td><td className="p-3">{l.used} / 50</td><td className="p-3">{l.verified_at?.toISOString()??"Never"}<br/>{l.expires_at?.toISOString()??"No end time received"}</td></tr>)}</tbody></table></div>
