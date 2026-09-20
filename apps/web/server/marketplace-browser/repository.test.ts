@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { query, queryOne, closePools } from "@website-signal-risk-scanner/db";
 import { createBrowserClaim, claimBrowserLicense, applyBrowserEvent, currentBrowserLicense, createBrowserScanPermit, getBrowserLicense, saveBrowserVerification } from "./repository";
+import { createIntegrationApiKey } from "../integrations/api-keys";
 import type { LicenseEvent } from "../marketplace/contracts";
 const code="1rlcf9he502qz0ix13gqfiaoc";
 test("browser ownership, atomic quotas, recovery, event races and resubscription",{skip:!process.env.BROWSER_TEST_DATABASE_URL},async()=>{
@@ -24,6 +25,8 @@ test("browser ownership, atomic quotas, recovery, event races and resubscription
     await assert.rejects(createBrowserClaim({ProductCode:"a3p2vfccdufqnuhyn5r8lsx0q",CustomerAWSAccountId:buyer,LicenseArn:arn("mcp")}),/product/);
     const token=await createBrowserClaim({ProductCode:code,CustomerAWSAccountId:buyer,LicenseArn:arn("a")});
     const org=await claimBrowserLicense(token,user);
+    await query(`create table integration_api_keys(public_id text,name text,token_prefix text,token_hash text,scopes text[],organization_id uuid,owner_user_id uuid,created_by text,expires_at timestamptz,hourly_limit int,daily_limit int)`);
+    await assert.rejects(createIntegrationApiKey({name:"not included",scopes:["mcp"],organizationId:org,ownerUserId:user}),/does not include API/);
     await assert.rejects(claimBrowserLicense(token,user),/expired/);
     await assert.rejects(claim("a",other),/another/);
     await assert.rejects(claim("b",other),/another/);
@@ -77,5 +80,7 @@ test("browser ownership, atomic quotas, recovery, event races and resubscription
     const ordinary=randomUUID(); await query(`insert into organizations(id,plan) values($1,'individual')`,[ordinary]);
     await query(`insert into scans(id,organization_id,pages_requested,scan_type) values($1,$2,5,'full')`,[randomUUID(),ordinary]);
     await query(`update organizations set stripe_customer_id='cus_ordinary' where id=$1`,[ordinary]);
+    const key=await createIntegrationApiKey({name:"ordinary workspace",scopes:["mcp"],organizationId:ordinary,ownerUserId:user});
+    assert.ok(key.publicId.startsWith("api_key_"),"ordinary API-key issuance is unchanged");
   }finally{await closePools();}
 });

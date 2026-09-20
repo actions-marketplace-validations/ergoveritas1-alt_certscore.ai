@@ -170,11 +170,11 @@ new scans are refused. Ordinary workspace access remains available separately.
 
 ### Verification evidence — implementation stage
 
-- Twelve targeted tests passed, including shared MCP signature/product regressions,
+- Thirty-two targeted tests passed, including shared MCP signature/product regressions,
   browser agreement identities/time, separate runtime flag, and free draft payload.
 - The isolated PostgreSQL lifecycle test created 51 scan attempts against a 50-credit
   allowance; exactly 50 committed. It verified single-use claims and permits, foreign
-  ownership rejection, concurrent-workspace isolation, cancellation races,
+  ownership rejection, API-key issuance isolation, concurrent-workspace isolation, cancellation races,
   re-subscription continuity, expiry, billing guards and safe pre-dispatch refunds.
 - The migration applied successfully to local `certscore` through the canonical
   migration runner. Temporary UI fixture data and the temporary local enable flag
