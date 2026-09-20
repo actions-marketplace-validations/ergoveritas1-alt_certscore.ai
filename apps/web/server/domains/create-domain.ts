@@ -182,7 +182,7 @@ export async function createOrQueueDomainScan(input: {
       hostname,
       normalizedUrl,
       organizationId: dashboardContext.organization.id,
-      scanFrequency:
+      scanFrequency: dashboardContext.marketplaceBrowser ? "manual" :
         ((organizationSettings as { default_scan_frequency: string | null } | null)?.default_scan_frequency as
           | string
           | null

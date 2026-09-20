@@ -66,6 +66,9 @@ import {
 import type { CampaignAttribution } from "../../lib/attribution/campaign-attribution";
 import { ensureCanonicalScanReportProjectionForReuse } from "./canonical-scan-report-publisher";
 import { checkDomainDns } from "../domains/domain-dns";
+import { randomUUID } from "node:crypto";
+import { isBrowserWorkspace, createBrowserScanPermit, browserRequestScan } from "../marketplace-browser/repository";
+import { verifyBrowserWorkspaceAccess } from "../marketplace-browser/aws";
 
 export type CreateFullScanActionState = {
   error: string | null;
@@ -168,6 +171,24 @@ export async function queueFullScanForDomain(input: QueueFullScanInput): Promise
   reusedExistingScan?: boolean;
   scanId: string | null;
 }> {
+  const marketplaceBrowser = await isBrowserWorkspace(input.organizationId);
+  let browserLicense: Awaited<ReturnType<typeof verifyBrowserWorkspaceAccess>> | null = null;
+  const browserRequestId = input.clientRequestId && /^[0-9a-f-]{36}$/i.test(input.clientRequestId) ? input.clientRequestId : randomUUID();
+  if (marketplaceBrowser) {
+    const { getDashboardContext } = await import("../auth");
+    const context = await getDashboardContext();
+    if (!context.marketplaceBrowser || context.organization.id !== input.organizationId || context.user.id !== input.submittedByUserId
+      || input.scanType === "scheduled" || input.fullSite || input.crawlOptions) {
+      return { error: "Use your Marketplace workspace to run a manual single-page scan.", scanId: null };
+    }
+    try { browserLicense = await verifyBrowserWorkspaceAccess(input.organizationId, context.user.id); }
+    catch (error) { return { error: error instanceof Error ? error.message : "Subscription verification unavailable.", scanId: null }; }
+    const prior = await browserRequestScan(input.organizationId, browserRequestId);
+    if (prior) return { error: null, scanId: prior.id };
+    input = { ...input, source: "marketplace-browser", localV2DagLambdaDebugOverrides: null,
+      enforceMonthlyUsageLimit: false, enforceCooldown: true, scanThrottleMs: undefined, planCode: "individual", planLimitsOverride: undefined,
+      localV2DagScanProfile: null, clientRequestId: browserRequestId, localV2DagRunViaLambda: true };
+  }
   let crawl: ReturnType<typeof validateFullSiteRequest> = { fullSite: false };
   if ((input.fullSite !== undefined && input.fullSite !== false) || input.crawlOptions !== undefined) {
     const { getDashboardContext } = await import("../auth");
@@ -220,7 +241,7 @@ export async function queueFullScanForDomain(input: QueueFullScanInput): Promise
     };
   }
 
-  const pagesRequested = domainRecord.domain.maxPagesOverride ?? planLimits.maxPagesPerScan;
+  const pagesRequested = marketplaceBrowser ? 1 : domainRecord.domain.maxPagesOverride ?? planLimits.maxPagesPerScan;
   const bypassRecentScanReuse = crawl.fullSite || Boolean(input.bypassRecentScanReuse);
   const requesterIpContext = normalizeScanRequesterIpContext(input.requesterIpContext);
 
@@ -548,6 +569,8 @@ export async function queueFullScanForDomain(input: QueueFullScanInput): Promise
   let scan;
 
   try {
+    const marketplaceBrowserPermit = browserLicense
+      ? await createBrowserScanPermit(browserLicense, input.submittedByUserId!, browserRequestId) : null;
     scan = await createQueuedFullScan({
       domainId: domainRecord.domain.id,
       initialStatus: localV2DagLambdaDispatch ? "running" : "queued",
@@ -556,10 +579,14 @@ export async function queueFullScanForDomain(input: QueueFullScanInput): Promise
       queueOrigin: queueMetadata.queueOrigin,
       queuePriority: queueMetadata.queuePriority,
       scanType: input.scanType ?? "full",
-      scanConfigJson: scanConfig,
+      scanConfigJson: { ...scanConfig, ...(marketplaceBrowserPermit ? { marketplaceBrowserPermit } : {}) },
       submittedByUserId: input.submittedByUserId
     });
   } catch (error) {
+    if (marketplaceBrowser) {
+      const prior = await browserRequestScan(input.organizationId, browserRequestId);
+      if (prior) return { error: null, scanId: prior.id };
+    }
     const message = error instanceof Error ? error.message : "Could not create full scan.";
     await logRequest({
       errorCode: "scan_create_failed",

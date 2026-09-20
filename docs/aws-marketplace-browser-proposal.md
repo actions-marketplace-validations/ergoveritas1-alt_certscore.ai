@@ -4,7 +4,7 @@ Status: implementation and cost envelope approved September 20, 2026. The owner 
 
 ## Recommended initial offer
 
-**CertScore.ai Website Scanner — Free Browser-Based Privacy Scanning**, a separate free SaaS product for developers, small agencies, and website owners who want to purchase through AWS and scan through a browser.
+**CertScore.ai Website Scanner — Free Browser-Based Privacy Scanning**, a separate free SaaS product for developers, small agencies, and website owners who want to subscribe through AWS and scan through a browser.
 
 - Free pricing ($0.00), not a paid plan or time-limited trial. No overage charges, automatic paid conversion, or annual commitment.
 - 50 single-page scan credits per calendar month (UTC). One submitted public URL is one page; linked policy evidence retrieval is part of that scan. This is explicitly not 50 full-site crawls. No automatic monitoring in this offering.
@@ -13,7 +13,7 @@ Status: implementation and cost envelope approved September 20, 2026. The owner 
 - A fresh dispatched page scan consumes one credit. Validation rejection, quota rejection, and completed-result reuse consume none. Reserve atomically before dispatch; return a reservation on verified pre-dispatch failure. A completed scan with limited evidence still consumes a credit. Reconcile ambiguous dispatch before refunding to avoid free duplicate work.
 - Credits expire at the end of each UTC calendar month; no rollover. Do not reset on login, claim replay, event replay, same-period account relinking, cancellation, or re-subscription. Persist the usage continuity key independently of a replaceable license ARN while retaining agreement-specific attribution and cancellation.
 
-The single-page scope deliberately makes the purchased unit unambiguous. Existing non-Marketplace Starter allowances and behavior are not changed by this proposal.
+The single-page scope deliberately makes the scan unit unambiguous. Existing non-Marketplace Starter allowances and behavior are not changed by this proposal.
 
 ## Evidence from the current system
 
@@ -52,7 +52,7 @@ AWS recommends subscribing to the seller's own listing for testing. Attempt the 
 ## Implementation boundaries
 
 - Separate browser config with required new product identity and default-off flag; reject MCP IDs/codes. Separate claim cookie, routes, grant/claim/usage tables, event topic, rule, DLQs, and alarms. Reuse pure signature/validation utilities only after isolation tests.
-- Add a grant-scoped, transactionally locked credit ledger with unique request/reservation IDs and UTC calendar-month boundaries and a stable usage-continuity identity. Bind reservation and scan identity; maintain pending/committed/released states with a documented recovery path.
+- Add a grant-scoped, transactionally locked credit ledger with unique request/reservation IDs and UTC calendar-month boundaries and a stable usage-continuity identity. Bind reservation and scan identity; use the durable scan outbox as the reservation/dispatch boundary and retain refunds with a documented recovery path.
 - Reuse existing ECS, PostgreSQL, scanner dispatch, and report projection. No new scanner lane, model call per scan, timeout, reserved capacity, retention extension, or finding logic.
 - Customer page: activation status, next renewal/expiry, credits used/reserved/remaining, URL entry, scan progress, report/history actions, AWS subscription management, support and refunds contact.
 - Admin page: product/license/agreement, owner/workspace, verification freshness, lifecycle state, usage attribution, scan IDs, and failure/recovery status. Never display raw registration credentials.
