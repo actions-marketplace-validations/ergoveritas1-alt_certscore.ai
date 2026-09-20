@@ -33,7 +33,7 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
           <PendingLink
             key={item.href}
             href={item.href}
-            prefetch={item.href === "/app/admin/analytics" || item.href === "/app/admin/mcp"}
+            prefetch={false}
             className="app-raised-button rounded-full px-3.5 py-1.5 text-sm text-slate-700 hover:text-slate-950"
             idleContent={item.label}
             pendingContent="Opening…"

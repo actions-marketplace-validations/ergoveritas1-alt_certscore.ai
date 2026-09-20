@@ -1,5 +1,7 @@
 export { CertScoreClient } from "./client.js";
+export type { RuntimeEvidenceGraphProjection, RuntimeEvidenceGraph, RuntimeEvidenceGraphNode, RuntimeEvidenceGraphEdge } from "./runtime-evidence-graph.js";
 export {
+  getCertScoreErrorContext,
   CertScoreApiError,
   CertScoreError,
   CertScoreScanFailedError,
@@ -10,6 +12,8 @@ export {
   ThrottledError
 } from "./errors.js";
 export type {
+  ReportEvidencePage,
+  AfterActionSummary,
   AgentInterpretation,
   ApiV2RequestOptions,
   Capabilities,
@@ -29,10 +33,14 @@ export type {
   FreshnessInfo,
   FreshnessMode,
   GetScanOptions,
+  GpcComparisonDelta,
+  GpcResponse,
   JobStatus,
   Links,
   NormalizedPulseDetail,
   PendingJob,
+  PostAcceptObservation,
+  PostRefusalObservation,
   PreConsentCookiesTrackers,
   PulseDetail,
   PulseErrorResponse,
@@ -63,3 +71,5 @@ export type {
   TopFinding,
   TransportSecurityProjection
 } from "./types.js";
+
+export type { GpcBoundedObservation } from "./gpc-bounded-observation.js";

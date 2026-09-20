@@ -1,12 +1,15 @@
 import "server-only";
 
 import { query, queryOne } from "@website-signal-risk-scanner/db";
+import { retainedActivityPagePath } from "../../lib/product-analytics/activity-page-context";
 import type { ProductAnalyticsPayload } from "../../lib/product-analytics/contract";
 
 const RAW_RETENTION_DAYS = 90;
 let lastPrunedAt = 0;
 
 export type ProductAnalyticsContext = {
+  /** Server-issued opaque MCP session, never a browser-supplied UUID. */
+  mcpSessionId?: string | null;
   browserFamily: string;
   consentState: "operational" | "measurement" | "granted" | "opted_out";
   countryCode: string | null;
@@ -27,13 +30,13 @@ export async function persistProductAnalyticsEvent(payload: ProductAnalyticsPayl
        element_id, form_id, session_id, actor_id, user_id, organization_id, scan_id,
        consent_state, referring_domain, campaign_source, campaign_medium, campaign_name,
        browser_family, os_family, device_class, viewport_band, language, country_code,
-       is_authenticated, is_staff, is_bot, duration_ms, numeric_value
+       is_authenticated, is_staff, is_bot, duration_ms, numeric_value, mcp_session_id, page_path, target_path
      ) values (
        coalesce($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8,
        $9, $10, $11::uuid, $12::uuid, $13::uuid, $14::uuid, $15::uuid,
        $16, $17, $18, $19, $20,
        $21, $22, $23, $24, $25, $26,
-       $27, $28, $29, $30, $31
+       $27, $28, $29, $30, $31, $32, $33, $34
      ) on conflict (event_id) do nothing`,
     [
       eventId ?? null,
@@ -66,10 +69,17 @@ export async function persistProductAnalyticsEvent(payload: ProductAnalyticsPayl
       context.isStaff && !optedOut,
       context.isBot,
       payload.durationMs ?? null,
-      payload.numericValue ?? null
+      payload.numericValue ?? null,
+      optedOut ? null : context.mcpSessionId ?? null,
+      context.consentState === "operational" && context.userId ? retainedActivityPagePath(payload.pagePath) : null,
+      context.consentState === "operational" && context.userId ? retainedActivityPagePath(payload.targetPath) : null
     ]
   );
 
+  await pruneProductAnalyticsEvents();
+}
+
+export async function pruneProductAnalyticsEvents() {
   if (Date.now() - lastPrunedAt > 60 * 60 * 1_000) {
     lastPrunedAt = Date.now();
     await query(

@@ -1,0 +1,146 @@
+{
+  "entries": {
+    "https://achmea.nl/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:20:49.765Z",
+      "lastContactAt": "2026-09-11T00:20:49.765Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://achmea.nl/"
+    },
+    "https://actify.nl/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:21:15.533Z",
+      "lastContactAt": "2026-09-11T00:21:15.533Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://actify.nl/"
+    },
+    "https://adinaeden.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:22:19.787Z",
+      "lastContactAt": "2026-09-11T00:22:19.787Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://adinaeden.com/"
+    },
+    "https://hs-sites.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:27:20.353Z",
+      "lastContactAt": "2026-09-11T00:27:20.353Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://hs-sites.com/"
+    },
+    "https://linode.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:23:10.533Z",
+      "lastContactAt": "2026-09-11T00:23:10.533Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://linode.com/"
+    },
+    "https://lovesac.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:23:31.649Z",
+      "lastContactAt": "2026-09-11T00:23:31.649Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://lovesac.com/"
+    },
+    "https://reviewbird.io/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:23:51.741Z",
+      "lastContactAt": "2026-09-11T00:23:51.741Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://reviewbird.io/"
+    },
+    "https://skysports.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:24:15.197Z",
+      "lastContactAt": "2026-09-11T00:24:15.197Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://skysports.com/"
+    },
+    "https://slack.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:24:42.754Z",
+      "lastContactAt": "2026-09-11T00:24:42.754Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://slack.com/"
+    },
+    "https://soraa.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:22:38.301Z",
+      "lastContactAt": "2026-09-11T00:22:38.301Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://soraa.com/"
+    },
+    "https://unrulymedia.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:25:05.044Z",
+      "lastContactAt": "2026-09-11T00:25:05.044Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://unrulymedia.com/"
+    },
+    "https://useinsider.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:25:27.842Z",
+      "lastContactAt": "2026-09-11T00:25:27.842Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://useinsider.com/"
+    },
+    "https://www.cascadedesigns.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:25:51.883Z",
+      "lastContactAt": "2026-09-11T00:25:51.883Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://www.cascadedesigns.com/"
+    },
+    "https://yumpu.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-09T00:26:16.402Z",
+      "lastContactAt": "2026-09-11T00:26:16.402Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://yumpu.com/"
+    }
+  },
+  "ledgerVersion": "certscore.scan_quality_calibration_ledger.1",
+  "updatedAt": "2026-09-11T00:28:40.949Z"
+}

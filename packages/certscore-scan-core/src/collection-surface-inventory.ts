@@ -1,5 +1,6 @@
 import {
   COLLECTION_SURFACE_INVENTORY_VERSION,
+  classifyCollectionFieldReview,
   MAX_COLLECTION_SURFACE_FIELDS,
   MAX_COLLECTION_SURFACE_FIELDS_PER_FORM,
   MAX_COLLECTION_SURFACE_FORMS,
@@ -14,12 +15,14 @@ export const MAX_COLLECTION_SURFACE_INSPECTED_FORMS = 50;
 export const MAX_COLLECTION_SURFACE_INSPECTED_FIELDS = 250;
 
 export type CollectionSurfaceCaptureRow = {
+  controlKind?: "checkbox" | "switch" | "radio";
+  checkedState?: "checked" | "unchecked" | "mixed" | "unknown";
   groupKey: string;
   structure: "native_form" | "role_form" | "unassociated_controls";
   title?: string;
   method?: string;
   actionHostname?: string;
-  elementType: "input" | "textarea" | "select";
+  elementType: "input" | "textarea" | "select" | "custom_control";
   inputType: string;
   label?: string;
   autocompleteToken?: string;
@@ -53,12 +56,13 @@ function normalizedText(...values: Array<string | null | undefined>) {
 export function classifyCollectionSurfaceSemanticCategory(input: {
   autocompleteToken?: string;
   inputType: string;
-  elementType: "input" | "textarea" | "select";
+  elementType: "input" | "textarea" | "select" | "custom_control";
   label?: string;
 }): CollectionSurfaceSemanticCategory {
   const type = input.inputType.toLowerCase();
   const autocomplete = normalizedText(input.autocompleteToken);
   const evidence = normalizedText(type, autocomplete, input.label);
+  if (type === "url" || /(?:^|\s)url(?:$|\s)/.test(autocomplete)) return "website_url";
   if (type === "search" || /(?:^|\s)search(?:$|\s)/.test(evidence)) return "search";
   if (type === "email" || /(?:^|\s)email(?:$|\s)/.test(autocomplete)) return "email";
   if (type === "tel" || /(?:^|\s)tel(?:$|\s)/.test(autocomplete)) return "phone";
@@ -135,8 +139,20 @@ export function buildCollectionSurfaceInventory(
   snapshot: CollectionSurfaceCaptureSnapshot,
   scanStartedAtMs: number,
 ): CollectionSurfaceInventory {
+  // A page-wide bucket of standalone toggles is not evidence of a form.
+  // Evaluate each control independently so an unrelated email input cannot
+  // accidentally admit a navigation/theme checkbox into the same inventory.
+  const eligibleRows = snapshot.rows.filter((row) => {
+    if (row.structure !== "unassociated_controls") return true;
+    const semanticCategory = classifyCollectionSurfaceSemanticCategory(row);
+    const isChoice = Boolean(row.controlKind) || ["checkbox", "radio", "switch"].includes(row.inputType);
+    if (!isChoice) return true;
+    const review = classifyCollectionFieldReview({ ...row, semanticCategory });
+    const surfaceType = classifySurfaceType({ categories: [semanticCategory], labels: row.label ? [row.label] : [] });
+    return review.category !== "unknown" || surfaceType === "newsletter";
+  });
   const grouped = new Map<string, CollectionSurfaceCaptureRow[]>();
-  for (const row of snapshot.rows.slice(0, MAX_COLLECTION_SURFACE_INSPECTED_FIELDS)) {
+  for (const row of eligibleRows.slice(0, MAX_COLLECTION_SURFACE_INSPECTED_FIELDS)) {
     const rows = grouped.get(row.groupKey) ?? [];
     rows.push(row);
     grouped.set(row.groupKey, rows);
@@ -157,9 +173,12 @@ export function buildCollectionSurfaceInventory(
     );
     const fields = sortedFields.slice(0, MAX_COLLECTION_SURFACE_FIELDS_PER_FORM).map(({ row, semanticCategory }, fieldIndex) => ({
       fieldRef: `collection_form_${formIndex}_field_${fieldIndex}`,
+      controlIndex: row.domOrder,
       elementType: row.elementType,
       inputType: row.inputType.slice(0, 40) || row.elementType,
       semanticCategory,
+      ...(row.controlKind ? { controlKind: row.controlKind, checkedState: row.checkedState ?? "unknown" } : {}),
+      review: classifyCollectionFieldReview({ ...row, semanticCategory, surfaceType }),
       ...(row.label ? { label: row.label.slice(0, 120) } : {}),
       ...(row.autocompleteToken ? { autocompleteToken: row.autocompleteToken.slice(0, 80) } : {}),
       required: row.required,
@@ -185,7 +204,7 @@ export function buildCollectionSurfaceInventory(
         ...(rows[0]?.title ? { title: rows[0].title.slice(0, 120) } : {}),
         pageUrl: snapshot.pageUrl.slice(0, 500),
         method: normalizedMethod(rows[0]?.method),
-        actionRelationship: actionRelationship(snapshot.pageUrl, rows[0]?.actionHostname),
+        actionRelationship: !rows[0]?.actionHostname && normalizedMethod(rows[0]?.method) !== "dialog" ? "unknown" as const : actionRelationship(snapshot.pageUrl, rows[0]?.actionHostname),
         ...(rows[0]?.actionHostname ? { actionHostname: rows[0].actionHostname.slice(0, 255) } : {}),
         candidateFieldCount: classified.length,
         retainedFieldCount: fields.length,
@@ -221,7 +240,7 @@ export function buildCollectionSurfaceInventory(
   });
   const retainedFieldCount = forms.reduce((total, form) => total + form.fields.length, 0);
   const candidateFormCount = grouped.size;
-  const candidateFieldCount = snapshot.rows.length;
+  const candidateFieldCount = eligibleRows.length;
   const retentionTruncated = candidateFormCount > forms.length || candidateFieldCount > retainedFieldCount;
   const reasonCodes = [
     snapshot.candidateScanTruncated ? "candidate_scan_truncated" : null,

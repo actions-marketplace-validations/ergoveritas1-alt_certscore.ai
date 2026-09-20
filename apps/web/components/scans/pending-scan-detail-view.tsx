@@ -1,5 +1,9 @@
 "use client";
 
+import { FullSiteIdentity } from "./full-site-identity";
+import { FullSiteWorkspace } from "./full-site-workspace";
+import { LiveFullSiteScanNotice } from "../dashboard/live-full-site-scan-notice";
+import type { FullSiteScanNoticeData } from "../dashboard/full-site-scan-notice";
 import type { ApiV2PreConsentRuntimePreview } from "@certscore/api-contracts";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -28,6 +32,9 @@ export function getProgressHandoffValue(input: { hasSubmissionHandoff: boolean; 
 }
 
 export function PendingScanDetailView({
+  fullSite,
+  fullSiteClassName,
+  fullSiteNotice,
   createdAt,
   domainHostname,
   initialPreConsentPreview = null,
@@ -38,6 +45,9 @@ export function PendingScanDetailView({
   startedAt,
   status,
 }: {
+  fullSiteClassName?: string;
+  fullSiteNotice?: FullSiteScanNoticeData | null;
+  fullSite?: import("@website-signal-risk-scanner/shared").CrawlOptions;
   createdAt: string;
   domainHostname: string | null;
   initialPreConsentPreview?: ApiV2PreConsentRuntimePreview | null;
@@ -137,8 +147,40 @@ export function PendingScanDetailView({
     });
   }, [handleProgress, initialStage, scanId, status]);
 
+  if (fullSite) {
+    return (
+      <div className={fullSiteClassName}>
+        <FullSiteWorkspace
+          scanId={scanId}
+          requested={fullSite}
+          initialNotice={fullSiteNotice}
+          initialPending
+          preConsentPreview={progress.preConsentPreview}
+          initialStartedAt={startedAt ?? createdAt}
+          identity={<FullSiteIdentity
+            scanId={scanId} host={domainHostname ?? pageUrl ?? "Website"} url={pageUrl}
+            createdAt={new Intl.DateTimeFormat("en-US", { day: "numeric", hour: "numeric", minute: "2-digit", month: "short", second: "2-digit", timeZoneName: "short", year: "numeric" }).format(new Date(createdAt))}
+            region={<span className="rounded-md border border-zinc-300 bg-white px-2 py-1">{fullSiteNotice?.region ? `Scanned from ${fullSiteNotice.region}` : "Full site scan"}</span>}
+          />}
+        >
+          <p role="status" className="py-6 text-sm text-zinc-600">The homepage report will appear here when its assessment is ready.</p>
+        </FullSiteWorkspace>
+        <ScanStatusAutoRefresh
+          onTerminalNavigation={handleTerminalNavigation}
+          onProgress={handleProgress}
+          pendingPostCompletionWork={pendingPostCompletionWork}
+          scanId={scanId}
+          silent
+          status={status}
+          terminalNavigationDelayMs={TERMINAL_NAVIGATION_DELAY_MS}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4" data-density="compact">
+      {fullSiteNotice ? <LiveFullSiteScanNotice scan={fullSiteNotice} reportPage /> : <>
       <div>
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">CertScore.ai scan</p>
         <h1 className="mt-1 flex min-w-0 max-w-full items-baseline gap-2 text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-3xl">
@@ -160,8 +202,9 @@ export function PendingScanDetailView({
         startedAtMs={progressHandoff.startedAtMs}
         targetLabel={domainHostname ?? pageUrl ?? ""}
       />
+      </>}
       {progress.preConsentPreview ? (
-        <PreConsentRuntimePreviewCard preview={progress.preConsentPreview} startedAt={startedAt} />
+        <PreConsentRuntimePreviewCard heading={fullSite ? "Early preview results from home page" : undefined} preview={progress.preConsentPreview} startedAt={startedAt} />
       ) : null}
       <ScanStatusAutoRefresh
         onTerminalNavigation={handleTerminalNavigation}

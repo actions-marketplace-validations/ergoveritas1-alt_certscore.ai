@@ -1,4 +1,33 @@
+import { gpcBoundedObservationOpenApi } from "./gpc-bounded-observation-openapi.js";
 import { apiV2Disclaimer, CERTSCORE_API_V2_SCHEMA_VERSION } from "./api-v2.js";
+import { runtimeEvidenceGraphOpenApiSchemas } from "./runtime-evidence-graph-openapi.js";
+
+const choicePathExecutionOpenApi = {
+  type: "object", additionalProperties: false,
+  description: "Succeeded means a verified completed click and completed bounded after-action observation. Succeeded with confirmation additionally has a verified consent decision. Operational success does not establish consent honoring or finding eligibility.",
+  required: ["policyVersion", "status", "clickCompleted", "observationCompleted", "consentConfirmed"],
+  properties: {
+    policyVersion: { type: "string", enum: ["choice_path_execution.v1"] },
+    status: { type: "string", enum: ["succeeded", "succeeded_with_confirmation", "limited", "not_attempted", "unsupported"] },
+    clickCompleted: { type: "boolean" }, observationCompleted: { type: "boolean" }, consentConfirmed: { type: "boolean" },
+  },
+} as const;
+
+const afterActionSummaryOpenApi = {
+  type: "object", additionalProperties: false,
+  description: "Retained after-click facts, independently of consent registration. Request counts do not classify all traffic as tracking. No new finding or score effect is inferred.",
+  required: ["policyVersion", "action", "activationStatus", "stopReason", "requestsDropped", "requestCount", "storageWriteCount", "storageSnapshotRetained"],
+  properties: {
+    policyVersion: { type: "string", enum: ["bounded_after_action_capture.v1", "bounded_after_action_capture.v2"] },
+    action: { type: "string", enum: ["accept", "reject"] },
+    activationStatus: { type: "string", enum: ["completed", "uncertain"] },
+    stopReason: { type: "string", enum: ["window_elapsed", "aborted", "target_changed", "click_uncertain"] },
+    requestsDropped: { type: "integer", minimum: 0 },
+    requestCount: { type: "integer", minimum: 0 },
+    storageWriteCount: { type: "integer", minimum: 0 },
+    storageSnapshotRetained: { type: "boolean" },
+  },
+} as const;
 
 const diagnosticHeaders = {
   "x-certscore-api-version": { schema: { type: "string", const: "v2" }, description: "CertScore API version marker." },
@@ -745,6 +774,8 @@ export function buildCertScoreApiV2OpenApiDocument() {
             "refusalExercised",
             "observationCount",
             "productionProjectable",
+            "evidenceDisposition",
+            "indeterminateReason",
             "verdict",
             "interpretation",
             "observationStrategy",
@@ -754,12 +785,17 @@ export function buildCertScoreApiV2OpenApiDocument() {
             "limitations"
           ],
           properties: {
-            status: { type: "string", enum: ["confirmed_observation", "confirmed_clean", "unconfirmed", "not_attempted", "unsupported", "aborted"] },
+            execution: choicePathExecutionOpenApi,
+            afterAction: afterActionSummaryOpenApi,
+            status: { type: "string", description: "confirmed_observation and confirmed_clean are results. Every other value is limited coverage and must not be interpreted as a pass.", enum: ["confirmed_observation", "confirmed_clean", "unconfirmed", "not_attempted", "unsupported", "aborted"] },
             refusalExercised: { type: "boolean" },
             observationCount: { type: "integer", minimum: 0 },
-            productionProjectable: { type: "boolean" },
+            productionProjectable: { type: "boolean", description: "Whether the observation is eligible to project a public finding. Non-projectable evidence may still be valid for review." },
+            evidenceDisposition: { type: "string", enum: ["confirmed", "indeterminate"] },
+            indeterminateReason: { type: ["string", "null"], maxLength: 160 },
             verdict: {
               type: "string",
+              description: "The registered-decision verdict; afterAction separately carries retained after-click facts. Do not derive a verdict by counting evidence rows.",
               enum: [
                 "eligible_nonessential_activity_observed_after_confirmed_refusal",
                 "retained_consent_signal_contradiction_observed_after_confirmed_refusal",
@@ -771,6 +807,7 @@ export function buildCertScoreApiV2OpenApiDocument() {
             observationStrategy: { type: "string", enum: ["stop_on_first_eligible_activity", "not_applicable"] },
             termination: {
               type: "object",
+              description: "evidence_satisfied with intentional=true means the bounded observer deliberately stopped after retaining qualifying evidence; observationCount is not a cross-scan volume measure.",
               additionalProperties: false,
               required: ["kind", "intentional", "trigger"],
               properties: {
@@ -780,8 +817,154 @@ export function buildCertScoreApiV2OpenApiDocument() {
               }
             },
             completedAt: { type: ["string", "null"], format: "date-time" },
-            coverageLimitations: { type: "array", maxItems: 24, items: { type: "string" } },
+            coverageLimitations: { type: "array", description: "Behavior or persistence that was not measured. This bounds the observation and does not describe the site.", maxItems: 24, items: { type: "string" } },
             limitations: { type: "array", maxItems: 24, deprecated: true, description: "Deprecated compatibility alias for coverageLimitations.", items: { type: "string" } }
+          }
+        },
+        PostAcceptObservation: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "status",
+            "acceptanceExercised",
+            "observationCount",
+            "productionProjectable",
+            "evidenceDisposition",
+            "indeterminateReason",
+            "verdict",
+            "interpretation",
+            "observationStrategy",
+            "termination",
+            "completedAt",
+            "coverageLimitations",
+            "limitations"
+          ],
+          properties: {
+            execution: choicePathExecutionOpenApi,
+            afterAction: afterActionSummaryOpenApi,
+            status: { type: "string", description: "confirmed_observation and confirmed_clean are results. Every other value is limited coverage and must not be interpreted as a pass.", enum: ["confirmed_observation", "confirmed_clean", "unconfirmed", "not_attempted", "unsupported", "aborted"] },
+            acceptanceExercised: { type: "boolean" },
+            observationCount: { type: "integer", minimum: 0 },
+            productionProjectable: { type: "boolean", description: "Whether the observation is eligible to project publicly. Accept remains a score-neutral comparison baseline." },
+            evidenceDisposition: { type: "string", enum: ["confirmed", "indeterminate"] },
+            indeterminateReason: { type: ["string", "null"], maxLength: 160 },
+            verdict: {
+              type: "string",
+              description: "The registered-decision verdict; afterAction separately carries retained after-click facts. Post-acceptance activity is a score-neutral comparison baseline, not a negative finding.",
+              enum: [
+                "eligible_nonessential_activity_observed_after_confirmed_acceptance",
+                "retained_consent_signal_contradiction_observed_after_confirmed_acceptance",
+                "no_eligible_nonessential_activity_observed_during_completed_window",
+                "no_confirmed_post_accept_verdict"
+              ]
+            },
+            interpretation: { type: "string", maxLength: 500 },
+            observationStrategy: { type: "string", enum: ["stop_on_first_eligible_activity", "not_applicable"] },
+            termination: {
+              type: "object",
+              description: "evidence_satisfied with intentional=true means the bounded observer deliberately stopped after retaining qualifying comparison evidence.",
+              additionalProperties: false,
+              required: ["kind", "intentional", "trigger"],
+              properties: {
+                kind: { type: "string", enum: ["evidence_satisfied", "window_elapsed", "unavailable"] },
+                intentional: { type: "boolean" },
+                trigger: { type: "string", enum: ["non_essential_request_observed", "non_essential_storage_write_observed", "acceptance_signal_contradiction_observed", "window_elapsed", "accept_control_not_observed", "accept_path_timeout", "accept_observation_window_truncated", "worker_failed", "unavailable"] }
+              }
+            },
+            completedAt: { type: ["string", "null"], format: "date-time" },
+            coverageLimitations: { type: "array", description: "Behavior or persistence that was not measured. This bounds the observation and does not describe the site.", maxItems: 24, items: { type: "string" } },
+            limitations: { type: "array", maxItems: 24, deprecated: true, description: "Deprecated compatibility alias for coverageLimitations.", items: { type: "string" } }
+          }
+        },
+        GpcResponse: {
+          type: "object",
+          additionalProperties: false,
+          required: ["status", "findingTitle", "summary", "scoreEffect", "legalInterpretation", "comparison", "californiaPolicy", "evidenceUrl"],
+          properties: {
+            observation: gpcBoundedObservationOpenApi,
+            contractVersion: { type: "string", enum: ["certscore.gpc-response-assessment.v1", "certscore.gpc-response-assessment.v2", "certscore.gpc-response-assessment.v3"], description: "V3 additionally retains independent bounded observation, CMP-recorded sale/sharing state and direct request facts. Completion does not mean GPC was honored. Historical records retain their original versions." },
+            status: { type: "string", enum: ["responsive", "no_observable_response", "indeterminate"] },
+            findingTitle: { type: "string", enum: ["GPC response", "No observable GPC response"] },
+            summary: { type: "string", minLength: 1, maxLength: 2000 },
+            scoreEffect: { type: "string", const: "none", description: "The jurisdiction-neutral GPC comparison itself is score-neutral." },
+            legalInterpretation: { type: "string", const: "not_assessed" },
+            comparison: {
+              type: "object",
+              additionalProperties: false,
+              required: ["comparable", "protocol", "baselineArtifact", "gpcArtifact", "enabledProof", "deltas", "limitationKeys"],
+              properties: {
+                comparable: { type: "boolean" },
+                protocol: { type: "string", const: "passive_baseline_with_sec_gpc" },
+                baselineArtifact: {
+                  type: ["object", "null"],
+                  additionalProperties: false,
+                  required: ["lane", "sha256", "sizeBytes"],
+                  properties: {
+                    lane: { type: "string", const: "runtime_evidence" },
+                    sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+                    sizeBytes: { type: "integer", minimum: 0 }
+                  }
+                },
+                gpcArtifact: {
+                  type: ["object", "null"],
+                  additionalProperties: false,
+                  required: ["lane", "sha256", "sizeBytes"],
+                  properties: {
+                    lane: { type: "string", const: "gpc_observation" },
+                    sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+                    sizeBytes: { type: "integer", minimum: 0 }
+                  }
+                },
+                enabledProof: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["secGpcHeaderValue", "requestsWithSecGpc", "requestEventIds", "navigatorGlobalPrivacyControl"],
+                  properties: {
+                    secGpcHeaderValue: { type: ["string", "null"], enum: ["1", null] },
+                    requestsWithSecGpc: { type: "integer", minimum: 0 },
+                    requestEventIds: { type: "array", maxItems: 100, items: { type: "string", minLength: 1, maxLength: 160 } },
+                    navigatorGlobalPrivacyControl: { type: ["boolean", "null"], description: "Actual main-document readback; null means unverified, not enabled." }
+                  }
+                },
+                deltas: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["cookies", "trackers", "advertisingOrMeasurementActivity", "consentOrCmpBehavior"],
+                  properties: Object.fromEntries(
+                    ["cookies", "webStorage", "trackers", "advertisingOrMeasurementActivity", "advertisingOrMarketingActivity", "consentOrCmpBehavior"].map((key) => [key, {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["baselineCount", "gpcCount", "countDelta", "baselineOnly", "gpcOnly", "shared"],
+                      properties: {
+                        baselineCount: { type: "integer", minimum: 0 },
+                        gpcCount: { type: "integer", minimum: 0 },
+                        countDelta: { type: "integer" },
+                        baselineOnlyCount: { type: "integer", minimum: 0 },
+                        gpcOnlyCount: { type: "integer", minimum: 0 },
+                        sharedCount: { type: "integer", minimum: 0 },
+                        samplesTruncated: { type: "boolean", description: "V2 counts cover the complete retained sets; arrays are bounded samples." },
+                        baselineOnly: { type: "array", maxItems: 100, items: { type: "string", minLength: 1, maxLength: 500 } },
+                        gpcOnly: { type: "array", maxItems: 100, items: { type: "string", minLength: 1, maxLength: 500 } },
+                        shared: { type: "array", maxItems: 100, items: { type: "string", minLength: 1, maxLength: 500 } }
+                      }
+                    }]))
+                },
+                delivery: { type: "object", additionalProperties: false, required: ["status"], properties: { status: { type: "string", enum: ["verified", "limited", "unavailable"] } } },
+                coverage: { type: "object", additionalProperties: false, required: ["status", "comparedThroughMs"], properties: { status: { type: "string", enum: ["complete", "limited", "unavailable"] }, comparedThroughMs: { type: ["integer", "null"], minimum: 0 } } },
+                responseBasis: { type: "string", enum: ["qualified_activity_reduction", "no_qualified_reduction", "insufficient_evidence"] },
+                limitationKeys: { type: "array", maxItems: 24, items: { type: "string", minLength: 1, maxLength: 160 } }
+              }
+            },
+            californiaPolicy: {
+              type: "object",
+              additionalProperties: false,
+              required: ["applied", "deductionPoints"],
+              properties: {
+                applied: { type: "boolean" },
+                deductionPoints: { type: "integer", enum: [0, 15] }
+              }
+            },
+            evidenceUrl: { type: "string", format: "uri" }
           }
         },
         PreConsentRuntimePreview: {
@@ -869,11 +1052,30 @@ export function buildCertScoreApiV2OpenApiDocument() {
                 }
               }
             },
+            resources: {
+              type: "array", maxItems: 20,
+              description: "Bounded observed request and embed service identities, not final evidence classifications or findings.",
+              items: {
+                type: "object", additionalProperties: false,
+                required: ["kind", "vendor", "product", "purpose", "confidence", "domains", "party", "observedAtMs", "requestCount"],
+                properties: {
+                  kind: { type: "string", enum: ["request", "embed"] },
+                  vendor: { type: ["string", "null"], minLength: 1, maxLength: 160 },
+                  product: { type: ["string", "null"], minLength: 1, maxLength: 160 },
+                  purpose: { type: "string", minLength: 1, maxLength: 80 },
+                  confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
+                  domains: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 253 } },
+                  party: { type: "string", enum: ["first_party", "third_party", "mixed", "unknown"] },
+                  observedAtMs: { type: "integer", minimum: 0 },
+                  requestCount: { type: "integer", minimum: 0 }
+                }
+              }
+            },
             truncated: {
               type: "object",
               additionalProperties: false,
               required: ["cookies", "trackers"],
-              properties: { cookies: { type: "boolean" }, trackers: { type: "boolean" }, operationalVendors: { type: "boolean" } }
+              properties: { cookies: { type: "boolean" }, trackers: { type: "boolean" }, operationalVendors: { type: "boolean" }, resources: { type: "boolean" } }
             },
             mustContinuePolling: { type: "boolean", const: true },
             observationOnlyDisclaimer: { type: "string", minLength: 1, maxLength: 500 }
@@ -902,6 +1104,8 @@ export function buildCertScoreApiV2OpenApiDocument() {
             scoreVersion: { type: ["string", "null"] },
             scoreUpdatedAt: { type: ["string", "null"], format: "date-time" },
             riskLevel: { type: ["string", "null"] },
+            gpcResponse: { $ref: "#/components/schemas/GpcResponse" },
+            postAcceptObservation: { $ref: "#/components/schemas/PostAcceptObservation" },
             postRefusalObservation: { $ref: "#/components/schemas/PostRefusalObservation" },
             preConsentPreview: { $ref: "#/components/schemas/PreConsentRuntimePreview" },
             coverage: { type: ["object", "null"], additionalProperties: true },
@@ -918,7 +1122,7 @@ export function buildCertScoreApiV2OpenApiDocument() {
               required: ["code", "message", "retryable", "retryAfterSeconds", "recommendedNextAction"],
               properties: {
                 code: { type: "string" },
-                reasonCode: { type: ["string", "null"], enum: ["non_public_target", null] },
+                reasonCode: { type: ["string", "null"], enum: ["non_public_target", "domain_not_found", "dns_unavailable", null] },
                 message: { type: "string" },
                 retryable: { type: "boolean" },
                 retryAfterSeconds: { type: ["integer", "null"] },
@@ -964,6 +1168,8 @@ export function buildCertScoreApiV2OpenApiDocument() {
             scoreVersion: { type: ["string", "null"] },
             scoreUpdatedAt: { type: ["string", "null"], format: "date-time" },
             riskLevel: { type: ["string", "null"] },
+            gpcResponse: { $ref: "#/components/schemas/GpcResponse" },
+            postAcceptObservation: { $ref: "#/components/schemas/PostAcceptObservation" },
             postRefusalObservation: { $ref: "#/components/schemas/PostRefusalObservation" },
             coverage: { type: "object", additionalProperties: true },
             executionMode: { type: "string", enum: ["new_scan", "reused_scan"] },
@@ -1236,6 +1442,7 @@ export function buildCertScoreApiV2OpenApiDocument() {
             scanId: { type: "string" },
             domain: { type: "string" },
             generatedAt: { type: ["string", "null"] },
+            runtimeEvidenceGraph: { $ref: "#/components/schemas/RuntimeEvidenceGraphProjection" },
             summary: {
               type: "object",
               additionalProperties: false,
@@ -1257,6 +1464,7 @@ export function buildCertScoreApiV2OpenApiDocument() {
                   }
                 },
                 cookieCount: { type: "integer", minimum: 0 },
+                storageCount: { type: "integer", minimum: 0, description: "Retained browser-storage type/key identities, separate from cookies." },
                 requestCount: { type: "integer", minimum: 0 }
               }
             },
@@ -1268,6 +1476,7 @@ export function buildCertScoreApiV2OpenApiDocument() {
             disclaimer: { type: "string" }
           }
         },
+        ...runtimeEvidenceGraphOpenApiSchemas,
         PreConsentCookiesTrackersRow: {
           type: "object",
           additionalProperties: false,
@@ -1275,6 +1484,36 @@ export function buildCertScoreApiV2OpenApiDocument() {
           properties: {
             id: { type: "string" },
             kind: { type: "string", enum: ["cookie", "tracker", "request", "storage", "unknown"] },
+            requestDetails: {
+              type: "array", maxItems: 50, items: {
+                type: "object", additionalProperties: false,
+                required: ["cookieNamesSent", "essentiality", "hostname", "identifierParameterNames", "initiatorUrl", "method", "path", "responseCookieNamesSet", "responseObserved", "responseStorageAttempted", "vendor"],
+                properties: {
+                  resourceRole: { type: "string", enum: ["video_ad_sdk"], description: "Registered SDK endpoint role; independent of resource type and frame evidence." },
+                  cookieNamesSent: { type: "array", maxItems: 24, items: { type: "string", maxLength: 256 } },
+                  essentiality: { type: "string", enum: ["non_essential", "unknown"] },
+                  hostname: { type: ["string", "null"], maxLength: 253 },
+                  identifierParameterNames: { type: "array", maxItems: 24, items: { type: "string", maxLength: 256 } },
+                  initiatorUrl: { type: ["string", "null"], maxLength: 500 },
+                  method: { type: ["string", "null"], maxLength: 24 },
+                  path: { type: ["string", "null"], maxLength: 2000 },
+                  responseCookieNamesSet: { type: "array", maxItems: 24, items: { type: "string", maxLength: 256 } },
+                  responseObserved: { type: "boolean" }, responseStorageAttempted: { type: "boolean" },
+                  vendor: { type: ["string", "null"], maxLength: 160 },
+                },
+              },
+            },
+            storageDetails: {
+              type: "object", additionalProperties: false,
+              required: ["storageType", "key", "origin", "identityBasis", "sourceHash", "evidenceRefs"],
+              properties: {
+                storageType: { type: "string", enum: ["localStorage", "sessionStorage"] },
+                key: { type: "string", maxLength: 4096 }, origin: { type: ["string", "null"], format: "uri" },
+                identityBasis: { type: "string", enum: ["retained_scan_type_key", "origin_type_key"], description: "Origin/type/key identity requires verified same-document capture. Historical keys retain unknown origin." },
+                sourceHash: { type: "string", pattern: "^[a-f0-9]{64}$" },
+                evidenceRefs: { type: "array", maxItems: 8, items: { type: "string" } },
+              },
+            },
             name: { type: "string" },
             vendor: { type: ["string", "null"] },
             host: { type: ["string", "null"], description: "Host only; full URLs and query strings are not exposed." },

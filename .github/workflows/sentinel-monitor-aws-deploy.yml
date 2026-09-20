@@ -7,6 +7,7 @@ on:
       - ".github/workflows/sentinel-monitor-aws-deploy.yml"
       - "infra/aws/sentinel-monitor/handler.py"
       - "infra/aws/sentinel-monitor/test_handler.py"
+      - "infra/aws/sentinel-monitor/configure_schedule.py"
       - "infra/aws/sentinel-monitor/github-actions-policy.json"
       - "infra/aws/sentinel-monitor/github-actions-trust-policy.json"
   workflow_dispatch:
@@ -78,3 +79,6 @@ jobs:
           mkdir -p /tmp/certscore-sentinel-deployed
           unzip -q /tmp/certscore-sentinel-deployed.zip -d /tmp/certscore-sentinel-deployed
           cmp infra/aws/sentinel-monitor/handler.py /tmp/certscore-sentinel-deployed/handler.py
+
+      - name: Apply and verify twenty-minute schedule
+        run: python infra/aws/sentinel-monitor/configure_schedule.py --apply

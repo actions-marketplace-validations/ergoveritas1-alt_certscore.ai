@@ -1,5 +1,6 @@
 "use client";
 
+import { type FullSiteFormValue } from "../scans/full-site-controls";
 import { Button, Input } from "@website-signal-risk-scanner/ui";
 import { usePathname, useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
@@ -143,6 +144,32 @@ export function shouldUseFullPageScanSubmissionTransition(input: {
     input.scanFrom !== "local_extension" && !input.expectsRecentScanReuse;
 }
 
+export function buildScanSubmitBody(input: {
+  crawl?: FullSiteFormValue;
+  allowRestrictedScanOptions: boolean;
+  campaignAttribution: unknown;
+  domain: string;
+  forceNewScan: boolean;
+  localV2ScanProfile: LocalV2ScanProfile;
+  localV2RunViaLambda: boolean;
+  mode: ScanMode;
+  requestId: string;
+  scanFrom: ServerScanFrom;
+}) {
+  return JSON.stringify({
+    ...(input.mode === "full" ? input.crawl : {}),
+    domain: input.domain,
+    campaignAttribution: input.campaignAttribution,
+    forceNewScan: input.forceNewScan,
+    localV2ScanProfile: input.localV2ScanProfile,
+    localV2RunViaLambda: input.allowRestrictedScanOptions || LOCALHOST_FULL_SCAN_QUEUE_ENABLED
+      ? input.localV2RunViaLambda
+      : true,
+    scanFrom: input.scanFrom,
+    requestId: input.requestId
+  });
+}
+
 type ScanSubmitFailure = {
   code?: string | null;
   destination?: string | null;
@@ -160,6 +187,7 @@ const GENERIC_SCAN_ERROR_MESSAGES: Record<ScanMode, string> = {
 const RECENT_SCAN_REUSED_MESSAGE = "Recently scanned. Select Fresh re-scan to run a new scan.";
 
 const FULL_SCAN_ERROR_MESSAGES: Record<string, string> = {
+  full_site_local_unavailable: "The local full-site worker isn’t ready. Start the local scan stack, then try again.",
   active_scan_exists: "A scan is already queued or running for this site. Open scan history or try again shortly.",
   domain_already_connected: "This site is already connected to your workspace. Sign in to open it from scan history.",
   full_scan_server_error: "The scan service hit an unexpected error. Try again in a minute.",
@@ -403,6 +431,7 @@ export function DomainScanForm({
   const router = useRouter();
   const pathname = usePathname();
   const reportRescanTransition = useScanReportRescanTransition();
+  const [crawlInput,setCrawlInput] = useState<FullSiteFormValue>();
   const canUseLocalExtensionScan = allowLocalExtensionScan && allowRestrictedScanOptions;
   const allowedDefaultScanFrom = restrictLocalExtensionScanFrom({
     allowLocalExtensionScan,
@@ -415,7 +444,7 @@ export function DomainScanForm({
   const [localExtensionStatus, setLocalExtensionStatus] = useState<Bx01Status | null>(null);
   const [showExtensionInstructions, setShowExtensionInstructions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [freshRescan, setFreshRescan] = useState(false);
+  const [freshRescan, setFreshRescan] = useState(true);
   const [hasRecentReusableScan, setHasRecentReusableScan] = useState(false);
   const [localV2ScanProfile, setLocalV2ScanProfile] = useState<LocalV2ScanProfile>("standard");
   const [localV2RunViaLambda, setLocalV2RunViaLambda] = useState(true);
@@ -429,7 +458,7 @@ export function DomainScanForm({
   const scanButtonArmed = isValidScanTarget(effectiveSubmitDomain);
   const showFreshRescanOption = mode === "full" && scanFrom !== "local_extension" && hasRecentReusableScan;
   const expectsRecentScanReuse = shouldExpectRecentScanReuse({ freshRescan, hasRecentReusableScan, mode });
-  const useFullPageSubmissionProgress = shouldUseFullPageScanSubmissionTransition({
+  const useFullPageSubmissionProgress = !crawlInput?.fullSite && shouldUseFullPageScanSubmissionTransition({
     compact,
     expectsRecentScanReuse,
     hasTransitionHost: reportRescanTransition !== null,
@@ -584,12 +613,12 @@ export function DomainScanForm({
   useEffect(() => {
     if (mode !== "full" || scanFrom === "local_extension" || !effectiveSubmitDomain) {
       setHasRecentReusableScan(false);
-      setFreshRescan(false);
+      setFreshRescan(true);
       return;
     }
 
     setHasRecentReusableScan(false);
-    setFreshRescan(false);
+    setFreshRescan(true);
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
@@ -610,7 +639,7 @@ export function DomainScanForm({
         .then((nextHasRecentReusableScan) => {
           setHasRecentReusableScan(nextHasRecentReusableScan);
           if (!nextHasRecentReusableScan) {
-            setFreshRescan(false);
+            setFreshRescan(true);
           }
         })
         .catch((error) => {
@@ -618,7 +647,7 @@ export function DomainScanForm({
             return;
           }
           setHasRecentReusableScan(false);
-          setFreshRescan(false);
+          setFreshRescan(true);
         });
     }, RECENT_SCAN_AVAILABILITY_CHECK_DELAY_MS);
 
@@ -777,21 +806,21 @@ export function DomainScanForm({
       });
 
       const submitUrl = mode === "preview" ? "/api/preview-scan" : "/api/full-scan";
-      const submitBody = JSON.stringify({
-          domain: submittedDomain,
-          campaignAttribution,
-          forceNewScan: showFreshRescanOption ? freshRescan : false,
-          localV2ScanProfile,
-          localV2RunViaLambda:
-            allowRestrictedScanOptions || LOCALHOST_FULL_SCAN_QUEUE_ENABLED
-              ? localV2RunViaLambda
-              : true,
-          scanFrom: scanFrom as ServerScanFrom,
-          requestId
-        });
+      const submitBody = buildScanSubmitBody({
+        crawl: crawlInput,
+        allowRestrictedScanOptions,
+        campaignAttribution,
+        domain: submittedDomain,
+        forceNewScan: showFreshRescanOption ? freshRescan : false,
+        localV2ScanProfile,
+        localV2RunViaLambda,
+        mode,
+        scanFrom: scanFrom as ServerScanFrom,
+        requestId
+      });
       const submitHeaders = {
           "Content-Type": "application/json",
-          ...(requestSource ? { "x-certscore-scan-source": requestSource } : {})
+          "x-certscore-scan-source": requestSource ?? (scanSource === "dashboard" ? "manual-dashboard" : "browser")
         };
       const postSubmission = () => fetch(submitUrl, {
         body: submitBody,
@@ -809,7 +838,7 @@ export function DomainScanForm({
         if (shouldRecoverScanSubmission(attempt)) {
           const statusResponse = await fetch(buildScanSubmissionStatusUrl(requestId), {
             cache: "no-store",
-            headers: requestSource ? { "x-certscore-scan-source": requestSource } : undefined
+            headers: { "x-certscore-scan-source": requestSource ?? (scanSource === "dashboard" ? "manual-dashboard" : "browser") }
           });
           if (statusResponse.ok) {
             attempt = await readScanSubmitAttempt(statusResponse);
@@ -861,6 +890,15 @@ export function DomainScanForm({
         scan_target_type: getScanTargetType(submittedDomain),
         scan_status: "queued"
       });
+      if (crawlInput?.fullSite && payload.scanId) {
+        clearPendingScanSession(requestId);
+        clearActiveScanSession();
+        reportRescanTransition?.cancel();
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+        router.push(`/app/scans/${payload.scanId}`);
+        return;
+      }
       const nextDestination = appendRecentScanReuseParam(destination, payload.reusedExistingScan);
       clearPendingScanSession(requestId);
       if (payload.reusedExistingScan) {
@@ -929,7 +967,7 @@ export function DomainScanForm({
             autoComplete="url"
             className={
               variant === "homepage-hero"
-                ? "h-14 rounded-[16px] border-[3px] border-sky-400 bg-white pl-6 pr-44 text-base font-semibold text-slate-950 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_16px_42px_rgba(14,165,233,0.3)] placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-400/30 sm:h-16 sm:pr-48 sm:text-lg"
+                ? "h-14 rounded-[16px] border-[3px] border-sky-400 bg-white pl-4 pr-16 text-base font-semibold text-slate-950 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_16px_42px_rgba(14,165,233,0.3)] placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-400/30 sm:h-16 sm:pl-6 sm:pr-48 sm:text-lg"
                 : compact
                 ? "h-12 rounded-[1.2rem] border-2 border-sky-500 pr-40 text-left text-sm font-semibold shadow-[0_12px_30px_rgba(14,165,233,0.12)] placeholder:text-left focus:border-sky-600 focus:ring-2 focus:ring-sky-100"
                 : "h-14 rounded-[1.6rem] border-2 border-sky-500 pr-32 text-base font-semibold shadow-[0_14px_34px_rgba(14,165,233,0.12)] focus:border-sky-600 focus:ring-2 focus:ring-sky-100"
@@ -947,11 +985,13 @@ export function DomainScanForm({
           />
           {mode === "full" ? (
             <div className={variant === "homepage-hero"
-              ? `absolute ${isSubmitting ? "right-[10rem] sm:right-[10.5rem]" : "right-[8.75rem] sm:right-[9.25rem]"} top-1/2 -translate-y-1/2 scale-150`
+              ? `absolute right-4 top-7 ${isSubmitting ? "sm:right-[10.5rem]" : "sm:right-[9.25rem]"} sm:top-1/2 -translate-y-1/2 scale-125 sm:scale-150`
               : compact
               ? `absolute ${isSubmitting ? "right-[8.5rem]" : "right-[5.9rem]"} top-1/2 z-10 -translate-y-1/2`
               : `absolute ${isSubmitting ? "right-[10.25rem]" : "right-[8rem]"} top-1/2 -translate-y-1/2`}>
               <ScanFromSelect
+                includeFullSiteOption
+                onFullSiteChange={setCrawlInput}
                 allowRestrictedScanOptions={allowRestrictedScanOptions}
                 compact={compact}
                 freshRescanValue={freshRescan}
@@ -987,7 +1027,7 @@ export function DomainScanForm({
             aria-label={buttonLabel}
             className={
               variant === "homepage-hero"
-                ? `absolute right-1.5 top-1/2 h-11 ${isSubmitting ? "w-[8.5rem] sm:w-[9rem]" : "w-[118px] sm:w-[126px]"} -translate-y-1/2 rounded-[13px] border border-emerald-300/70 bg-[linear-gradient(135deg,#45c957_0%,#56bd58_100%)] px-4 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_7px_18px_rgba(34,197,94,0.28)] hover:brightness-110 focus-visible:ring-4 focus-visible:ring-emerald-300/40 sm:h-[52px] sm:text-base`
+                ? `relative mt-3 h-11 w-full sm:absolute sm:right-1.5 sm:top-1/2 sm:mt-0 ${isSubmitting ? "sm:w-[9rem]" : "sm:w-[126px]"} sm:-translate-y-1/2 rounded-[13px] border border-emerald-300/70 bg-[linear-gradient(135deg,#45c957_0%,#56bd58_100%)] px-4 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_7px_18px_rgba(34,197,94,0.28)] hover:brightness-110 focus-visible:ring-4 focus-visible:ring-emerald-300/40 sm:h-[52px] sm:text-base`
                 : compact
                 ? scanButtonArmed
                   ? `scan-report-button scan-report-button-primary scan-form-button absolute right-2 top-1/2 z-20 h-8 ${isSubmitting ? "w-[7.5rem]" : "w-[4.5rem]"} -translate-y-1/2 rounded-full border border-sky-600 bg-[linear-gradient(180deg,#38bdf8_0%,#0284c7_100%)] px-4 text-xs font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_3px_0_0_rgba(3,105,161,0.55),0_10px_22px_-7px_rgba(14,165,233,0.7)] ring-1 ring-sky-300/70 transition-[filter,box-shadow] duration-150 hover:-translate-y-1/2 hover:border-sky-500 hover:brightness-110 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_4px_0_0_rgba(3,105,161,0.5),0_13px_24px_-7px_rgba(14,165,233,0.8)] active:-translate-y-1/2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 disabled:!opacity-100`

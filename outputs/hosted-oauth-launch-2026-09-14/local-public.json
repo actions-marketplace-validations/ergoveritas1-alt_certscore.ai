@@ -1,0 +1,83 @@
+{
+  "at": "2026-09-14T18:07:45.126Z",
+  "origin": "http://localhost:3000",
+  "version": {
+    "appUrl": "http://localhost:3000",
+    "gitRef": null,
+    "gitSha": null,
+    "imageTag": null,
+    "runtimeTarget": "unknown",
+    "service": "web",
+    "timestamp": "2026-09-14T18:07:45.123Z"
+  },
+  "pages": [
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/releases",
+      "status": 200
+    },
+    {
+      "path": "/releases/mcp-hosted-oauth",
+      "status": 200
+    },
+    {
+      "path": "/releases/mcp-light",
+      "status": 200
+    },
+    {
+      "path": "/releases/accept-and-reject-path-testing",
+      "status": 200
+    },
+    {
+      "path": "/developers/mcp",
+      "status": 200
+    },
+    {
+      "path": "/developers/quickstart",
+      "status": 200
+    },
+    {
+      "path": "/developers",
+      "status": 200
+    },
+    {
+      "path": "/mcp/light",
+      "status": 200
+    },
+    {
+      "path": "/claude",
+      "status": 200
+    },
+    {
+      "path": "/releases/feed.xml",
+      "status": 200
+    },
+    {
+      "path": "/sitemap.xml",
+      "status": 200
+    },
+    {
+      "path": "/llms.txt",
+      "status": 200
+    },
+    {
+      "path": "/llms-full.txt",
+      "status": 200
+    },
+    {
+      "path": "/api-pulse-agent-guide.txt",
+      "status": 200
+    }
+  ],
+  "metadata": "pass",
+  "ordering": "pass",
+  "documentation": "pass",
+  "asset": {
+    "width": 1200,
+    "height": 630,
+    "bytes": 85568
+  }
+}

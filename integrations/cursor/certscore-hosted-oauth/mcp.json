@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "CertScore Hosted OAuth": {
+      "url": "https://mcp.certscore.ai/mcp",
+      "auth": {
+        "CLIENT_ID": "certscore_cursor_hosted_oauth_v1",
+        "scopes": [
+          "scan:read",
+          "scan:create",
+          "mcp"
+        ]
+      }
+    }
+  }
+}

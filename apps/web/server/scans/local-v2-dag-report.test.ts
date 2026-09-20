@@ -6,10 +6,12 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
 import type { CanonicalEvidenceBundle } from "@certscore/contracts";
+import { CANONICAL_VENDOR_RESOLVER_VERSION } from "@certscore/vendor-resolver";
 import { SCAN_NO_GO_REASON_CODES, SCAN_NO_GO_REASON_PRESENTATIONS } from "@website-signal-risk-scanner/shared";
 import { deriveGdprEprivacyCoverageChecklist } from "../../lib/scans/gdpr-eprivacy-coverage-checklist";
 import { deriveGdprEprivacyCoveragePolicyOutcomes } from "../../lib/scans/gdpr-eprivacy-coverage-policy";
 import { buildNormalizedConcerns } from "../../lib/scans/normalized-concerns";
+import { buildIframeInventoryRows, classifyInventoryEvidence } from "../../lib/scans/runtime-inventory-projection";
 import { buildCanonicalGdprEprivacyShadowProjection } from "../../lib/pulse/projection";
 import { buildScanReportUnifiedFindingsForScan } from "../../lib/scans/scan-report-unified-findings";
 import { LOCAL_V2_DAG_SCAN_PROCESSOR } from "./local-v2-dag-scan-config";
@@ -26,6 +28,31 @@ const serverOnlyPath = require.resolve("server-only");
   path: serverOnlyPath,
   paths: []
 };
+
+test("embedded timeline excludes font delivery and preserves canonical Facebook attribution", async () => {
+  const { summarizeEmbeddedContentEvidence } = await import("./local-v2-dag-report");
+  const { buildExecutiveTimelineEvents } = await import("../../components/scans/shared-scan-detail-view");
+  const requests = [
+    { url: "https://fonts.googleapis.com/css?family=Lato", hostname: "fonts.googleapis.com", timestampMs: 4093, thirdParty: true, resourceType: "stylesheet" },
+    { url: "https://fonts.gstatic.com/s/lato/font.woff2", hostname: "fonts.gstatic.com", timestampMs: 4500, thirdParty: true, resourceType: "font" },
+    { url: "https://www.facebook.com/plugins/page.php", hostname: "www.facebook.com", timestampMs: 9331, thirdParty: true, resourceType: "document" },
+  ] as CanonicalEvidenceBundle["networkEvents"];
+  const summary = summarizeEmbeddedContentEvidence([], requests);
+  assert.equal(summary.observations.length, 1);
+  assert.equal(summary.observations[0]?.vendorName, "Facebook");
+  assert.equal(summary.observations[0]?.timestampMs, 9331);
+  const events = buildExecutiveTimelineEvents({ hybridRuntimeEvidence: { embeddedContentSummary: summary } }, [
+    { id: "embedded_content_pre_consent", status: "gap_observed" },
+  ]);
+  const embed = events.find(event => event.label === "Embedded content");
+  assert.equal(embed?.atMs, 9331);
+  assert.equal(embed?.vendorLabel, "Facebook");
+  const both = buildExecutiveTimelineEvents({ hybridRuntimeEvidence: { embeddedContentSummary: {
+    ...summary, observations: [{ evidenceType: "network_request", vendorName: "Google", timestampMs: 9330 }, ...summary.observations],
+  } } });
+  assert.deepEqual(both.filter(event => event.label === "Embedded content").map(event => [event.atMs, event.vendorLabel]), [[9330, "Google"], [9331, "Facebook"]]);
+  assert.equal(summarizeEmbeddedContentEvidence([], requests.slice(0, 2)).embeddedContentObserved, false);
+});
 
 function completeUnknownGdprTransparencyTopicCoverageDiagnostics() {
   return [
@@ -1400,10 +1427,12 @@ test("observed rendered privacy links remain reportable when document fetch fail
   const surfaces = dedupePolicySurfaces([discoveredSurface], "https://example.test/");
   const summary = summarizePolicySurfaces(surfaces, "example.test", {
     discoveredPolicySurfaces: [discoveredSurface],
+    privacyPolicyObserved: true,
   });
 
   assert.equal(surfaces.length, 1);
   assert.equal(summary.privacyPolicyPresent, false);
+  assert.equal(summary.privacyNoticeAvailabilityObserved, true);
   assert.equal(summary.privacyPolicyDiscovered, true);
   assert.equal(summary.privacyPolicyEvaluationState, "discovered_fetch_failed");
   assert.deepEqual(summary.privacyPolicyUrls, []);
@@ -2169,6 +2198,47 @@ function makeScanRecord(overrides: Partial<ScanDetailResponse> = {}): ScanDetail
     ...overrides
   } as ScanDetailResponse;
 }
+
+test("GPC response projection preserves the typed assessment without legal reinterpretation", async () => {
+  const { buildGpcResponseRuntimeProjection } = await loadLocalV2DagReport();
+  const unchangedDelta = {
+    baselineCount: 1,
+    gpcCount: 1,
+    countDelta: 0,
+    baselineOnly: [],
+    gpcOnly: [],
+    shared: ["retained_identity"],
+  };
+  const assessment = {
+    contractVersion: "certscore.gpc-response-assessment.v1" as const,
+    generatedAt: "2026-08-20T12:00:00.000Z",
+    status: "no_observable_response" as const,
+    findingTitle: "No observable GPC response" as const,
+    scoreEffect: "none" as const,
+    legalInterpretation: "not_assessed" as const,
+    comparison: {
+      comparable: true,
+      protocol: "passive_baseline_with_sec_gpc" as const,
+      baselineArtifact: { lane: "runtime_evidence" as const, sha256: "a".repeat(64), sizeBytes: 100, uri: "s3://evidence/baseline.json" },
+      gpcArtifact: { lane: "gpc_observation" as const, sha256: "b".repeat(64), sizeBytes: 100, uri: "s3://evidence/gpc.json" },
+      enabledProof: { secGpcHeaderValue: "1" as const, requestsWithSecGpc: 2, requestEventIds: ["gpc-1", "gpc-2"], navigatorGlobalPrivacyControl: true as const },
+      deltas: {
+        cookies: unchangedDelta,
+        trackers: unchangedDelta,
+        advertisingOrMeasurementActivity: unchangedDelta,
+        consentOrCmpBehavior: unchangedDelta,
+      },
+      evidenceRefs: ["s3://evidence/baseline.json", "s3://evidence/gpc.json"],
+      limitationKeys: [],
+    },
+  } as CanonicalEvidenceBundle["gpcResponseAssessment"];
+
+  assert.deepEqual(buildGpcResponseRuntimeProjection({}), {});
+  assert.deepEqual(buildGpcResponseRuntimeProjection({ gpcResponseAssessment: assessment }), {
+    gpcResponseAssessment: assessment,
+    gpc_response_assessment: assessment,
+  });
+});
 
 function completedConsentGeometryFixture(input: {
   cmpName?: string;
@@ -5479,9 +5549,9 @@ test("materializeLocalV2DagScanDetail records stable GDPR Transparency profile m
       mode: "gdpr_transparency_observed_only",
       pipeline: "normalized_concern_policy_unified_finding",
       scannerExecutionMode: "artifact_capture_only",
-      scope: ["gdpr_transparency_observed_topics"],
+      scope: ["gdpr_transparency_observed_topics", "post_accept_review", "post_refusal_enforcement"],
       source: "verified_canonical_evidence_bundle",
-      version: "wc01.normalized-concern-policy.v3",
+      version: "wc01.normalized-concern-policy.v4",
     });
     assert.equal(defaultSignals?.length, 0);
 
@@ -5829,6 +5899,41 @@ test("materializeLocalV2DagScanDetail projects row-specific runtime signal summa
           timestampMs: 980,
           topLevelUrl: "https://example.test/",
           url: "https://connect.facebook.net/en_US/fbevents.js"
+        },
+        {
+          consentStateAtTime: "pre_consent",
+          eventId: "net_sourcebuster_library",
+          eventType: "network_request",
+          evidenceRefs: [],
+          hostname: "example.test",
+          requestId: "request_sourcebuster_library",
+          method: "GET",
+          resourceType: "script",
+          requestUrl: "https://example.test/wp-content/plugins/woocommerce/assets/js/sourcebuster/sourcebuster.min.js",
+          sourceScanner: "pre_consent_runtime",
+          thirdParty: false,
+          timestampMs: 700,
+          topLevelUrl: "https://example.test/",
+          url: "https://example.test/wp-content/plugins/woocommerce/assets/js/sourcebuster/sourcebuster.min.js"
+        },
+        {
+          collectionEndpointObserved: true,
+          consentStateAtTime: "pre_consent",
+          eventId: "net_sourcebuster_collect",
+          eventType: "network_request",
+          evidenceRefs: [],
+          hasIdentifierLikeParameters: true,
+          hostname: "example.test",
+          identifierParamNames: ["visitor_id"],
+          requestId: "request_sourcebuster_collect",
+          method: "POST",
+          resourceType: "fetch",
+          requestUrl: "https://example.test/analytics/collect?visitor_id=fixture",
+          sourceScanner: "pre_consent_runtime",
+          thirdParty: false,
+          timestampMs: 760,
+          topLevelUrl: "https://example.test/",
+          url: "https://example.test/analytics/collect?visitor_id=fixture"
         }
       ],
       networkResponseEvents: [
@@ -5859,6 +5964,24 @@ test("materializeLocalV2DagScanDetail projects row-specific runtime signal summa
           product: "Microsoft Clarity",
           purpose: "session_replay",
           vendor: "Microsoft"
+        },
+        {
+          confidence: 0.98,
+          entity: "Sourcebuster.js",
+          matchedEvidenceRefs: [
+            {
+              refId: "net_sourcebuster_library",
+              url: "https://example.test/wp-content/plugins/woocommerce/assets/js/sourcebuster/sourcebuster.min.js"
+            },
+            {
+              refId: "net_sourcebuster_collect",
+              url: "https://example.test/analytics/collect?visitor_id=fixture"
+            }
+          ],
+          observationId: "vendor_sourcebuster",
+          product: "Sourcebuster first-party attribution",
+          purpose: "analytics",
+          vendor: "Sourcebuster.js"
         }
       ],
       policySurfaceObservations: [],
@@ -5929,6 +6052,22 @@ test("materializeLocalV2DagScanDetail projects row-specific runtime signal summa
     assert.equal(embeddedSummary.embeddedContentObserved, true);
     assert.equal(iframeSummary.preConsentIframeCount, 2);
     assert.equal(iframeSummary.thirdPartyPreConsentIframeCount, 2);
+    const iframeInventory = buildIframeInventoryRows(hybrid, "example.test");
+    assert.equal(iframeInventory.length, 2);
+    assert.ok(iframeInventory.every(row => row.type === "embed" && classifyInventoryEvidence(row) === "Contextual"));
+    assert.ok(iframeInventory.every(row => row.requestCount === null && row.cookieDetails.length === 0));
+    assert.ok(iframeInventory.some(row => row.domains.includes("www.google.com") || row.domains.includes("google.com")));
+    assert.equal(iframeInventory.find(row => row.rawProducts.includes("Google Maps embed"))?.purpose, "Embedded maps");
+    // An iframe-only fixture must not acquire a synthetic request observation.
+    assert.equal(detail.trackerVendors.some(row => row.vendorName === "Google Maps embed"), false);
+    const vendorObservations = hybrid.requestToVendorObservations as unknown as Array<Record<string, unknown>>;
+    assert.equal(vendorObservations.find(row => row.vendor === "Microsoft Clarity")?.servicePurpose, "Session replay");
+    // Replayed current matches identify the registry used for this projection;
+    // legacy compatibility is checked independently at the retained contract.
+    const registry = vendorObservations.find(row => row.vendor === "Microsoft Clarity")?.registryAttribution as Record<string, unknown>;
+    assert.equal(registry.contractVersion, "vendor-registry-attribution-v1");
+    assert.equal(registry.resolverVersion, CANONICAL_VENDOR_RESOLVER_VERSION);
+    assert.match(String(registry.serviceId), /^svc_[a-f0-9]{12}$/);
     assert.deepEqual(embeddedSummary.embeddedContentHosts, ["youtube.com", "google.com", "connect.facebook.net"]);
     assert.deepEqual(embeddedSummary.embeddedContentPurposeBuckets, {
       fontStaticResource: [],
@@ -5966,6 +6105,26 @@ test("materializeLocalV2DagScanDetail projects row-specific runtime signal summa
     assert.equal(clarityRequest?.responseObserved, true);
     assert.equal(clarityRequest?.responseStorageAttempted, true);
     assert.deepEqual(clarityRequest?.responseCookieNamesSet, ["clarity-id"]);
+    const sourcebusterLibraryRequest = requestPurposeRows.find((row) =>
+      row.requestUrl === "https://example.test/wp-content/plugins/woocommerce/assets/js/sourcebuster/sourcebuster.min.js"
+    );
+    const sourcebusterCollectionRequest = requestPurposeRows.find((row) =>
+      row.requestUrl === "https://example.test/analytics/collect?visitor_id=[redacted]"
+    );
+    assert.equal(sourcebusterLibraryRequest?.classification, "library");
+    assert.equal(sourcebusterLibraryRequest?.essentiality, "unknown");
+    assert.equal(sourcebusterLibraryRequest?.firstPartyOrThirdParty, "first_party");
+    assert.equal(sourcebusterCollectionRequest?.classification, "tracker_beacon");
+    assert.equal(sourcebusterCollectionRequest?.essentiality, "non_essential");
+    assert.equal(sourcebusterCollectionRequest?.firstPartyOrThirdParty, "first_party");
+    assert.deepEqual(sourcebusterCollectionRequest?.identifierParameterNames, ["visitor_id"]);
+    assert.ok(
+      (detail.runtimeArtifacts.consent_baseline_tracker_evidence_urls as string[]).includes(
+        "https://example.test/analytics/collect?visitor_id=[redacted]"
+      ),
+      "a concrete same-site analytics collection event must enter the canonical pre-consent tracking evidence"
+    );
+    assert.equal(detail.snapshot?.preconsent_tracking_detected, true);
     const cookieWriteRows = hybrid.cookieWriteObservations as unknown as Array<Record<string, unknown>>;
     const unknownCookie = cookieWriteRows.find((row) => row.cookieName === "unclassified-session-cookie");
     assert.ok(unknownCookie, JSON.stringify(cookieWriteRows));
@@ -6396,7 +6555,7 @@ test("materializeLocalV2DagScanDetail projects retained first-layer optional tog
     assert.equal(detail.runtimeArtifacts?.cmpFrameworkSignalObserved, undefined);
     assert.equal(
       (detail.runtimeArtifacts?.consentTimeline as Record<string, unknown> | undefined)?.firstConsentSurfaceVisibleMs,
-      900
+      null // This legacy fixture lacks document-bound assessment proof; raw inventory time is not a timeline fallback.
     );
 
     const outcomes = deriveGdprEprivacyCoveragePolicyOutcomes({
@@ -9054,4 +9213,54 @@ test("materializeLocalV2DagScanDetail marks failed pre-consent runtime counts as
     }
     await rm(outDir, { recursive: true, force: true });
   }
+});
+
+test("canonical request attribution does not spread cookie vendors to the host's page or assets", async () => {
+  const { materializeLocalV2DagScanDetail } = await loadLocalV2DagReport();
+  const { buildExecutiveTimelineEvents } = await import("../../components/scans/shared-scan-detail-view");
+  const previousAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+  const outDir = await mkdtemp(path.join(process.cwd(), "artifacts/local-v2-dag-scans/event-attribution-"));
+  try {
+    const request = (eventId: string, url: string, timestampMs: number, resourceType: string) => ({
+      eventId, eventType: "network_request", requestId: eventId, url, requestUrl: url,
+      hostname: new URL(url).hostname, timestampMs, resourceType, thirdParty: new URL(url).hostname !== "example.test", collectionEndpointObserved: resourceType === "fetch",
+      consentStateAtTime: "pre_consent", sourceScanner: "pre_consent_runtime", evidenceRefs: [],
+    });
+    await writeFile(path.join(outDir, "CanonicalEvidenceBundle.json"), JSON.stringify({
+      scanId: "event-attribution-fixture", url: "https://example.test/", normalizedUrl: "https://example.test/",
+      startedAt: "2026-09-13T05:16:04.000Z", completedAt: "2026-09-13T05:16:18.000Z",
+      schemaVersion: "certscore.v2.canonical-evidence-bundle.v1",
+      networkEvents: [request("page", "https://example.test/", 1638, "document"), request("css", "https://example.test/styles.css", 1900, "stylesheet"), request("collect", "https://www.google-analytics.com/g/collect", 2601, "fetch")],
+      cookieEvents: [{ eventId: "ga_cookie", eventType: "cookie_snapshot", cookieName: "_ga", cookieDomain: "example.test", hostname: "example.test", url: "https://example.test/", timestampMs: 4416, operation: "browser_snapshot", consentStateAtTime: "pre_consent", cookiePurpose: "analytics", cookieEssentiality: "non_essential", evidenceRefs: [] }],
+      normalizedVendorObservations: [], observedJourneys: [], policySurfaceObservations: [], modulesRun: [], consentUiObservations: [], derivedRuntimeSignals: {},
+      runtimeCoverage: { coverageStatus: "usable", limitationKeys: [], fallbackModesUsed: [], notes: [], silentEmpty: false, observationCounts: {} },
+    }));
+    const base = makeScanRecord();
+    const detail = await materializeLocalV2DagScanDetail(makeScanRecord({ scan: { ...base.scan, domainHostname: "example.test", scanConfigJson: {
+      hostname: "example.test", normalizedUrl: "https://example.test/", processor: LOCAL_V2_DAG_SCAN_PROCESSOR,
+      execution: { localV2Dag: { outDir }, v2DagParallel: { artifactOnly: true, localOnly: true, productionFindingIntegration: false } },
+    } } }));
+    const hybrid = detail.runtimeArtifacts?.hybridRuntimeEvidence as Record<string, unknown>;
+    const rows = hybrid.requestPurposeClassificationConfidence as Array<Record<string, unknown>>;
+    assert.ok(rows.some(row => row.requestUrl === "https://www.google-analytics.com/g/collect" && row.category === "analytics"));
+    assert.ok(!rows.some(row => ["https://example.test/", "https://example.test/styles.css"].includes(String(row.requestUrl))));
+    const timeline = buildExecutiveTimelineEvents(detail.runtimeArtifacts, []);
+    const analytics = timeline.find(event => /analytics/i.test(JSON.stringify(event)));
+    assert.ok(analytics);
+    assert.equal(analytics.atMs, 2601);
+    assert.equal(detail.snapshot?.preconsent_tracking_detected, true);
+  } finally { process.env.NEXT_PUBLIC_APP_URL = previousAppUrl; await rm(outDir, { recursive: true, force: true }); }
+});
+
+test("cookie disclosure inside privacy policy is distinct from a dedicated cookie policy", async () => {
+  const { dedupePolicySurfaces, summarizePolicySurfaces } = await loadLocalV2DagReport();
+  const surfaces = dedupePolicySurfaces([{
+    observationId: "privacy-cookies", surfaceType: "privacy_policy", url: "https://example.test/privacy", normalizedUrl: "https://example.test/privacy", confidence: 0.96, status: "fetched",
+    observedTopics: ["cookies"], textExcerpt: "Cookies. We use cookies to remember preferences on your device.",
+  }] as never, "https://example.test/");
+  const summary = summarizePolicySurfaces(surfaces, "example.test");
+  assert.equal(summary.cookiePolicyPresent, false);
+  assert.equal(summary.dedicatedCookiePolicyPresent, false);
+  assert.equal(summary.cookieDisclosurePresent, true);
 });

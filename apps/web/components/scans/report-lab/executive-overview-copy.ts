@@ -2,6 +2,12 @@ export const EXECUTIVE_OVERVIEW_MIN_LENGTH = 340;
 export const EXECUTIVE_OVERVIEW_MAX_LENGTH = 430;
 
 type ExecutiveOverviewInput = {
+  acceptPath?: {
+    afterClickCoverage?: "complete" | "partial";
+    note?: string | null;
+    observationWindowMs: number | null;
+    state: "activity_observed" | "review_signal" | "no_activity_observed" | "incomplete";
+  } | null;
   controls: {
     accept: string;
     options: string;
@@ -15,6 +21,7 @@ type ExecutiveOverviewInput = {
   limitedItems: string[];
   positiveCount: number;
   rejectPath?: {
+    afterClickCoverage?: "complete" | "partial";
     note?: string | null;
     observationWindowMs: number | null;
     state: "issue_observed" | "review_signal" | "no_issue_observed" | "incomplete";
@@ -64,6 +71,19 @@ export function buildExecutiveOverview(input: ExecutiveOverviewInput) {
     && input.controls.reject === "Not observed"
     && input.controls.options === "Not observed";
   const limitedItems = [...new Set(input.limitedItems.map((item) => item.trim()).filter(Boolean))];
+  const acceptOutcome = input.acceptPath?.state === "activity_observed"
+    ? "The confirmed Accept path retained consent-dependent activity as the post-Accept comparison baseline."
+    : input.acceptPath?.state === "review_signal"
+      ? "The visitor clicked Accept, but the consent record saved afterward still showed analytics and advertising as denied. The saved record needs to be corrected so it matches the visitor’s choice."
+      : input.acceptPath?.state === "no_activity_observed"
+        ? "The confirmed Accept path retained no qualifying post-Accept activity in its bounded window."
+        : input.acceptPath?.state === "incomplete"
+          ? input.acceptPath.afterClickCoverage
+            ? input.acceptPath.note?.trim() || "The Accept control was clicked and subsequent observations were recorded."
+            : input.acceptPath.note?.trim()
+            ? `Accept-path testing was limited. ${input.acceptPath.note.trim()}`
+            : "Accept-path testing was limited."
+          : null;
   const rejectObservationWindowMs = input.rejectPath?.observationWindowMs;
   const rejectIncompleteReason = input.rejectPath?.note?.trim();
   const rejectWindow = typeof rejectObservationWindowMs === "number"
@@ -72,18 +92,22 @@ export function buildExecutiveOverview(input: ExecutiveOverviewInput) {
   const rejectOutcome = input.rejectPath?.state === "issue_observed"
     ? `The confirmed Reject path did not stop qualifying non-essential activity during the retained ${rejectWindow} post-Reject window.`
     : input.rejectPath?.state === "review_signal"
-      ? "The Reject test completed, but retained storage persistence remains a score-neutral review signal rather than proof of active post-Refusal use."
+      ? input.rejectPath.note?.trim() || "The Reject path retained evidence requiring review."
       : input.rejectPath?.state === "no_issue_observed"
         ? `The confirmed Reject path completed without a qualifying issue in the retained ${rejectWindow} post-Reject window.`
         : input.rejectPath?.state === "incomplete"
-          ? rejectIncompleteReason
-            ? `Reject-path testing did not complete and did not affect the score. ${rejectIncompleteReason}`
-            : "Reject-path testing did not complete and did not affect the score."
+          ? input.rejectPath.afterClickCoverage
+            ? rejectIncompleteReason || "The Reject control was clicked and subsequent observations were recorded."
+            : rejectIncompleteReason
+            ? rejectIncompleteReason
+            : "Reject-path testing did not complete."
           : null;
   const limitation = (() => {
     if (input.limitedCount === 0) return "No checklist items were technically limited in this retained scan.";
     if (input.limitedCount === 1 && limitedItems[0] === "Post-choice tracking reduction") {
-      return "Post-choice tracking was not tested and remains unassessed without a confirmed refusal state.";
+      return input.rejectPath?.afterClickCoverage
+        ? "The after-click observations remain available; consent-state confirmation is recorded separately."
+        : "Post-choice tracking assessment has limited evidence; see the Reject-path result.";
     }
     if (input.limitedCount === 1 && limitedItems[0]) {
       return `Limited evidence remains for ${limitedItems[0]}; verify that row manually.`;
@@ -126,12 +150,12 @@ export function buildExecutiveOverview(input: ExecutiveOverviewInput) {
         ? "Cookies/storage"
         : null;
   const activity = activityLabel
-    ? `${activityLabel} also appeared before the first consent surface${consentEvent ? ` at ${consentEvent.at}` : ""}.`
+    ? `${activityLabel} also appeared ${consentEvent ? `before the first consent surface at ${consentEvent.at}` : "before any recorded consent action"}.`
     : null;
   const positive = input.transportPositiveCount > 0
     ? "Transport security checks were observed."
     : input.positiveCount > 0
       ? "Other retained checks included positive observations."
       : null;
-  return fitExecutiveOverview([opening, focus, rejectOutcome ?? "", activity ?? "", positive ?? "", limitation]);
+  return fitExecutiveOverview([opening, focus, acceptOutcome ?? "", rejectOutcome ?? "", activity ?? "", positive ?? "", limitation]);
 }

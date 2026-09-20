@@ -33,6 +33,8 @@ type FixtureControl = {
 };
 
 type ConsentFlowFixture = {
+  unresolvedDecision?: boolean;
+  screenshotWithheld?: boolean;
   complete?: boolean;
   defaultToggleStatesObserved?: boolean;
   firstLayerControls: readonly FixtureControl[];
@@ -50,6 +52,13 @@ function retainedEvidencePacket(input: ConsentFlowFixture): CanonicalEvidenceBun
     completedAt: "2026-07-30T00:00:00.000Z",
     url: GENERIC_URL,
     normalizedUrl: GENERIC_URL,
+    screenshots: input.screenshotWithheld ? [{
+      artifactId: "consent-frame", path: "screenshot.png", capturedAtMs: 1_000,
+      captureMethod: "primary_viewport_fallback", consentStateAtTime: "pre_consent",
+      pagePhase: "network_idle", url: GENERIC_URL, retentionStatus: "withheld",
+      displayStatus: "withheld", withheldReason: "safety_check_unavailable",
+      safetyFailureCode: "finalization_deadline_exceeded",
+    }] : [],
     domSnapshots: [{
       artifactId: "dom-pre-consent",
       capturedAtMs: 1_000,
@@ -110,7 +119,7 @@ function geometryEvidence(input: ConsentFlowFixture) {
           enabled: true,
           decisionStatus: "footer_or_policy_link"
         }]
-      : [],
+      : input.unresolvedDecision ? [{ actionType: "other", label: "Undecided action", decisionStatus: "ambiguous", tagName: "button", layer: "first_layer", consentContextConfirmed: true, enabled: true, intersectsViewport: true, boundingBox: { width: 100, height: 30 } }] : [],
     ...(complete
       ? {
           summary: {
@@ -223,6 +232,25 @@ function projectConsentStory(input: ConsentFlowFixture) {
     score
   };
 }
+
+test("visual safety failure preserves the structured assessment through persistence, policy, checklist and score", () => {
+  const fixture: ConsentFlowFixture = { firstLayerControls: [
+    { actionType: "accept_all", label: "Accept all" },
+    { actionType: "reject_all", label: "Reject all" },
+    { actionType: "manage_preferences", label: "Settings", presentationType: "dedicated_button", placementType: "action_cluster" },
+  ] };
+  const reference = projectConsentStory(fixture);
+  const withheld = projectConsentStory({ ...fixture, screenshotWithheld: true });
+  assert.equal(withheld.assessment.artifactVersion, "2.2");
+  assert.equal(withheld.assessment.visualEvidence?.status, "withheld");
+  assert.deepEqual(withheld.assessment.controls, reference.assessment.controls);
+  assert.deepEqual(withheld.row, reference.row);
+  assert.deepEqual(withheld.rejectRow, reference.rejectRow);
+  assert.deepEqual(withheld.score, reference.score);
+  assert.deepEqual(withheld.rejectScore, reference.rejectScore);
+  assert.equal(withheld.gapFindingObserved, reference.gapFindingObserved);
+  assert.equal(withheld.concern.evidenceBundle.rawEvidence?.consentControlAssessmentContractVersion, "2.2");
+});
 
 test("limited empty first-layer inventory remains unknown through every canonical boundary", () => {
   const packet = retainedEvidencePacket({ firstLayerControls: [] });
@@ -954,7 +982,7 @@ test("canonical consent-control flow projects UniConsent accept/options evidence
   assert.equal(story.rejectRow.status, "Review signal");
   assert.equal(story.rejectRow.assessmentStatus, "review_signal");
   assert.equal(getEvidenceLabel(story.rejectRow), "Partial concern");
-  assert.equal(story.rejectScore.score, 92);
+  assert.equal(story.rejectScore.score, 88); // Approved v14 Reject-path deduction: 12.
   assert.match(story.rejectRow.limitation ?? "", /no same-layer reject/i);
 });
 
@@ -1026,7 +1054,11 @@ test("canonical consent-control flow projects reject-and-subscribe as a partial 
   assert.equal(story.rejectRow.assessmentStatus, "review_signal");
   assert.match(story.rejectRow.limitation ?? "", /consent or pay/i);
   assert.match(story.rejectRow.limitation ?? "", /cannot be determined from the consent interface alone/i);
-  assert.equal(story.rejectScore.score, 92);
+  assert.equal(story.rejectScore.score, null);
+  const paidFinding = buildUnifiedFindingCandidatesFromConcerns(story.normalizedConcerns).find((candidate) =>
+    candidate.normalizedConcern.suggestedUnifiedFindingId === "paid_alternative_required_to_decline_tracking"
+  );
+  assert.ok(paidFinding);
   assert.equal(story.gapFindingObserved, false);
 });
 
@@ -1067,6 +1099,11 @@ test("canonical consent-control flow projects Reject and Pay as paid decline wit
   assert.equal(story.rejectRow.status, "Review signal");
   assert.match(story.rejectRow.limitation ?? "", /required payment/i);
   assert.match(story.rejectRow.limitation ?? "", /consent or pay/i);
+  assert.equal(story.rejectScore.score, null);
+  assert.equal(
+    paidDeclineConcern.suggestedUnifiedFindingId,
+    "paid_alternative_required_to_decline_tracking"
+  );
   assert.equal(story.gapFindingObserved, false);
 });
 
@@ -1126,7 +1163,7 @@ function projectStorageStory(runtimeArtifacts: Record<string, unknown>) {
   };
 }
 
-test("canonical pre-consent storage flow uses one non-essential predicate for metric, checklist, and score", () => {
+test("canonical pre-consent storage flow preserves classification and applies the unified deduction schedule", () => {
   const cases = [
     {
       name: "essential storage only",
@@ -1162,7 +1199,7 @@ test("canonical pre-consent storage flow uses one non-essential predicate for me
       expectedGapFinding: false,
       expectedMetric: null,
       expectedRowStatus: "Review signal",
-      expectedScore: 100
+      expectedScore: 92
     },
     {
       name: "confirmed non-essential write",
@@ -1185,7 +1222,7 @@ test("canonical pre-consent storage flow uses one non-essential predicate for me
       expectedGapFinding: true,
       expectedMetric: 1,
       expectedRowStatus: "Gap observed",
-      expectedScore: 94
+      expectedScore: 92
     }
   ] as const;
 
@@ -1265,4 +1302,19 @@ test("all customer and administrative surfaces consume persisted canonical proje
     supplementalSignalsProjection,
     /snapshot\.cookie_banner_present\s*===\s*(?:true|false)/
   );
+});
+
+
+test("unresolved decisions remain unknown through persistence, normalized concerns, policy, checklist and score", () => {
+  const result = projectConsentStory({ unresolvedDecision: true, firstLayerControls: [
+    { actionType: "accept_all", label: "Accept all" },
+  ] });
+  assert.equal(result.assessment.controls.accept.state, "observed");
+  assert.equal(result.assessment.controls.reject.state, "unknown");
+  assert.equal(result.assessment.controls.options.state, "unknown");
+  assert.notEqual(result.row.assessmentStatus, "gap_observed");
+  assert.notEqual(result.rejectRow.assessmentStatus, "gap_observed");
+  assert.equal(result.gapFindingObserved, false);
+  assert.equal(result.score.score, null);
+  assert.equal(result.rejectScore.score, null);
 });

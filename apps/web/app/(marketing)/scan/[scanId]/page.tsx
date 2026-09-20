@@ -1,3 +1,4 @@
+import { readFullSiteOptions } from "../../../../server/scans/full-site-options";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
@@ -9,7 +10,7 @@ import {
   SHADOW_REPORT,
   SHADOW_REPORT_SCAN_ID,
 } from "../../../../components/scans/report-lab/shadow-report-data";
-import { buildTimelineReportModel } from "../../../../components/scans/report-lab/timeline-report-model";
+import { buildVerifiedTimelineReportModel } from "../../../../server/scans/verified-timeline-report-model";
 import { absoluteUrl } from "../../../../lib/seo";
 import { loadPersistedScanReportProjection } from "../../../../server/scans/scan-report-projection";
 import {
@@ -41,7 +42,7 @@ function legacyReportHref(scanId: string, searchParams: Record<string, string | 
   return `/scano/${encodeURIComponent(scanId)}${suffix ? `?${suffix}` : ""}`;
 }
 
-function pendingReport(
+async function pendingReport(
   statusProjection: NonNullable<Awaited<ReturnType<typeof getPublicScanStatusProjection>>>,
   waitingForProjection: boolean,
 ) {
@@ -50,6 +51,7 @@ function pendingReport(
       <SiteHeader mobilePrimaryAction="sign-in" />
       <section className="mx-auto max-w-6xl px-6 py-16">
         <PendingScanDetailView
+          fullSite={(await readFullSiteOptions()).allowed ? statusProjection.fullSite : undefined}
           createdAt={statusProjection.createdAt}
           domainHostname={statusProjection.domainHostname}
           initialPreConsentPreview={statusProjection.preConsentPreview ?? null}
@@ -107,7 +109,7 @@ export default async function PublicScanDetailPage({ params, searchParams }: Pub
   const projectionLoadMs = Math.round(performance.now() - projectionStartedAt);
   if (readyReport) {
     const modelStartedAt = performance.now();
-    const report = buildTimelineReportModel(readyReport);
+    const report = await buildVerifiedTimelineReportModel(readyReport);
     console.info("[public-scan-report] ready projection rendered", {
       modelBuildMs: Math.round(performance.now() - modelStartedAt),
       projectionLoadMs,
@@ -116,7 +118,8 @@ export default async function PublicScanDetailPage({ params, searchParams }: Pub
       scanId,
       sourceHash: readyReport.snapshot?.report_projection_source_hash ?? null,
     });
-    return <ShadowScanReport report={report} variant="timeline" />;
+    if (report.fullSite && (await readFullSiteOptions()).allowed) redirect(`/app/scans/${scanId}`);
+    return <ShadowScanReport report={{ ...report, fullSite: undefined }} variant="timeline" />;
   }
 
   const statusStartedAt = performance.now();
@@ -146,12 +149,13 @@ export default async function PublicScanDetailPage({ params, searchParams }: Pub
     return pendingReport(statusProjection, true);
   }
 
-  const report = buildTimelineReportModel(persistedReportProjection);
+  const report = await buildVerifiedTimelineReportModel(persistedReportProjection);
   console.info("[public-scan-report] fallback projection rendered", {
     projectionLoadMs,
     routeElapsedMs: Math.round(performance.now() - routeStartedAt),
     scanId,
     statusLoadMs,
   });
-  return <ShadowScanReport report={report} variant="timeline" />;
+  if (report.fullSite && (await readFullSiteOptions()).allowed) redirect(`/app/scans/${scanId}`);
+    return <ShadowScanReport report={{ ...report, fullSite: undefined }} variant="timeline" />;
 }

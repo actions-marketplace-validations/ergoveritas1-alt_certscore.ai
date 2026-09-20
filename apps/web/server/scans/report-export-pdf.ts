@@ -1,6 +1,9 @@
+import { siteIntegrityScoreDescription } from "../../lib/scans/site-integrity-score-policy";
+import { consentInspectionNotice } from "../../lib/scans/consent-inspection-presentation";
 import type { CanonicalReportExport } from "./report-export";
 import { deflateSync, inflateSync } from "node:zlib";
 import { isGdprTransparencyReportRowId } from "../../lib/scans/gdpr-transparency-report-contract";
+import { SITE_INTEGRITY_FINDING_ID } from "@certscore/contracts";
 
 const TRANSPORT_SECURITY_ROW_IDS = new Set([
   "transport_security_https_delivery",
@@ -301,7 +304,7 @@ function findingDisplay(finding: Record<string, unknown>) {
 
 function reportLines(report: CanonicalReportExport, image: PdfImage | null): PdfLine[] {
   const findings = report.projection.unifiedFindings as Array<Record<string, unknown>>;
-  const mainFindings = findings.filter((finding) => !isTransportSecurityFinding(finding));
+  const mainFindings = findings.filter((finding) => !isTransportSecurityFinding(finding) && finding.unifiedFindingId !== SITE_INTEGRITY_FINDING_ID);
   const transportFindings = findings.filter(isTransportSecurityFinding);
   const review = report.gdprEprivacyReview;
   const transparencyAppendix = report.appendix.gdprTransparency;
@@ -312,7 +315,7 @@ function reportLines(report: CanonicalReportExport, image: PdfImage | null): Pdf
     !isGdprTransparencyReportRowId(row.id) && !isTransportSecurityRowId(row.id)
   ) ?? [];
   const lines: PdfLine[] = [
-    { text: "GDPR / ePrivacy evidence report", size: 21, bold: true, gapAfter: 5, kind: "coverTitle" },
+    { text: report.fullSite ? "Website scan report" : "GDPR / ePrivacy evidence report", size: 21, bold: true, gapAfter: 5, kind: "coverTitle" },
     { text: report.scan.domainHostname ?? "Website scan", size: 14, bold: true, gapAfter: 8, kind: "coverDomain" },
     { text: `Scan ID: ${report.scan.id}`, size: 8, kind: "coverMeta" },
     { text: `Completed: ${report.scan.completedAt ?? "Not available"}`, size: 8, gapAfter: 35, kind: "coverMeta" },
@@ -328,6 +331,45 @@ function reportLines(report: CanonicalReportExport, image: PdfImage | null): Pdf
     { text: `Evidence-based posture: ${titleCase(report.executiveSummary.posture)}`, size: 11, bold: true, gapAfter: 4, kind: "summary" },
     ...report.executiveSummary.sentences.flatMap((sentence) => wrappedLines(sentence, { size: 10, gapAfter: 4, kind: "summary" })),
   ];
+
+  if(report.fullSite) {
+    const f=report.fullSite, {state,counts,totals,timing}=f.summary;
+    lines.splice(0,0,...[
+      sectionHeading("Scan scope and resource inventory"),
+      ...wrappedLines(`${f.scope}. Additional pages: Not assessed for consent, CMP, policy, GDPR transparency or transport.`),
+      ...wrappedLines(`${f.scoreScope}: ${f.score?.value ?? "Unavailable"}/100. ${f.score?.scope ?? "Scored evidence unavailable."}`),
+      ...wrappedLines(`${f.condition} ${f.countingScope}`),
+      ...wrappedLines(`Max pages including homepage: ${state.requested.maxPages}; requested concurrency: ${state.requested.concurrency}; wait between starts: ${state.requested.waitSeconds}s; region: ${state.region}.`),
+      ...wrappedLines(`Effective concurrency: ${state.effective.concurrency}; effective wait: ${state.effective.waitSeconds}s. Status: ${state.status}; stop reason: ${state.stopReason??"In progress"}.`),
+      ...(state.robotsRestriction ? wrappedLines(state.robotsRestriction) : []),
+      ...wrappedLines(`Coverage: ${counts.completed} completed; ${counts.partial} partial; ${counts.blockedFailed} blocked/failed; ${counts.pending} pending; ${counts.excluded} excluded/unvisited.`),
+      ...wrappedLines(`Across observed pages: ${totals.services} distinct services; ${totals.cookies} distinct cookies; ${totals.requestEvents} request events; ${totals.embedInstances} embed instances. Additional services: ${totals.additionalServices??"Homepage comparison unavailable"}.`),
+      ...wrappedLines(`Started: ${state.startedAt}; ended: ${state.completedAt??"In progress"} (UTC). Homepage audit: ${formatDuration(state.homepageDurationMs)}. Median observation: ${formatDuration(timing.medianPageMs)} (${timing.sampleCount} samples); slowest: ${formatDuration(timing.slowestPageMs)}.`),
+      ...wrappedLines(`Evidence: https://certscore.ai${f.inventoryHref}`),
+      ...f.pages.flatMap(page=>wrappedLines(`${page.url}${page.finalUrl&&page.finalUrl!==page.url?` -> ${page.finalUrl}`:""} | ${page.status} | ${page.services??"Unavailable"} services; ${page.cookies??"Unavailable"} cookies; ${page.requestEvents??"Unavailable"} request events; ${page.embedInstances??"Unavailable"} embed instances. ${page.limitations.join(", ")} Evidence page ID: ${page.id}`)),
+      sectionHeading("Full-site resource inventory"),
+      ...wrappedLines(`${f.resources.length} distinct resources across observed pages. Page IDs map to the coverage list above. The JSON download contains every resource row.`),
+      ...f.resources.slice(0, 500).flatMap(row => wrappedLines(`${row.occurrence.kind}: ${row.occurrence.label} | ${row.occurrence.vendor ?? "Unknown vendor"} | ${row.purposes.join(", ")} | ${row.pageIds.length} page(s): ${row.pageIds.join(", ")}`)),
+      ...(f.resources.length > 500 ? wrappedLines("PDF shows the first 500 resources. Download the full-site JSON for the complete inventory.") : []),
+      sectionHeading("Homepage audit"),
+    ]);
+  }
+
+  const siteIntegrity = report.appendix.siteIntegritySite;
+  if (siteIntegrity) lines.push(sectionHeading("Site integrity coverage"), ...wrappedLines(`${siteIntegrity.coverage.filter(page => page.status !== "unavailable").length} of ${siteIntegrity.coverage.length} scanned pages have retained capture.`), ...siteIntegrity.coverage.flatMap(page => wrappedLines(`${page.url} | ${page.status}`)));
+  const integrityFindings = siteIntegrity?.findings ?? (report.appendix.siteIntegrity ? [report.appendix.siteIntegrity] : []);
+  if (integrityFindings.length) lines.push(...wrappedLines(siteIntegrityScoreDescription(integrityFindings.flatMap(finding => finding.scoreEffects ?? []))));
+  for (const integrity of siteIntegrity?.findings ?? (report.appendix.siteIntegrity ? [report.appendix.siteIntegrity] : [])) {
+    const evidence = integrity.evidence;
+    lines.push(sectionHeading("Site integrity - High priority"),
+      ...wrappedLines(integrity.title, { bold: true }), ...wrappedLines(integrity.description),
+      ...wrappedLines(`Source page: ${evidence.observation.documentUrl}. Captured: ${evidence.observation.capturedAt}.`),
+      ...evidence.observation.links.flatMap(link => wrappedLines(`${link.destinationDomain} | ${titleCase(link.concealment)} | ${link.evidenceRef}`)),
+      ...wrappedLines(integrity.action),
+      ...wrappedLines("Bounded source-page main-document capture only. Destination pages were not opened."),
+      ...wrappedLines(`Evidence: ${evidence.evidenceRef}; source SHA-256: ${evidence.sourceHash}; observation SHA-256: ${evidence.observationHash}.`),
+    );
+  }
 
   lines.push(sectionHeading("GDPR / ePrivacy evidence overview"));
   if (review) {
@@ -347,12 +389,15 @@ function reportLines(report: CanonicalReportExport, image: PdfImage | null): Pdf
   lines.push({ text: "", gapAfter: 2 }, sectionHeading("Consent control assessment"));
   const assessment = report.consentControlAssessment;
   if (assessment) {
-    lines.push(
-      { text: `Accept control: ${titleCase(assessment.controls.accept.state)}` },
-      { text: `Reject / necessary-only control: ${titleCase(assessment.controls.reject.state)}` },
-      { text: `Options / settings control: ${titleCase(assessment.controls.options.state)}` },
-      { text: `Privacy opt-out control: ${titleCase(assessment.controls.privacyOptOut.state)}` },
-    );
+    const stateLabel = (state: string) => state === "observed" ? "Observed" : state === "not_observed" ? "Not observed" : "Unknown";
+    const notice = consentInspectionNotice({ accept: stateLabel(assessment.controls.accept.state), reject: stateLabel(assessment.controls.reject.state), options: stateLabel(assessment.controls.options.state) }, assessment);
+    if (notice) lines.push({ text: notice });
+    const labels = { accept: "Accept control", reject: "Reject / necessary-only control", options: "Options / settings control", privacyOptOut: "Privacy opt-out control" };
+    for (const name of Object.keys(labels) as Array<keyof typeof labels>) {
+      const control = assessment.controls[name];
+      if (control.state !== "unknown") lines.push({ text: `${labels[name]}: ${stateLabel(control.state)}` });
+    }
+    lines.push({ text: "Scope: initial visit, first layer." });
   } else {
     lines.push({ text: "A canonical consent-control assessment was not retained for this scan." });
   }

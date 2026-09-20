@@ -1,5 +1,7 @@
 # CertScore.ai MCP Light submission packets
 
+September 14 update: production Light also exposes `certscore_get_report_evidence_page`. Earlier dated verification records below are historical, not current catalog assertions. Current catalog: https://certscore.ai/developers/mcp.
+
 These packets are the canonical copy and status reference for external directory submissions. Each platform section records whether publication is complete or still requires owner action.
 
 ## Shared listing fields
@@ -9,10 +11,12 @@ These packets are the canonical copy and status reference for external directory
 | Name | CertScore.ai MCP Light |
 | Legal owner / publisher | CertScore.ai, LLC |
 | Registry name | `ai.certscore/mcp-light` |
-| Version | `0.2.16` |
+| Version | Released Light version in `packages/certscore-mcp/server-light.json` |
 | Endpoint | `https://mcp.certscore.ai/mcp/light` |
 | Transport | Streamable HTTP |
 | Authentication | None |
+| Core workflow | `certscore_scan_site`, `certscore_get_scan_status`, `certscore_get_scan_bundle` |
+| Quota | 50 new scans/UTC day Light; reuse free |
 | Website | `https://certscore.ai/mcp/light` |
 | Repository | `https://github.com/ergoveritas1-alt/certscore.ai` |
 | Documentation | `https://certscore.ai/developers/mcp` |
@@ -25,19 +29,98 @@ Light permits 50 genuinely new scans per UTC day across requester and shared pub
 
 Short description:
 
-> Review public-site privacy signals, including eligible bounded post-refusal cookie and tracker observations.
+> Free no-auth website privacy scanner for pre-consent cookies, trackers, consent, policy, GDPR/ePrivacy, CCPA, HTTPS/TLS.
 
 Long description:
 
-> CertScore.ai scans public websites and summarizes persisted privacy evidence covering cookies and trackers, consent controls, privacy-policy signals, GDPR/ePrivacy and CCPA/CPRA context, and HTTPS/TLS. On eligible sites, it also performs a bounded post-refusal review of non-essential cookie or tracker activity after a confirmed Reject action.
+> CertScore.ai MCP Light is a free, no-auth website privacy scanner delivered over Streamable HTTP at `https://mcp.certscore.ai/mcp/light`. Its core workflow tools are `certscore_scan_site`, `certscore_get_scan_status`, and `certscore_get_scan_bundle`. It summarizes persisted privacy evidence covering cookies and trackers, consent controls, jurisdiction-neutral GPC response comparisons, privacy-policy signals, GDPR/ePrivacy and CCPA/CPRA context, and HTTPS/TLS. On eligible sites, it can also observe Accept and Reject in separate browser sessions. Accept is a score-neutral behavior baseline. Reject can support a finding only after a confirmed refusal and qualifying retained post-refusal evidence; non-confirmed outcomes remain limited coverage.
 >
 > Give CertScore.ai a public website to collect structured, evidence-backed privacy findings for launch review, vendor review, audit triage, or human compliance review. Results include a CertScore score and supporting evidence for human and agentic review; they are not legal advice, certification, or a compliance determination.
+
+## mcp.so
+
+Status: **saved to the existing submission and verified in the signed-in preview on September 9, 2026; queued for review, not public**. No duplicate submission was created.
+
+- Edit: https://mcp.so/settings/submissions/0e8a5aac-f983-40fc-bfc1-e68f8068ae19/edit
+- Owner-only preview: https://mcp.so/servers/certscore-ai-0e8a5a
+- Verified after save/reload: name, exact short description, Streamable HTTP endpoint, no-auth copy, three-tool overview, quota, JSON config, and optional authenticated upgrade.
+- The separate auto-extracted Tools panel still says “No tools detected,” despite the saved `## Tools` overview. Directory extraction remains unresolved.
+- The older search-indexed listing at https://chat.mcp.so/server/certscore/ergoveritas1-alt is a different URL and was not edited through this submission. Do not claim that legacy page has changed.
+- No paid expedited publication was purchased.
+- Support ticket submitted September 9, 2026 at 9:58 AM Pacific and verified as Open in https://mcp.so/settings/tickets: “CertScore.ai MCP Light: review pending submission, update legacy listing, and fix tool detection.” Requests standard review/publication, legacy listing correction or redirection, and tool extraction repair. Awaiting response.
+
+Paste-ready fields:
+
+| Field | Exact value |
+| --- | --- |
+| Name | CertScore.ai MCP Light |
+| Transport | Streamable HTTP |
+| Server URL | `https://mcp.certscore.ai/mcp/light` |
+| Authentication | None |
+| Core workflow | `certscore_scan_site`, `certscore_get_scan_status`, `certscore_get_scan_bundle` |
+| Quota | 50 new scans/UTC day Light; reuse free |
+| Website | `https://certscore.ai/mcp/light` |
+| Repository | `https://github.com/ergoveritas1-alt/certscore.ai` |
+
+Short description — paste exactly:
+
+```text
+Free no-auth website privacy scanner for pre-consent cookies, trackers, consent, policy, GDPR/ePrivacy, CCPA, HTTPS/TLS.
+```
+
+Description / README — paste exactly:
+
+```text
+CertScore.ai MCP Light
+
+Free no-auth website privacy scanner for pre-consent cookies, trackers, consent, policy, GDPR/ePrivacy, CCPA, HTTPS/TLS.
+
+Connect using Streamable HTTP:
+https://mcp.certscore.ai/mcp/light
+
+Authentication: none. No account, API key, OAuth, or local executable is required.
+
+## Tools
+
+Core scan/status/bundle workflow (the catalog also includes certscore_get_report_evidence_page):
+- `certscore_scan_site` — Start a website scan.
+- `certscore_get_scan_status` — Check scan status.
+- `certscore_get_scan_bundle` — Retrieve scan results and retained evidence links.
+
+## Quota and usage
+
+Quota: 50 new scans/UTC day Light; reuse free. The allowance applies across requester and shared public-Light scopes, with a rolling limit of 5 new scans per 10 minutes across the same scopes. Eligible completed scans from the prior 24 hours can be reused without consuming the new-scan allowance.
+
+Start a scan, follow its status until terminal, then retrieve the scan bundle for retained privacy observations, findings, evidence links, and coverage limitations. Results are automated observations for human and agentic review, not legal advice, certification, or a compliance determination.
+
+Optional authenticated upgrade: the stdio server uses CERTSCORE_API_KEY for authenticated CertScore access. MCP Light remains the free, no-auth default.
+
+Documentation: https://certscore.ai/developers/mcp
+```
+
+Default installation config — paste as JSON, without Markdown links inside the URL:
+
+```json
+{
+  "mcpServers": {
+    "certscore-light": {
+      "url": "https://mcp.certscore.ai/mcp/light"
+    }
+  }
+}
+```
+
+Short upgrade note — for a separate optional-upgrade field:
+
+> The stdio server with `CERTSCORE_API_KEY` is the authenticated upgrade. The default is free, no-auth MCP Light over Streamable HTTP.
+
+After the external edit, verify the rendered name, endpoint, no-auth setting, three-tool list, quota, and config. Record the actual listing URL and verification date here; do not mark this packet published based only on a repository edit.
 
 ## GitHub MCP Registry
 
 Submission artifact: `packages/certscore-mcp/server-light.json`.
 
-Publication status: **complete**. Version `0.2.16` was published to the Official MCP Registry on August 28, 2026 and is the active latest version of `ai.certscore/mcp-light`.
+Official MCP Registry — September 14, 2026 registry correction: the direct official latest API returns 0.2.20, and 0.2.21 returns 404. Earlier 0.2.21 publication claims are not supported by current registry evidence. Runtime is independently verified at 0.2.21. Publishing the existing manifest is blocked by missing ai.certscore namespace permission; see docs/gtm/mcp-hosted-oauth-acceptance-2026-09-14.md.
 
 - Registry listing: https://registry.modelcontextprotocol.io/?q=ai.certscore%2Fmcp-light
 - Registry API lookup: https://registry.modelcontextprotocol.io/v0.1/servers?search=ai.certscore%2Fmcp-light
@@ -50,12 +133,12 @@ mcp-publisher validate packages/certscore-mcp/server-light.json
 
 Future release procedure:
 
-1. Update `packages/certscore-mcp/server-light.json` to the new released version and validate it.
+1. After the next hosted Light version is released, update only `packages/certscore-mcp/server-light.json` for the registry publication. Set its version to that released version and lead its description with: `No-auth Streamable HTTP website privacy scanner for pre-consent cookies, trackers, consent, policy, GDPR/ePrivacy, CCPA, and HTTPS/TLS.`
 2. Authenticate the existing `ai.certscore` namespace using an Official MCP Registry-supported method.
 3. Run the publisher against `packages/certscore-mcp/server-light.json`.
 4. Confirm that the new record is active and latest, resolves to the Light endpoint, and preserves the intended three-tool workflow.
 
-Do not publish `packages/certscore-mcp/server.json` as the Light listing.
+MCP Light is the recommended discovery entry. Do not publish `packages/certscore-mcp/server.json` as the Light listing, and do not deprecate the separate `ai.certscore/mcp` stdio/authenticated path.
 
 ## Cursor
 
@@ -63,7 +146,7 @@ Prepared plugin: `integrations/cursor/certscore-website-privacy-preflight`.
 
 Prepared monorepo catalog: `.cursor-plugin/marketplace.json`.
 
-Cursor plugin version: `1.0.2`. This is intentionally independent from hosted MCP version `0.2.16`.
+Cursor plugin version: `1.0.4`. This is intentionally independent from hosted MCP version `0.2.21`.
 
 Direct server configuration:
 
@@ -85,7 +168,7 @@ Verification prompt:
 
 Verified August 29, 2026: the community Cursor Directory listing is live at `https://cursor.directory/plugins/certscoreai-mcp-light` with the intended description, one skill, one Streamable HTTP server, and the correct no-auth Light endpoint. The official Cursor Marketplace does not yet return a CertScore listing, so its review remains pending.
 
-Status: **resumed by product-owner request on August 30, 2026**. Repository integration version `1.0.2` aligns the MCP component name to `CertScore.ai`, adds the evidence-confirmed Reject Path description boundary, and adds three official Cursor prompt deeplinks. Verify the publisher, source repository, `1.0.2` integration version, skill, no-auth connection, and all three Light tools in a clean Cursor installation. Do not create a duplicate submission while the current review is pending.
+Status: **verification requested; official Marketplace review pending**. Repository integration version `1.0.4` improves discovery for cookie, tracker, consent, privacy, GDPR, CCPA, ePrivacy, and website-scanner requests while preserving the `CertScore.ai` no-auth Light connection. Verify the publisher, source repository, `1.0.4` integration version, skill, no-auth connection, and all three Light tools in a clean Cursor installation. Do not create a duplicate submission while the current review is pending.
 
 ## Claude Code
 
@@ -119,7 +202,7 @@ claude plugin list --json
 
 Anthropic directory status verified August 29, 2026: the existing `certscore-ai` listing is **Published — Pending review**. Its reviewer instructions request an in-place replacement of the authenticated OAuth `/mcp` connection with the no-auth `https://mcp.certscore.ai/mcp/light` endpoint. Do not create a duplicate listing. Anthropic controls the reviewed endpoint and authentication fields, so the replacement remains reviewer-dependent.
 
-The submitted package uses publisher `CertScore.ai, LLC`, plugin version `0.2.16`, and the shared listing fields above. It requires no key, hook, local executable, OAuth flow, or autonomous background action. The production endpoint and directory-safe tool metadata were independently verified after deployment.
+The submitted package uses publisher `CertScore.ai, LLC`, plugin version `0.2.21`, and the shared listing fields above. It requires no key, hook, local executable, OAuth flow, or autonomous background action. The production endpoint and directory-safe tool metadata are verified after deployment.
 
 ## OpenAI / ChatGPT and Codex
 
@@ -140,7 +223,11 @@ pnpm --filter @certscore/mcp test
 
 Immediately before submission, also run the current OpenAI plugin-package and skill validators available in the submission environment and resolve every portal scan result. Select **Scan Tools** again after every production tool-schema or bundled-skill change so the reviewed snapshot matches the live endpoint.
 
-External owner action: in `https://platform.openai.com/plugins`, create a **With MCP** draft, choose a **Universal** MCP URL, submit `https://mcp.certscore.ai/mcp/light` with authentication set to **None**, and add the bundled provider-neutral skill to the same draft. Complete production endpoint testing, domain and publisher identity verification, listing metadata, tool safety review, and OpenAI review before publication. Claude or Cursor approval does not transfer.
+OpenAI review correction completed September 3, 2026: the existing `2.0.0` review was cancelled and resubmitted in place with an updated, passing skill scan plus corrected tool justifications, release notes, prompts, five positive review cases, and localized directory descriptions for the production GPC, Accept Path, and Reject Path behavior. The MCP origin remains `https://mcp.certscore.ai/mcp/light`. OpenAI approved version `2.0.0` on September 4, 2026 and the product owner published it on September 9, 2026. Version `2.0.0` is now **Published**; version `1.0.0` remains **Approved** as the available rollback version and must not be published unless an intentional rollback is required.
+
+OpenAI acknowledged receipt by email on September 3, 2026 at 3:46 PM PT with submission reference `C-TBdiNT62SVe0` (`ChatGPT Plugin Submission Received`). Use this reference for any review follow-up.
+
+OpenAI acknowledged approval by email on September 4, 2026 at 6:02 PM PT under plugin ID `asdk_app_6a8359df23ac8191b557db3e6296b892` (`ChatGPT Plugin Submission Approved`). Publication was verified in both the OpenAI portal and the public ChatGPT directory on September 9, 2026. The public listing is `https://chatgpt.com/plugins/plugin_asdk_app_6a8359df23ac8191b557db3e6296b892`; it displays version `2.0.0`, the **Website Privacy Preflight** skill, and the expected CertScore listing metadata.
 
 OpenAI listing fields:
 
@@ -152,7 +239,7 @@ OpenAI listing fields:
 | Contact email | `ben@certscore.ai` |
 | Category | Security |
 | Subtitle | GDPR, cookies & trackers |
-| Description | Scan public websites for fast preliminary cookie/tracker evidence, then continue to persisted privacy findings, consent and policy signals, transport observations, and eligible bounded post-refusal evidence. |
+| Description | Scan public websites for fast preliminary cookie/tracker evidence, then continue to persisted privacy findings, typed GPC response comparisons, bounded Accept and Reject observations, policy signals, and HTTPS/TLS. Results preserve provenance and explicit coverage limitations for human review; they are not legal advice, certification, or a compliance determination. |
 | Website | `https://certscore.ai` |
 | Support | `https://certscore.ai/contact-sales` |
 | Privacy | `https://certscore.ai/privacy` |
@@ -169,8 +256,28 @@ When the portal generates a domain-verification challenge, retain its exact publ
 Starter prompts:
 
 1. `Scan https://ergoveritas.com/test1.html. Show the preliminary cookie/tracker preview, then continue to the final report.`
-2. `Review https://ergoveritas.com/test2.html and provide cookie, CMP, and consent control evidence from the completed scan results.`
-3. `Check https://ergoveritas.com/test3.html for eligible activity after a confirmed Reject action.`
+2. `Review https://ergoveritas.com/test2.html for its typed GPC response and pre-consent cookie evidence.`
+3. `Compare the bounded Accept and Reject Path observations for https://ergoveritas.com/test3.html.`
+
+Tool annotation justifications:
+
+### `certscore_scan_site`
+
+- **Read Only — False:** This tool can create a new CertScore.ai scan. On an eligible scan with exact-target authorization, the scanner may also perform at most one bounded deterministic Accept action and one bounded deterministic Reject or necessary-only action in separate fresh isolated browser sessions. Those actions may create ephemeral consent state and public network activity, so the tool is not read-only.
+- **Open World — True:** This tool accesses the public website specified by the user. Eligible scans may run a passive `Sec-GPC: 1` comparison and separately authorized bounded Accept and Reject observations, so it interacts with systems outside CertScore.ai.
+- **Destructive — False:** The bounded consent actions occur only in fresh isolated browser sessions. The tool cannot authenticate to an account, submit forms or purchases, change transactions, follow arbitrary preference-center paths, delete or overwrite target data, or modify the public website. It is therefore non-destructive even though it is not read-only.
+
+### `certscore_get_scan_status`
+
+- **Read Only — True:** This tool only reads the current status and metadata of an existing CertScore.ai scan and does not create or modify scan state.
+- **Open World — False:** This tool reads CertScore.ai's retained scan status only and does not contact the target website or any other external system.
+- **Destructive — False:** This tool only retrieves CertScore.ai scan status and cannot delete, overwrite, or modify scan data or external systems.
+
+### `certscore_get_scan_bundle`
+
+- **Read Only — True:** This tool only retrieves an existing completed CertScore.ai scan bundle, findings, evidence, and report metadata.
+- **Open World — False:** This tool reads retained CertScore.ai scan results only and does not initiate new network activity against the target website or other external systems.
+- **Destructive — False:** This tool only retrieves existing CertScore.ai scan results and cannot delete, overwrite, or modify scan data or external systems.
 
 OpenAI positive review cases:
 
@@ -184,21 +291,21 @@ OpenAI positive review cases:
    - Tools: `certscore_scan_site`, `certscore_get_scan_status` only while active, then `certscore_get_scan_bundle`.
    - Expected behavior: prefer `freshness=latest`, report new-versus-reused only from returned provenance, and present any `preConsentPreview` before waiting for completion.
    - Expected result: enumerate only returned cookie, storage, vendor, and consent-control observations; preserve unknown states and final coverage limitations rather than inferring unobserved behavior.
-3. **Reject controls and before/after evidence**
-   - Prompt: `Check https://ergoveritas.com/test3.html for observable Reject controls and explain the evidence before and after the Reject path is selected.`
+3. **Typed GPC response comparison**
+   - Prompt: `Review https://ergoveritas.com/test2.html and explain its typed GPC response using the completed scan evidence.`
    - Tools: `certscore_scan_site`, `certscore_get_scan_status` only while active, then `certscore_get_scan_bundle`.
-   - Expected behavior: use the bounded CertScore workflow without performing arbitrary browser interaction.
-   - Expected result: report only persisted consent-control and runtime evidence, preserve unknown or limited states, and avoid turning missing evidence into an observed gap.
-4. **GDPR transparency and transport**
+   - Expected behavior: complete the bounded scan lifecycle and use only the returned `gpcResponse`; do not infer a result from tracker counts or other lanes.
+   - Expected result: use only `GPC response`, `No observable GPC response`, or `indeterminate`; preserve `Sec-GPC: 1` proof and limitations, keep the comparison jurisdiction-neutral, and separate any explicitly returned California scoring policy.
+4. **Bounded Accept and Reject Path observations**
+   - Prompt: `Compare the bounded Accept and Reject Path observations for https://ergoveritas.com/test3.html.`
+   - Tools: `certscore_scan_site`, `certscore_get_scan_status` only while active, then `certscore_get_scan_bundle`.
+   - Expected behavior: use only the persisted typed `postAcceptObservation` and `postRefusalObservation`; do not independently browse the target or click its controls.
+   - Expected result: treat confirmed post-Accept activity as a score-neutral behavior baseline, let Reject support a finding only when the returned canonical projection does so, preserve each path's provenance and termination, and treat every non-confirmed status as limited coverage rather than a pass.
+5. **GDPR transparency and transport**
    - Prompt: `Review https://ergoveritas.com/test4.html for GDPR transparency and HTTPS/TLS observations.`
    - Tools: `certscore_scan_site`, `certscore_get_scan_status` only while active, then `certscore_get_scan_bundle`.
    - Expected behavior: complete the canonical scan lifecycle and retrieve the findings bundle.
    - Expected result: report only returned policy, disclosure, and transport observations with evidence and limitations; do not make a legal-compliance determination.
-5. **Deterministic post-refusal observation**
-   - Prompt: `On https://ergoveritas.com/test3.html, did CertScore observe eligible non-essential cookie or tracker activity after a confirmed Reject action?`
-   - Tools: `certscore_scan_site`, `certscore_get_scan_status` only while active, then `certscore_get_scan_bundle`.
-   - Expected behavior: complete the bounded workflow and report only the persisted typed `postRefusalObservation`; do not click controls directly outside the authorized scanner lane or infer activity when the observation is unavailable, neutral, unsupported, or limited.
-   - Expected result: preserve the typed interpretation, provenance, termination reason, and explicit coverage limitations.
 
 OpenAI negative review cases:
 
@@ -217,7 +324,7 @@ OpenAI negative review cases:
 
 Release notes:
 
-> Upgrades CertScore.ai Privacy Scanner with a fast preliminary cookie and tracker preview for newly accepted scans. When the runtime lane completes or reaches its six-second checkpoint, CertScore may return bounded `preConsentPreview` evidence within roughly 9–11 seconds so users can see early cookie and vendor observations while the full scan continues. Preview counts are explicitly partial and are superseded by the completed bundle's final returned tally and canonical findings. Version 2.0.0 also adds bounded Reject Path review on eligible sites, plus consent controls, privacy-policy transparency, GDPR/ePrivacy and CCPA/CPRA context, HTTPS/TLS observations, provenance, and explicit coverage limitations. Results are observational and are not legal advice, certification, or a compliance determination.
+> Upgrades CertScore.ai Privacy Scanner with a fast preliminary cookie and tracker preview for newly accepted scans, a passive jurisdiction-neutral GPC response comparison, and separately authorized bounded Accept and Reject observations on eligible sites. Preview counts are partial and are superseded by the completed bundle. GPC uses only the labels “GPC response,” “No observable GPC response,” or “indeterminate.” Accept is a score-neutral behavior baseline. Reject can support a finding only after confirmed refusal and qualifying retained evidence; non-confirmed outcomes remain limited coverage. Version 2.0.0 also returns consent controls, privacy-policy transparency, GDPR/ePrivacy and CCPA/CPRA review context, HTTPS/TLS observations, provenance, and explicit limitations. Results are observational and are not legal advice, certification, or a compliance determination.
 
 The repository package deliberately does not contain a fabricated `.app.json`. If ChatGPT developer mode creates a registered MCP connection for local testing, use its real `plugin_asdk_app...` technical ID at that time. Direct MCP users remain on the stable endpoint and do not need this plugin package for runtime access.
 
@@ -288,10 +395,12 @@ Product-owner decision required: either keep Docker out of scope, or separately 
 
 - Deploy the discovery update and 400 × 400 icon through the repository-controlled AWS workflow.
 - Confirm the public icon returns an image response and is exactly 400 × 400.
-- Confirm `https://mcp.certscore.ai/healthz` reports hosted version `0.2.16`.
+- Confirm `https://mcp.certscore.ai/healthz` reports hosted version `0.2.21`.
 - Confirm the Light endpoint requires no authentication and lists exactly `certscore_scan_site`, `certscore_get_scan_status`, and `certscore_get_scan_bundle`.
-- Confirm the Claude package is `0.2.16`, the Cursor package is `1.0.2`, and the OpenAI package is `2.0.0`.
+- Confirm the Claude package is `0.2.21`, the Cursor package is `1.0.4`, and the OpenAI package is `2.0.0`.
 - Re-run the relevant official validator immediately before each submission.
 - Use the exact Light endpoint; do not substitute the authenticated or anonymous legacy endpoint.
 - Do not claim legal advice, certification, compliance determination, unlimited use, or a Docker image.
 - Record any directory-assigned listing URL in `docs/mcp-light-directory-submissions.md` after publication.
+
+Registry reference: https://registry.modelcontextprotocol.io/?q=ai.certscore%2Fmcp-light. The intended next-version description remains “No-auth Streamable HTTP website privacy scanner”; the separate stdio distribution remains active and must not be deprecated.

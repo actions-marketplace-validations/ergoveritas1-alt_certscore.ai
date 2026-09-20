@@ -1,3 +1,4 @@
+import { hasVerifiedConsentControlAbsence } from "@certscore/contracts";
 import type { PopulatedSignalRecord, ReportSignalSource } from "@website-signal-risk-scanner/shared";
 import { consentControlAssessmentSchema } from "@certscore/contracts";
 import {
@@ -1540,11 +1541,7 @@ export function getHybridDerivedSignalValue(runtimeArtifacts: Record<string, unk
       const assessment = getCanonicalConsentControlAssessment(runtimeArtifacts, hybrid);
       if (assessment) {
         if (assessment.controls.reject.state === "observed") return false;
-        if (
-          assessment.assessmentStatus !== "complete" ||
-          assessment.coverage.status !== "complete" ||
-          assessment.controls.reject.state === "unknown"
-        ) return undefined;
+        if (!hasVerifiedConsentControlAbsence(assessment, "reject")) return undefined;
         return assessment.surface.status === "observed_actionable" &&
           assessment.controls.reject.state === "not_observed";
       }

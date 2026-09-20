@@ -1,4 +1,6 @@
 import "server-only";
+import { pageViewPredicateSql } from "../product-analytics/public-page-sql";
+import { activityTrafficSql, activityTrafficDefaultVisibilitySql } from "../../lib/admin/activity-provenance";
 
 import { unstable_cache } from "next/cache";
 import { query, queryOne } from "@website-signal-risk-scanner/db";
@@ -15,20 +17,21 @@ import {
 } from "../../lib/admin/admin-operational-snapshot";
 
 export type ProductAnalyticsPeriod = AdminOperationalSnapshotPeriod;
-export type ProductAnalyticsEventName = "page_viewed" | "navigation_clicked" | "action_clicked" | "form_started" | "form_submitted" | "form_succeeded" | "form_failed" | "scan_started" | "scan_completed" | "scan_viewed" | "report_viewed" | "scroll_depth_reached" | "session_engaged" | "web_vital_recorded" | "client_error" | "account_created" | "oauth_authorized" | "mcp_initialized" | "mcp_tools_listed" | "mcp_first_tool_invoked" | "mcp_scan_requested" | "analytics_opted_in" | "analytics_opted_out";
+export type ProductAnalyticsEventName = "page_requested" | "page_viewed" | "navigation_clicked" | "action_clicked" | "form_started" | "form_submitted" | "form_succeeded" | "form_failed" | "scan_started" | "scan_completed" | "scan_viewed" | "report_viewed" | "scroll_depth_reached" | "session_engaged" | "web_vital_recorded" | "client_error" | "account_created" | "oauth_authorized" | "mcp_initialized" | "mcp_tools_listed" | "mcp_first_tool_invoked" | "mcp_scan_requested" | "analytics_opted_in" | "analytics_opted_out";
 export type AdminEventName = ProductAnalyticsEventName | "scan_requested" | "api_request" | "mcp_tool_invoked" | "full_scan.started" | "full_scan.completed" | "preview_scan.started" | "preview_scan.completed" | "v2_lambda_result.received" | "v2_lambda_result.failed";
 export type ProductAnalyticsOutcome = "observed" | "started" | "submitted" | "success" | "failure" | "opted_in" | "opted_out";
 export const ADMIN_EVENT_ROUTES = ["Web", "API", "Pulse", "SDK", "MCP", "Other"] as const;
 export type AdminEventRoute = (typeof ADMIN_EVENT_ROUTES)[number];
 
 type Count = string | number | null | undefined;
-type SummaryRow = { actors: Count; authenticated: Count; errors: Count; events: Count; newest_at: string | null; p50_duration_ms: Count; p95_duration_ms: Count; page_views: Count; scans: Count; sessions: Count; opted_out: Count };
+type SummaryRow = { actors: Count; authenticated: Count; errors: Count; events: Count; newest_at: string | null; p50_duration_ms: Count; p95_duration_ms: Count; page_views: Count; page_requests: Count; scans: Count; sessions: Count; opted_out: Count };
 type ComparisonRow = { errors: Count; events: Count; p95_duration_ms: Count };
 type TrendRow = { bucket: string; bucket_start: string; events: Count; sessions: Count };
 type RouteRow = { normalized_route: string; events: Count; sessions: Count };
 type FeatureRow = { event_name: string; feature: string; events: Count; sessions: Count };
 
 export type ProductAnalyticsRecentEvent = {
+  traffic_class?: string;
   actor_id: string | null;
   consent_state: string;
   country_code: string | null;
@@ -177,12 +180,13 @@ function unifiedEventsCte(
   ), unified_events as (
     select ('web:' || events.event_id::text) as event_id,
            events.occurred_at,
-           'Web'::text as event_route,
-           events.event_name,
+           case when events.event_name ~ '^mcp_' then 'MCP' else 'Web' end::text as event_route,
+           ${activityTrafficSql("events")} as traffic_class,
+           case when events.feature='server_route' then 'page_requested' else events.event_name end as event_name,
            events.feature,
            events.outcome,
            events.normalized_route,
-           events.session_id::text,
+           coalesce(events.mcp_session_id, events.session_id::text) as session_id,
            events.actor_id::text,
            events.user_id::text,
            events.scan_id,
@@ -208,6 +212,7 @@ function unifiedEventsCte(
     select ('scan-request:' || requests.public_id) as event_id,
            requests.requested_at as occurred_at,
            ${scanRequestRoute} as event_route,
+           ${activityTrafficSql("requests")} as traffic_class,
            'scan_requested'::text as event_name,
            coalesce(nullif(requests.request_type, ''), 'full_scan') as feature,
            case when requests.status in ('rejected', 'failed') then 'failure'
@@ -243,6 +248,7 @@ function unifiedEventsCte(
     select ('api:' || requests.public_id) as event_id,
            requests.requested_at as occurred_at,
            ${pulseRoute} as event_route,
+           ${activityTrafficSql("requests")} as traffic_class,
            'api_request'::text as event_name,
            coalesce(nullif(requests.request_type, ''), 'scan') as feature,
            case when requests.status in ('failed', 'expired', 'rate_limited') then 'failure'
@@ -276,6 +282,7 @@ function unifiedEventsCte(
     select ('mcp:' || events.event_id::text) as event_id,
            events.occurred_at,
            'MCP'::text as event_route,
+           ${activityTrafficSql("events")} as traffic_class,
            'mcp_tool_invoked'::text as event_name,
            events.tool_name as feature,
            case when events.outcome = 'success' then 'success' else 'failure' end as outcome,
@@ -314,6 +321,7 @@ function unifiedEventsCte(
     select ('scan-event:' || events.id::text) as event_id,
            events.created_at as occurred_at,
            ${scanEventRoute} as event_route,
+           ${activityTrafficSql("scans")} as traffic_class,
            events.event_type as event_name,
            'scan_lifecycle'::text as feature,
            case when events.event_type ~* 'failed|error|rejected|expired' then 'failure'
@@ -363,7 +371,7 @@ function unifiedEventQueryValues(interval: string): unknown[] {
 
 function visibilityClauses(includeInternal: boolean, excludeMacMiniScanBot: boolean) {
   const clauses: string[] = [];
-  if (!includeInternal) clauses.push("events.is_staff = false");
+  if (!includeInternal) clauses.push(`events.is_staff = false and ${activityTrafficDefaultVisibilitySql("events.traffic_class")}`);
   if (excludeMacMiniScanBot) clauses.push("events.is_mac_mini_scan_bot = false");
   return clauses;
 }
@@ -380,7 +388,8 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
               count(distinct session_id) filter (where session_id is not null) as sessions,
               count(distinct actor_id) filter (where actor_id is not null) as actors,
               count(*) filter (where is_authenticated) as authenticated,
-              count(*) filter (where event_name in ('page_viewed', 'scan_viewed', 'report_viewed')) as page_views,
+              count(*) filter (where ${pageViewPredicateSql()}) as page_views,
+              count(*) filter (where event_name = 'page_requested') as page_requests,
               count(distinct scan_id) filter (where scan_id is not null) as scans,
               count(*) filter (where event_name = 'client_error' or outcome = 'failure' or event_name ~* 'failed|error') as errors,
               count(*) filter (where event_name = 'analytics_opted_out') as opted_out,
@@ -425,7 +434,7 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
     ),
     query<ProductAnalyticsRecentEvent>(
       `${cte}
-       select events.event_id, events.occurred_at, events.event_route, events.event_name, events.feature, events.outcome,
+       select events.event_id, events.occurred_at, events.event_route, events.traffic_class, events.event_name, events.feature, events.outcome,
               events.normalized_route, events.session_id::text, events.actor_id::text, events.scan_id::text,
               events.consent_state, events.device_class, events.country_code, events.source, users.email,
               events.origin_ip, events.origin_ip_hash, events.freshness, events.duration_ms,
@@ -463,7 +472,7 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
     label: config.label,
     metrics: {
       events: number(summary?.events), sessions: number(summary?.sessions), actors: number(summary?.actors),
-      authenticated: number(summary?.authenticated), pageViews: number(summary?.page_views), scans: number(summary?.scans),
+      authenticated: number(summary?.authenticated), pageViews: number(summary?.page_views), pageRequests: number(summary?.page_requests), scans: number(summary?.scans),
       errors: number(summary?.errors), optedOut: number(summary?.opted_out),
       p50DurationMs: summary?.p50_duration_ms === null || summary?.p50_duration_ms === undefined ? null : number(summary.p50_duration_ms),
       p95DurationMs: summary?.p95_duration_ms === null || summary?.p95_duration_ms === undefined ? null : number(summary.p95_duration_ms)
@@ -478,7 +487,7 @@ async function loadProductAnalyticsDashboardUncached(period: ProductAnalyticsPer
 
 const loadCachedProductAnalyticsDashboard = unstable_cache(
   loadProductAnalyticsDashboardUncached,
-  ["admin-events-operational-snapshot-v1"],
+  ["admin-events-operational-snapshot-v2"],
   { revalidate: 30 },
 );
 
@@ -499,14 +508,19 @@ export async function listProductAnalyticsEventsPage(
   const config = ADMIN_OPERATIONAL_SNAPSHOT_CONFIG[period] ?? ADMIN_OPERATIONAL_SNAPSHOT_CONFIG["24h"];
   const values = unifiedEventQueryValues(config.interval);
   const clauses = ["true", ...visibilityClauses(includeInternal, excludeMacMiniScanBot)];
-  if (filters.eventName) { values.push(filters.eventName); clauses.push(`events.event_name = $${values.length}`); }
+  if (filters.eventName === "page_viewed") {
+    clauses.push(pageViewPredicateSql("events."));
+  } else if (filters.eventName) {
+    values.push(filters.eventName);
+    clauses.push(`events.event_name = $${values.length}`);
+  }
   if (filters.outcome) { values.push(filters.outcome); clauses.push(`events.outcome = $${values.length}`); }
   if (filters.route) { values.push(filters.route); clauses.push(`events.event_route = $${values.length}`); }
   const queryText = filters.query?.trim().slice(0, 160);
   if (queryText) {
     values.push(`%${queryText}%`);
     const parameter = `$${values.length}`;
-    clauses.push(`(events.event_route ilike ${parameter} or events.normalized_route ilike ${parameter} or events.feature ilike ${parameter} or events.event_name ilike ${parameter} or events.source ilike ${parameter} or events.session_id::text ilike ${parameter} or events.actor_id::text ilike ${parameter} or events.origin_ip ilike ${parameter} or events.origin_ip_hash ilike ${parameter} or events.freshness ilike ${parameter} or events.request_region ilike ${parameter} or users.email ilike ${parameter} or coalesce(events.target_hostname, domains.hostname) ilike ${parameter})`);
+    clauses.push(`(events.event_route ilike ${parameter} or events.normalized_route ilike ${parameter} or events.feature ilike ${parameter} or events.event_name ilike ${parameter} or events.source ilike ${parameter} or events.session_id::text ilike ${parameter} or events.actor_id::text ilike ${parameter} or events.scan_id::text ilike ${parameter} or events.origin_ip ilike ${parameter} or events.origin_ip_hash ilike ${parameter} or events.freshness ilike ${parameter} or events.request_region ilike ${parameter} or users.email ilike ${parameter} or coalesce(events.target_hostname, domains.hostname) ilike ${parameter})`);
   }
   const where = clauses.join(" and ");
   const cte = unifiedEventsCte();

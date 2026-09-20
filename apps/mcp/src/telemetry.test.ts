@@ -2,9 +2,46 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createCertScoreMcpServer } from "@certscore/mcp/server";
 import { classifyHostedMcpClient, createHostedMcpTelemetry } from "./telemetry.js";
 
 const secret = "hosted-mcp-telemetry-test-secret";
+
+test("authenticated Claude discovery reaches tools/call and retains the same opaque journey", async () => {
+  const bodies: Record<string, any>[] = [];
+  const telemetry = createHostedMcpTelemetry({ baseUrl: "https://certscore.ai", secret, headers: {}, surface: "mcp_authenticated",
+    authenticatedUserId: "00000000-0000-4000-8000-000000000001", authenticatedActorBinding: "test-owner", sessionId: () => "private-claude-session",
+    clientInfoBody: { params: { clientInfo: { name: "claude", version: "1" } } },
+    fetch: (async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return new Response(null,{status:202}); }) as typeof fetch });
+  const originalFetch = globalThis.fetch;
+  let credentialObserved = false;
+  globalThis.fetch = (async (_url, init) => {
+    credentialObserved = new Headers(init?.headers).get("authorization") === "Bearer fixture-credential";
+    return new Response(JSON.stringify({ type:"certscore_auth_check", authenticated:true,scopes:["scan:read"],expiresAt:null,
+      diagnostics:{mode:"hosted_oauth",workspaceAccess:"active",createAllowedByScope:false,canRequestScanNow:false,quota:null,nextAction:"Read an existing scan."} }),{status:200,headers:{"content-type":"application/json"}});
+  }) as typeof fetch;
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createCertScoreMcpServer({ resolveApiKey: () => "fixture-credential", onToolInvocation: row => telemetry.observeToolInvocation(row) });
+  const client = new Client({ name:"claude",version:"1" });
+  try {
+    await Promise.all([server.connect(serverTransport),client.connect(clientTransport)]);
+    telemetry.observeActivation("mcp_initialized");
+    assert.ok((await client.listTools()).tools.some(tool => tool.name === "certscore_get_connection_status"));
+    telemetry.observeActivation("mcp_tools_listed");
+    const result = await client.callTool({name:"certscore_get_connection_status",arguments:{}});
+    assert.notEqual(result.isError,true,JSON.stringify(result));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(credentialObserved,true);
+    assert.equal(bodies.filter(row => row.toolName).length,1);
+    assert.equal(new Set(bodies.map(row => row.sessionId)).size,1);
+    assert.match(bodies[0]!.sessionId,/^[a-f0-9]{24}$/);
+    assert.ok(bodies.some(row => row.stage === "mcp_first_tool_invoked"));
+    assert.ok(!JSON.stringify(bodies).includes("private-claude-session"));
+    assert.ok(!JSON.stringify(bodies).includes("fixture-credential"));
+  } finally { globalThis.fetch=originalFetch; await client.close(); await server.close(); }
+});
 
 function requesterIpHashForTest(value: string) {
   return createHmac("sha256", secret)
@@ -107,11 +144,15 @@ test("lifecycle correlation exposes only bounded client metadata and records acc
   assert.equal(JSON.stringify(context).includes("private-conversation-value"), false);
   assert.equal(JSON.stringify(context).includes("private-session-value"), false);
 
-  telemetry.observeToolInvocation(observation());
+  telemetry.observeToolInvocation({ ...observation(), requestId: "00000000-0000-4000-8000-000000000123" });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(deliveries.length, 2);
-  assert.ok(deliveries.every((delivery) => /"event":"mcp\.telemetry_delivery"/.test(delivery)));
-  assert.ok(deliveries.every((delivery) => /"outcome":"accepted"/.test(delivery)));
+  assert.equal(deliveries.length, 4);
+  assert.equal(deliveries.filter(line => JSON.parse(line).requestId === "00000000-0000-4000-8000-000000000123").length, 2);
+  assert.ok(deliveries.some((delivery) => /"event":"mcp\.telemetry_delivery_started"/.test(delivery)));
+  const accepted = deliveries.filter(delivery => /"event":"mcp\.telemetry_delivery"/.test(delivery));
+  assert.ok(accepted.length > 0);
+  assert.ok(accepted.every((delivery) => /"outcome":"accepted"/.test(delivery)));
+  assert.ok(deliveries.every(delivery => typeof JSON.parse(delivery).eventId === "string"));
 });
 
 test("authenticated telemetry signs bounded MCP activation stages", async () => {
@@ -268,7 +309,7 @@ test("telemetry differentiates all hosted MCP entrypoints and signs minimized ev
     createHostedMcpTelemetry({
       authenticatedActorBinding: surface === "mcp_authenticated" ? "oauth:issuer:user" : null,
       baseUrl: "https://certscore.ai",
-      clientInfoBody: { params: { clientInfo: { name: "test client", version: "do-not-store" } } },
+      clientInfoBody: { params: { clientInfo: { name: "test client", version: "0.3.1" } } },
       fetch: fetchMock,
       headers: { authorization: "Bearer do-not-store", "openai-conversation-id": "opaque-conversation" },
       requesterBinding: "anonymous:do-not-store",
@@ -303,6 +344,7 @@ test("telemetry differentiates all hosted MCP entrypoints and signs minimized ev
     assert.match(String(events[index]?.requesterIpHash), /^[a-f0-9]{64}$/);
     assert.equal(events[index]?.requestedResource, "scan_123");
     assert.equal(events[index]?.clientName, "test client");
+    assert.equal((events[index]?.requestDetails as Record<string, unknown>)?.clientVersion, "0.3.1");
     assert.equal(events[index]?.attributionConfidence, "inferred");
     assert.equal(events[index]?.installationOrigin, "unknown");
   }
@@ -419,4 +461,88 @@ test("invalid projected metadata is rejected without throwing or sending", async
   assert.equal(fetched, false);
   assert.equal(failures.length, 1);
   assert.match(failures[0] ?? "", /mcp\.telemetry_event_rejected/);
+});
+
+test("read 429 telemetry retains bounded limit details and honest correlation bases", async () => {
+  const bodies: string[] = [];
+  const telemetry = createHostedMcpTelemetry({
+    baseUrl: "https://certscore.ai", headers: {}, requesterBinding: "anonymous:192.0.2.1",
+    secret, sessionId: () => "session-per-request", surface: "mcp_light",
+    fetch: (async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body)); return new Response(null, { status: 202 });
+    }) as typeof fetch,
+  });
+  telemetry.observeTransportRateLimit({
+    body: { params: { arguments: { scanId: "scan_123", detail: "full", maxBytes: 25000, secret: "must-not-retain" } } },
+    responseSummary: { version: 1, captureBasis: "response_generated", templateVersion: "2026-09-11.1", kind: "protocol_error", isError: true, errorCode: "rate_limited", mcpCode: -32029, message: "Read limit reached.", recommendedNextAction: "Wait before retrying.", textOmitted: false, summaryTruncated: false },
+    durationMs: 2, toolName: "certscore_get_scan_bundle", scanId: "scan_123",
+    rateLimit: { kind: "mcp_read", scope: "callerTarget", windowId: "burst", limit: 120, used: 120, requested: 4, windowSeconds: 600, retryAfterSeconds: 25 },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const event = bodies.map(body => JSON.parse(body)).find(event => !event.eventType);
+  assert.equal(event.requestDetails.response.summary.message, "Read limit reached.");
+  assert.equal(event.requestDetails.response.bytes, null);
+  assert.equal(event.transportOutcome, "http_429");
+  assert.equal(event.quotaOutcome, "rate_limited");
+  assert.deepEqual(event.requestDetails.arguments, { scanId: "scan_123", detail: "full", maxBytes: 25000 });
+  assert.equal(event.requestDetails.argumentsOmitted, true);
+  assert.equal(event.requestDetails.actorBasis, "requester_binding");
+  assert.equal(event.requestDetails.sessionBasis, "mcp_session");
+  assert.equal(event.requestDetails.rateLimit.retryAfterSeconds, 25);
+  assert.equal(event.requestDetails.rateLimit.scope, "callerTarget");
+  assert.doesNotMatch(JSON.stringify(event), /must-not-retain|session-per-request|anonymous:192/);
+});
+
+test("HTTP rate-limit telemetry preserves sanitized caller input, shared context, and initialization provenance", async () => {
+  const bodies: Record<string, any>[] = [];
+  const telemetry = createHostedMcpTelemetry({ baseUrl: "https://certscore.ai", secret, headers: {}, surface: "mcp_light", sessionId: () => "session_123",
+    clientInfoBody: { params: { clientInfo: { name: "Example client", version: "1.2.3" }, protocolVersion: "2025-11-25", capabilities: { roots: { listChanged: true } } } },
+    fetch: (async (_url: unknown, init?: RequestInit) => { bodies.push(JSON.parse(String(init?.body))); return new Response(null,{status:202}); }) as typeof fetch });
+  telemetry.observeTransportRateLimit({ body: { params: { arguments: { scanId: "scan_123", reason: "Vendor review", apiKey: "private-value",
+    taskContext: { questionSummary: "Check tracking", questionSource: "user_wording", shareForImprovement: true } }, _meta: { "io.modelcontextprotocol/clientInfo": { name: "Per-call client", version: "2.0" } } } },
+    toolName: "certscore_get_scan_status", durationMs: 2 });
+  await new Promise(resolve=>setImmediate(resolve));
+  const event = bodies.find(body=>body.eventType !== "activation")!;
+  assert.equal(event.requestDetails.taskContext.questionSummary, "Check tracking");
+  assert.equal(event.requestDetails.callerInput.questionStatus, "retained");
+  assert.equal(event.requestDetails.callerInput.fields.find((field: any)=>field.path === "arguments.reason").value, "Vendor review");
+  assert.equal(event.requestDetails.callerInput.fields.find((field: any)=>field.path === "request_meta.clientInfo.version").value, "2.0");
+  assert.ok(event.requestDetails.callerInput.fields.some((field: any)=>field.path.startsWith("request_meta.client_initialization")));
+  assert.ok(!JSON.stringify(bodies).includes("private-value"));
+  assert.ok(Buffer.byteLength(JSON.stringify(event.requestDetails,null,1)) <= 4096);
+});
+
+test("expanded HTTP telemetry is opt-in and retains long supplied prompt text", async () => {
+  const previous = process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED;
+  try {
+    process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED = "1";
+    const bodies: Record<string, any>[] = [];
+    const prompt = "Review privacy disclosures. ".repeat(100);
+    const telemetry = createHostedMcpTelemetry({ baseUrl: "https://certscore.ai", secret, headers: {}, surface: "mcp_light", sessionId: () => "session_123",
+      fetch: (async (_url: unknown, init?: RequestInit) => { bodies.push(JSON.parse(String(init?.body))); return new Response(null, { status: 202 }); }) as typeof fetch });
+    telemetry.observeTransportRateLimit({ body: { params: { arguments: { scanId: "scan_123", prompt } } }, toolName: "certscore_get_scan_status", durationMs: 2 });
+    await new Promise(resolve => setImmediate(resolve));
+    const details = bodies.find(body => body.eventType !== "activation")!.requestDetails;
+    assert.equal(details.version, 2);
+    assert.equal(details.callerInput.version, 2);
+    assert.equal(details.callerInput.fields.find((field: any) => field.path === "arguments.prompt").value, prompt);
+    assert.ok(Buffer.byteLength(JSON.stringify(details, null, 1)) <= 16384);
+  } finally {
+    if (previous === undefined) delete process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED;
+    else process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED = previous;
+  }
+});
+
+test('Light marks requester changes without replacing the initialized caller', async () => {
+  const requests: string[]=[];
+  const telemetry=createHostedMcpTelemetry({baseUrl:'https://certscore.ai',headers:{},secret,surface:'mcp_light',sessionId:()=> 'light-session',requesterBinding:'initial-binding',requesterIp:'192.0.2.1',fetch:(async (_input,init)=>{requests.push(String(init?.body));return new Response(null,{status:202});}) as typeof fetch});
+  telemetry.observeToolInvocation(observation(),{requesterIp:'192.0.2.1'});
+  telemetry.observeToolInvocation(observation(),{requesterIp:'192.0.2.2'});
+  await new Promise(resolve=>setImmediate(resolve));
+  const calls=requests.map(x=>JSON.parse(x)).filter(x=>x.toolName);
+  assert.equal(calls.length,2);
+  assert.equal(calls[0].requestDetails.requesterChanged,false);
+  assert.equal(calls[1].requestDetails.requesterChanged,true);
+  assert.equal(calls[0].actorId,calls[1].actorId);
+  assert.notEqual(calls[0].requesterIp,calls[1].requesterIp);
 });

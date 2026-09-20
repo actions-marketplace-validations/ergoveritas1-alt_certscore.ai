@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { CertScoreClient } from "./client.js";
-import { CertScoreScanFailedError, CertScoreTimeoutError, InvalidUrlError, ThrottledError } from "./errors.js";
+import { getCertScoreErrorContext, CertScoreScanFailedError, CertScoreTimeoutError, InvalidUrlError, ThrottledError } from "./errors.js";
 import type { ScanNoGoReasonCode } from "./types.js";
 
 type MockResponse = {
@@ -76,6 +76,27 @@ test("scan returns immediate 200 JSON", async () => {
     const result = await client.scan("https://example.com");
     assert.equal(result.scanId, "scan_123");
     assert.match(mock.calls[0] ?? "", /wait=60/);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("scan preserves GPC, Accept Path, and Reject Path results from Pulse", async () => {
+  const mock = installFetch([{ status: 200, body: {
+    ...pulse,
+    gpcResponse: { status: "indeterminate", contractVersion: "certscore.gpc-response-assessment.v3", observation: { status: "complete" } },
+    postAcceptObservation: { status: "unconfirmed", afterAction: { activationStatus: "completed", requestCount: 4 } },
+    postRefusalObservation: { status: "confirmed_clean" },
+  } }]);
+  try {
+    const client = new CertScoreClient();
+    const result = await client.scan("https://example.com");
+    assert.equal(result.gpcResponse?.status, "indeterminate");
+    assert.equal(result.gpcResponse?.observation?.status, "complete");
+    assert.equal(result.gpcResponse?.contractVersion, "certscore.gpc-response-assessment.v3");
+    assert.equal(result.postAcceptObservation?.status, "unconfirmed");
+    assert.equal(result.postAcceptObservation?.afterAction?.requestCount, 4);
+    assert.equal(result.postRefusalObservation?.status, "confirmed_clean");
   } finally {
     mock.restore();
   }
@@ -175,6 +196,16 @@ test("packaged declarations expose API v2 scan timing fields", () => {
   assert.match(declarations, /completedAt\?: string \| null;/);
   assert.match(declarations, /scanTimeSeconds\?: number \| null;/);
   assert.match(declarations, /evidenceExcerpt\?: string;/);
+  assert.match(declarations, /export interface GpcResponse/);
+  assert.match(declarations, /observation\?: import\(".\/gpc-bounded-observation.js"\).GpcBoundedObservation/);
+  assert.match(declarations, /afterAction\?: AfterActionSummary/);
+  assert.match(declarations, /gpcResponse\?: GpcResponse \| null;/);
+  assert.match(declarations, /export interface PostAcceptObservation/);
+  assert.match(declarations, /export interface PostRefusalObservation/);
+  assert.match(
+    declarations,
+    /export interface PulseResultBase[\s\S]*gpcResponse\?: GpcResponse \| null;[\s\S]*postAcceptObservation\?: PostAcceptObservation \| null;[\s\S]*postRefusalObservation\?: PostRefusalObservation \| null;/,
+  );
 });
 
 test("pulse.evidence retrieves the bounded Evidence JSON artifact", async () => {
@@ -721,4 +752,44 @@ test("scans.create uses the same API v2 submission path for every production reg
   } finally {
     mock.restore();
   }
+});
+
+test("failed HTTP reads retain bounded operation and request ID without endpoint paths", async () => {
+  for (const requestId of ["00000000-0000-4000-8000-000000000123", "secret-token"]) {
+    const mock = installFetch([{ status: 404, headers: { "x-request-id": requestId }, body: { error: { code: "not_found", message: "Not found" } } }]);
+    try {
+      await assert.rejects(new CertScoreClient().scans.get("private-scan-id"), (error: any) => {
+        assert.deepEqual(error.upstream, { operation: "scan_resource", httpStatus: 404, ...(requestId === "secret-token" ? {} : { requestId }) });
+        assert.doesNotMatch(JSON.stringify(error.upstream), /private-scan-id|secret-token|https/);
+        return true;
+      });
+    } finally { mock.restore(); }
+  }
+});
+
+
+test("transport failure retains operation without changing the thrown error", async () => {
+  const previous = globalThis.fetch;
+  const failure = new TypeError("Network failure with untrusted details");
+  globalThis.fetch = async () => { throw failure; };
+  try {
+    await assert.rejects(new CertScoreClient().scans.get("private-id"), error => {
+      assert.equal(error, failure);
+      assert.deepEqual(getCertScoreErrorContext(error), { operation: "scan_resource" });
+      return true;
+    });
+  } finally { globalThis.fetch = previous; }
+});
+
+
+test("connection diagnostics use one authenticated read and never submit a scan", async () => {
+ const fixture={authenticated:true,diagnostics:{mode:"hosted_oauth",quota:{hourlyRemaining:4}}};
+ const mock=installFetch([{status:200,body:fixture}]);
+ try {
+   const client=new CertScoreClient({apiKey:"test-credential",baseUrl:"https://certscore.ai"});
+   assert.deepEqual(await client.getConnectionStatus(),fixture);
+   assert.deepEqual(mock.calls,["https://certscore.ai/api/v2/auth/check?diagnostics=1"]);
+   assert.equal(new Headers(mock.callDetails[0]?.headers).get("authorization"),"Bearer test-credential");
+   assert.notEqual(mock.callDetails[0]?.method,"POST");
+ } finally {mock.restore();}
 });

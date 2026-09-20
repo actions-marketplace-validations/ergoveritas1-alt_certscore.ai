@@ -10,6 +10,11 @@ const nextConfig = {
   devIndicators: false,
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname, "../.."),
+  // Scan/calibration output is runtime data, not a server dependency. Mirror
+  // Docker's existing exclusions so local standalone builds cannot copy it.
+  outputFileTracingExcludes: {
+    "*": ["../../artifacts/**/*", "../../tmp/**/*", "./artifacts/**/*", "./tmp/**/*"]
+  },
   poweredByHeader: false,
   async headers() {
     return [
@@ -87,6 +92,9 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      { source: "/guides/pre-consent-tracking-detection", destination: "/guides/detect-tracking-before-consent", permanent: true },
+      { source: "/guides/detect-trackers-before-cookie-consent", destination: "/guides/detect-tracking-before-consent", permanent: true },
+      { source: "/guides/check-website-tracking-before-consent", destination: "/guides/detect-tracking-before-consent", permanent: true },
       {
         source: "/preview",
         destination: "/",
@@ -136,7 +144,16 @@ const nextConfig = {
       "./openapi-chatgpt.js":
         "../../packages/certscore-api-contracts/src/openapi-chatgpt.ts",
       "./openapi-v2.js": "../../packages/certscore-api-contracts/src/openapi-v2.ts",
+      "./report-page.js": "../../packages/certscore-api-contracts/src/report-page.ts",
       "./pulse-v1.js": "../../packages/certscore-api-contracts/src/pulse-v1.ts",
+      "./runtime-evidence-graph.js": "../../packages/certscore-api-contracts/src/runtime-evidence-graph.ts",
+      "./runtime-evidence-graph-openapi.js": "../../packages/certscore-api-contracts/src/runtime-evidence-graph-openapi.ts",
+      "./gpc-bounded-observation.js":
+        "../../packages/certscore-api-contracts/src/gpc-bounded-observation.ts",
+      "./gpc-bounded-observation-openapi.js":
+        "../../packages/certscore-api-contracts/src/gpc-bounded-observation-openapi.ts",
+      "./scan-observation-results.js":
+        "../../packages/certscore-api-contracts/src/scan-observation-results.ts",
       "./scan-no-go.js": "../../packages/certscore-api-contracts/src/scan-no-go.ts"
     }
   },

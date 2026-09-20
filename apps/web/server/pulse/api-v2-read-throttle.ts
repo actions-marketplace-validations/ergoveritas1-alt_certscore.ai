@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { apiReadRateLimitGuidance } from "@website-signal-risk-scanner/shared";
+import { apiReadRateLimitGuidance, type ApiReadRateCostClass } from "@website-signal-risk-scanner/shared";
 import { apiV2JsonResponse, buildApiV2Error } from "../../lib/api-v2/scan-resource";
 import { getPulseRequesterContext, trustedMcpInternalRead } from "../../lib/pulse/request";
 import type { PulseDetail } from "../../lib/pulse/types";
@@ -23,6 +23,7 @@ export function apiV2ReadPrincipal(request: Request) {
 }
 
 export async function enforceApiV2ScanReadThrottle(input: {
+  costClass?: ApiReadRateCostClass;
   detail?: PulseDetail;
   profile?: PulseRetrievalProfile;
   request: Request;
@@ -44,6 +45,7 @@ export async function enforceApiV2ScanReadThrottle(input: {
   let decision: Awaited<ReturnType<typeof claimPulseReadQuota>>;
   try {
     decision = await claimPulseReadQuota({
+      costClass: input.costClass,
       detail: input.detail ?? "summary",
       principal: apiV2ReadPrincipal(input.request),
       profile: input.profile ?? "terminal",

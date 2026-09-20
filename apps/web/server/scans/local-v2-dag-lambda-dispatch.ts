@@ -4,7 +4,16 @@ import {
   type SharedCrawlSeedHint,
   type SharedScanConfig,
 } from "@website-signal-risk-scanner/shared";
-import type { PostRefusalLambdaDispatchConfig } from "@certscore/contracts";
+import {
+  GPC_OBSERVATION_DISPATCH_CONTRACT_VERSION,
+  buildPostActionObservationDispatchConfigs,
+  selectRuntimeGraphDispatch,
+  readPersistedRuntimeGraphDispatch,
+  type RuntimeGraphDispatch,
+  type GpcObservationDispatchConfig,
+  type PostAcceptLambdaDispatchConfig,
+  type PostRefusalLambdaDispatchConfig,
+} from "@certscore/contracts";
 import {
   LOCAL_V2_DAG_LAMBDA_DISPATCH_CONTRACT_VERSION,
   LOCAL_V2_DAG_SCAN_PROCESSOR,
@@ -26,6 +35,8 @@ export const LOCAL_V2_DAG_LAMBDA_RESULT_FAILED_EVENT_TYPE = "v2_lambda_result.fa
 export const LOCAL_V2_DAG_LAMBDA_DISPATCH_TIMEOUT_MS = 5_000;
 
 export type LocalV2DagLambdaDispatchPayload = {
+  resourceInventoryCrawl?: boolean;
+  resourceInventoryDiscovery?: boolean;
   artifactOnly: true;
   awsRegion: LocalV2DagLambdaAwsRegion;
   callbackCorrelationId: string;
@@ -50,7 +61,10 @@ export type LocalV2DagLambdaDispatchPayload = {
     SharedCrawlSeedHint,
     "confidence" | "hintType" | "source" | "sourceCompletedAt" | "sourceScanId" | "url"
   >>;
+  postAcceptObservation?: PostAcceptLambdaDispatchConfig;
   postRefusalObservation?: PostRefusalLambdaDispatchConfig;
+  gpcObservation?: GpcObservationDispatchConfig;
+  runtimeGraph?: RuntimeGraphDispatch;
 };
 
 const MAX_POLICY_SURFACE_SEEDS = 12;
@@ -108,60 +122,6 @@ function policySurfaceSeedsFromConfig(config: SharedScanConfig | Record<string, 
   return [...selected.values()];
 }
 
-function postRefusalObservationFromIntent(input: {
-  intent: Record<string, unknown>;
-  scanId: string;
-  targetUrl: string;
-}): PostRefusalLambdaDispatchConfig | undefined {
-  if (input.intent.postRefusalRejectWorkerEnabled !== true || input.intent.orchestrationMode !== "sharded") {
-    return undefined;
-  }
-  const rolloutMode = input.intent.postRefusalRejectWorkerRolloutMode === "all_eligible"
-    ? "all_eligible"
-    : "owned_canary";
-  let target: URL;
-  try {
-    target = new URL(input.targetUrl);
-  } catch {
-    return undefined;
-  }
-  const loopback = (target.protocol === "http:" || target.protocol === "https:") &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
-  const ownedCanary = target.protocol === "https:" &&
-    target.hostname === "ergoveritas.com" &&
-    (target.pathname.startsWith("/.well-known/certscore-canary/post-refusal/") ||
-      /^\/test[1-4]\.html$/.test(target.pathname));
-  const exactProductionTarget = target.protocol === "https:" &&
-    !target.username &&
-    !target.password &&
-    !target.port &&
-    !target.hash;
-  if (!loopback && !ownedCanary && (rolloutMode !== "all_eligible" || !exactProductionTarget)) return undefined;
-  return {
-    enabled: true,
-    rolloutMode,
-    dispatchDelayMs: 500,
-    observationWindowMs: 8_000,
-    confirmationTimeoutMs: 1_500,
-    actionSearchTimeoutMs: 1_500,
-    resolver: {
-      kind: "canonical_cmp_registry",
-      recipeSetId: "canonical-consent-control-reject-v8",
-    },
-    interactionAuthorization: loopback
-      ? { authorizationId: "loopback_local_lab", kind: "loopback" }
-      : ownedCanary ? {
-          authorizationId: "ergoveritas_owned_post_refusal_canary.v1",
-          kind: "owned_canary",
-        } : {
-          authorizationId: "sharded_scan_exact_target.v1",
-          kind: "scan_target",
-          normalizedUrl: target.toString(),
-          scanId: input.scanId,
-        },
-  };
-}
-
 export type LocalV2DagLambdaDispatchSummary = {
   awsRegion: LocalV2DagLambdaAwsRegion;
   contractVersion: typeof LOCAL_V2_DAG_LAMBDA_DISPATCH_CONTRACT_VERSION;
@@ -206,13 +166,18 @@ export type LocalV2DagLambdaLaneTimingSummary = {
     coordinatorElapsedMs: number | null;
     evidenceJoined: boolean;
     invocationStartedAt: string | null;
-    lane: "consent_proof" | "runtime_evidence" | "policy_evidence" | "reject_observation";
+    lane: "consent_proof" | "runtime_evidence" | "policy_evidence" | "gpc_observation" | "accept_observation" | "reject_observation";
     outcome: "completed" | "disabled" | "failed" | "not_applicable" | "timed_out";
     terminalOutcomeDeltaFromPassiveBarrierMs: number | null;
     terminalOutcomeObservedAt: string | null;
     workerReportedCompletedAt: string | null;
     workerReportedHandlerDurationMs: number | null;
   }>;
+  acceptCompletedBeforeOrAtPassiveBarrier?: boolean | null;
+  acceptLaneAddedWaitMs?: number;
+  acceptLaneJoin?: "disabled" | "failed" | "joined" | "not_applicable" | "timed_out";
+  acceptTailDeltaMs?: number | null;
+  maxAcceptTailWaitMs?: number;
   maxRejectTailWaitMs: number;
   passiveLaneBarrierCompletedAt: string;
   rejectCompletedBeforeOrAtPassiveBarrier: boolean | null;
@@ -221,7 +186,10 @@ export type LocalV2DagLambdaLaneTimingSummary = {
   rejectTailDeltaMs: number | null;
 };
 
+import { terminalLaneEvidenceSchema, type TerminalLaneEvidence } from "@certscore/contracts";
+
 export type LocalV2DagLambdaResultMessage = {
+  terminalLaneEvidence?: TerminalLaneEvidence;
   artifactOnly: true;
   artifactMetadata?: {
     failureDiagnosticUri?: {
@@ -244,6 +212,14 @@ export type LocalV2DagLambdaResultMessage = {
       sha256: string;
       sizeBytes: number;
     };
+    postAcceptPacketUri?: {
+      sha256: string;
+      sizeBytes: number;
+    };
+    postRefusalPacketUri?: {
+      sha256: string;
+      sizeBytes: number;
+    };
   };
   artifactPointers?: {
     failureDiagnosticUri?: string;
@@ -251,6 +227,8 @@ export type LocalV2DagLambdaResultMessage = {
     reportAdapterArtifactUri?: string;
     reviewArtifactUri?: string;
     scanArtifactUri?: string;
+    postAcceptPacketUri?: string;
+    postRefusalPacketUri?: string;
   };
   completedAt: string;
   contractVersion: typeof LOCAL_V2_DAG_LAMBDA_RESULT_CONTRACT_VERSION;
@@ -453,13 +431,24 @@ export function buildLocalV2DagLambdaDispatchPayload(input: {
   if (new URL(targetUrl).hostname.toLowerCase() !== hostname) {
     throw new Error("Local v2 DAG Lambda target hostname does not match normalizedUrl.");
   }
-  const postRefusalObservation = postRefusalObservationFromIntent({
+  const postActionObservation = buildPostActionObservationDispatchConfigs({
     intent,
     scanId: input.scanId,
     targetUrl,
   });
-
+  const gpcObservation = intent.orchestrationMode === "sharded"
+    ? {
+        contractVersion: GPC_OBSERVATION_DISPATCH_CONTRACT_VERSION,
+        enabled: true,
+        pairWithLane: "runtime_evidence",
+        protocol: "passive_baseline_with_sec_gpc",
+      } satisfies GpcObservationDispatchConfig
+    : undefined;
+  const runtimeGraph = intent.runtimeGraphSelection !== undefined
+    ? readPersistedRuntimeGraphDispatch(input.scanId, intent)
+    : intent.orchestrationMode === "sharded" ? selectRuntimeGraphDispatch(input.scanId, process.env, targetUrl) : undefined;
   return {
+    ...(config.fullSite === true ? {resourceInventoryCrawl:true, resourceInventoryDiscovery:Number((config.crawlOptions as Record<string, unknown> | undefined)?.maxPages) > 1} : {}),
     artifactOnly: true,
     awsRegion,
     callbackCorrelationId: input.scanId,
@@ -473,7 +462,9 @@ export function buildLocalV2DagLambdaDispatchPayload(input: {
     orchestrationMode: intent.orchestrationMode === "sharded" ? "sharded" : "single",
     processor: LOCAL_V2_DAG_SCAN_PROCESSOR,
     ...(policySurfaceSeeds.length > 0 ? { policySurfaceSeeds } : {}),
-    ...(postRefusalObservation ? { postRefusalObservation } : {}),
+    ...postActionObservation,
+    ...(gpcObservation ? { gpcObservation } : {}),
+    ...(runtimeGraph ? { runtimeGraph } : {}),
     productionFindingIntegration: false,
     profile: getProfile(config),
     resultHandoff: "sqs",
@@ -619,6 +610,8 @@ function parseArtifactPointers(value: unknown): LocalV2DagLambdaResultMessage["a
   const reportAdapterArtifactUri = stringValue(record.reportAdapterArtifactUri);
   const reviewArtifactUri = stringValue(record.reviewArtifactUri);
   const scanArtifactUri = stringValue(record.scanArtifactUri);
+  const postAcceptPacketUri = stringValue(record.postAcceptPacketUri);
+  const postRefusalPacketUri = stringValue(record.postRefusalPacketUri);
 
   if (failureDiagnosticUri) {
     artifactPointers.failureDiagnosticUri = requireDurableArtifactUri(failureDiagnosticUri);
@@ -635,6 +628,12 @@ function parseArtifactPointers(value: unknown): LocalV2DagLambdaResultMessage["a
   if (scanArtifactUri) {
     artifactPointers.scanArtifactUri = requireDurableArtifactUri(scanArtifactUri);
   }
+  if (postAcceptPacketUri) {
+    artifactPointers.postAcceptPacketUri = requireDurableArtifactUri(postAcceptPacketUri);
+  }
+  if (postRefusalPacketUri) {
+    artifactPointers.postRefusalPacketUri = requireDurableArtifactUri(postRefusalPacketUri);
+  }
 
   return Object.keys(artifactPointers).length > 0 ? artifactPointers : undefined;
 }
@@ -648,7 +647,15 @@ function requireDurableArtifactUri(value: string) {
 
 function parseArtifactMetadata(value: unknown): LocalV2DagLambdaResultMessage["artifactMetadata"] {
   const record = asRecord(value);
-  const fields = ["failureDiagnosticUri", "manifestUri", "reportAdapterArtifactUri", "reviewArtifactUri", "scanArtifactUri"] as const;
+  const fields = [
+    "failureDiagnosticUri",
+    "manifestUri",
+    "reportAdapterArtifactUri",
+    "reviewArtifactUri",
+    "scanArtifactUri",
+    "postAcceptPacketUri",
+    "postRefusalPacketUri",
+  ] as const;
   const artifactMetadata: NonNullable<LocalV2DagLambdaResultMessage["artifactMetadata"]> = {};
 
   for (const field of fields) {
@@ -742,7 +749,10 @@ function parseLaneTimingSummary(value: unknown): LocalV2DagLambdaLaneTimingSumma
   const coordinatorStartedAt = stringValue(record.coordinatorStartedAt);
   const generatedAt = stringValue(record.generatedAt);
   const passiveLaneBarrierCompletedAt = stringValue(record.passiveLaneBarrierCompletedAt);
+  const acceptLaneJoin = record.acceptLaneJoin;
   const rejectLaneJoin = record.rejectLaneJoin;
+  const maxAcceptTailWaitMs = finiteInteger(record.maxAcceptTailWaitMs, { nonnegative: true });
+  const acceptLaneAddedWaitMs = finiteInteger(record.acceptLaneAddedWaitMs, { nonnegative: true });
   const maxRejectTailWaitMs = finiteInteger(record.maxRejectTailWaitMs, { nonnegative: true });
   const rejectLaneAddedWaitMs = finiteInteger(record.rejectLaneAddedWaitMs, { nonnegative: true });
   if (
@@ -756,7 +766,7 @@ function parseLaneTimingSummary(value: unknown): LocalV2DagLambdaLaneTimingSumma
       rejectLaneJoin !== "timed_out") ||
     !Array.isArray(record.lanes)
   ) return undefined;
-  const validLanes = new Set(["consent_proof", "runtime_evidence", "policy_evidence", "reject_observation"]);
+  const validLanes = new Set(["consent_proof", "runtime_evidence", "policy_evidence", "gpc_observation", "accept_observation", "reject_observation"]);
   const validOutcomes = new Set(["completed", "disabled", "failed", "not_applicable", "timed_out"]);
   const lanes = record.lanes.flatMap((value) => {
     const laneRecord = asRecord(value);
@@ -784,13 +794,35 @@ function parseLaneTimingSummary(value: unknown): LocalV2DagLambdaLaneTimingSumma
       ),
     }];
   });
-  if (lanes.length !== 4 || new Set(lanes.map((lane) => lane.lane)).size !== 4) return undefined;
+  const hasAcceptLane = lanes.some((lane) => lane.lane === "accept_observation");
+  const expectedLaneCount = hasAcceptLane ? 5 : 4;
+  if (lanes.length !== expectedLaneCount || new Set(lanes.map((lane) => lane.lane)).size !== expectedLaneCount) {
+    return undefined;
+  }
+  if (
+    hasAcceptLane &&
+    (
+      maxAcceptTailWaitMs === null ||
+      acceptLaneAddedWaitMs === null ||
+      (acceptLaneJoin !== "disabled" && acceptLaneJoin !== "failed" &&
+        acceptLaneJoin !== "joined" && acceptLaneJoin !== "not_applicable" &&
+        acceptLaneJoin !== "timed_out")
+    )
+  ) return undefined;
+  const acceptCompleted = record.acceptCompletedBeforeOrAtPassiveBarrier;
   const rejectCompleted = record.rejectCompletedBeforeOrAtPassiveBarrier;
   return {
+    ...(hasAcceptLane ? {
+      acceptCompletedBeforeOrAtPassiveBarrier: typeof acceptCompleted === "boolean" ? acceptCompleted : null,
+      acceptLaneAddedWaitMs: acceptLaneAddedWaitMs!,
+      acceptLaneJoin: acceptLaneJoin as NonNullable<LocalV2DagLambdaLaneTimingSummary["acceptLaneJoin"]>,
+      acceptTailDeltaMs: nullableInteger(record.acceptTailDeltaMs),
+    } : {}),
     contractVersion: "certscore.v2.lambda-lane-timing.v1",
     coordinatorStartedAt,
     generatedAt,
     lanes,
+    ...(hasAcceptLane ? { maxAcceptTailWaitMs: maxAcceptTailWaitMs! } : {}),
     maxRejectTailWaitMs,
     passiveLaneBarrierCompletedAt,
     rejectCompletedBeforeOrAtPassiveBarrier: typeof rejectCompleted === "boolean" ? rejectCompleted : null,
@@ -868,6 +900,10 @@ export function parseLocalV2DagLambdaResultMessage(
     parsed.handlerTiming = handlerTiming;
   }
   const laneTimingSummary = parseLaneTimingSummary(record.laneTimingSummary);
+  if (record.terminalLaneEvidence !== undefined) {
+    const retained = terminalLaneEvidenceSchema.safeParse(record.terminalLaneEvidence);
+    if (status === "failed" && retained.success && retained.data.scanId === parsed.scanId) parsed.terminalLaneEvidence = retained.data;
+  }
   if (laneTimingSummary) {
     parsed.laneTimingSummary = laneTimingSummary;
   }

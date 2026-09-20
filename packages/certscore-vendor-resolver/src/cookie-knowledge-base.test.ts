@@ -28,7 +28,7 @@ test("canonical NBCNews cookie knowledge separates non-essential categories from
     ["fw_vcid2", "advertising"]
   ]);
   for (const [name, category] of categories) {
-    const knowledge = resolveCanonicalCookieKnowledge(name);
+    const knowledge = resolveCanonicalCookieKnowledge(name, { cookieDomain: "c.bing.com" });
     assert.equal(knowledge.category, category);
     assert.equal(knowledge.essentiality, "non_essential");
     assert.ok(knowledge.description.length > 20);
@@ -59,6 +59,24 @@ test("canonical Matomo cookie knowledge classifies retained _pk identifiers as n
   assert.equal(resolveCanonicalCookieKnowledge("pk_id").category, "unknown");
 });
 
+test("canonical Sourcebuster cookie knowledge classifies exact sbjs attribution storage as non-essential analytics", () => {
+  for (const name of [
+    "sbjs_migrations",
+    "sbjs_current_add",
+    "sbjs_first_add",
+    "sbjs_current",
+    "sbjs_first",
+    "sbjs_udata",
+    "sbjs_session",
+  ]) {
+    const knowledge = resolveCanonicalCookieKnowledge(name);
+    assert.equal(knowledge.category, "analytics", name);
+    assert.equal(knowledge.essentiality, "non_essential", name);
+    assert.equal(knowledge.vendor, "Sourcebuster.js", name);
+  }
+  assert.equal(resolveCanonicalCookieKnowledge("sbjs_unknown").essentiality, "unknown");
+});
+
 test("canonical Microsoft cookie knowledge keeps documented Clarity and identity purposes distinct", () => {
   assert.deepEqual(resolveCanonicalCookieKnowledge("CLID"), {
     category: "analytics",
@@ -68,8 +86,8 @@ test("canonical Microsoft cookie knowledge keeps documented Clarity and identity
     name: "CLID",
     vendor: "Microsoft Clarity",
   });
-  assert.equal(resolveCanonicalCookieKnowledge("MUID").vendor, "Microsoft Identity Synchronization");
-  assert.equal(resolveCanonicalCookieKnowledge("MR").essentiality, "non_essential");
+  assert.equal(resolveCanonicalCookieKnowledge("MUID", { cookieDomain: "c.bing.com" }).vendor, "Microsoft Identity Synchronization");
+  assert.equal(resolveCanonicalCookieKnowledge("MR", { cookieDomain: "c.bing.com" }).essentiality, "non_essential");
   assert.equal(resolveCanonicalCookieKnowledge("SRM_B").essentiality, "unknown");
 });
 
@@ -170,7 +188,7 @@ test("canonical context-bound advertising families require a matching vendor hos
   assert.equal(resolveCanonicalCookieKnowledge("audit", { cookieDomain: "example.com" }).category, "unknown");
 });
 
-test("canonical cookie context accepts bounded setter and initiator hosts", () => {
+test("canonical cookie context requires direct setter or host evidence, not an ancestor", () => {
   assert.equal(resolveCanonicalCookieKnowledge("sa-user-id", {
     cookieDomain: "example.com",
     setterScriptUrl: "https://tags.srv.stackadapt.com/events.js?site=example",
@@ -178,8 +196,24 @@ test("canonical cookie context accepts bounded setter and initiator hosts", () =
   assert.equal(resolveCanonicalCookieKnowledge("g_state", {
     cookieDomain: "example.com",
     initiatorChain: ["https://accounts.google.com/gsi/client"],
+  }).vendor, null);
+  assert.equal(resolveCanonicalCookieKnowledge("g_state", {
+    cookieDomain: "example.com",
+    setterScriptUrl: "https://accounts.google.com/gsi/client",
   }).vendor, "Google Identity Services");
   assert.equal(resolveCanonicalCookieKnowledge("g_state", { cookieDomain: "example.com" }).category, "unknown");
+});
+
+test("generic Microsoft cookie names cannot bypass the resolver's host guard", () => {
+  for (const name of ["MUID", "MR", "SM", "ANONCHK"]) {
+    for (const context of [{}, { cookieDomain: "example.com" }, {
+      cookieDomain: "example.com", initiatorChain: ["https://c.bing.com/c.gif"],
+    }, { cookieDomain: "bing.com.example.com" }]) {
+      assert.equal(resolveCanonicalCookieKnowledge(name, context).vendor, null, name);
+      assert.equal(resolveCanonicalCookieKnowledge(name, context).essentiality, "unknown", name);
+    }
+    assert.equal(resolveCanonicalCookieKnowledge(name, { cookieDomain: ".clarity.ms" }).essentiality, "non_essential");
+  }
 });
 
 test("canonical documented utility families preserve purpose and essentiality distinctions", () => {
@@ -229,4 +263,37 @@ test("canonical ID-sync and legal context registry does not infer data location 
   const criteo = resolveCanonicalVendorLegalContext("Criteo SA");
   assert.equal(criteo?.headquartersCountry, "FR");
   assert.equal(criteo?.transferMechanism.mechanism, "unknown");
+});
+
+test("frequency-reviewed exact cookie families classify documented purpose without manufacturing consent", () => {
+  for (const name of ["__utma", "__utmb", "__utmc", "__utmt", "__utmz"]) {
+    assert.equal(resolveCanonicalCookieKnowledge(name).category, "analytics");
+  }
+  for (const name of ["FCCDCF", "notice_behavior"]) {
+    const knowledge = resolveCanonicalCookieKnowledge(name);
+    assert.equal(knowledge.category, "consent_management");
+    assert.equal(knowledge.essentiality, "unknown");
+  }
+  for (const name of ["__utm", "__utma_custom", "__utmx", "myFCCDCF", "NOTICE_BEHAVIOR", "PHPSESSID", "JSESSIONID", "country", "lang"]) {
+    assert.equal(resolveCanonicalCookieKnowledge(name).category, "unknown", name);
+  }
+});
+
+test("ambiguous recurring names need direct vendor context, never an ancestor or host suffix lookalike", () => {
+  for (const [name, host, category] of [
+    ["everest_g_v2", "cm.everesttech.net", "advertising"],
+    ["everest_session_v2", "everesttech.net", "advertising"],
+    ["_rdt_uuid", "www.redditstatic.com", "advertising"],
+    ["RT", "s.go-mpulse.net", "analytics"],
+  ]) {
+    assert.equal(resolveCanonicalCookieKnowledge(name).category, "unknown", name);
+    assert.equal(resolveCanonicalCookieKnowledge(name, { cookieDomain: host }).category, category);
+    assert.equal(resolveCanonicalCookieKnowledge(name, { cookieDomain: "site.example", setterScriptUrl: `https://${host}/script.js` }).category, category);
+    for (const context of [
+      { cookieDomain: "site.example" },
+      { cookieDomain: `${host}.example` },
+      { cookieDomain: `not${host.split(".").slice(-2).join(".")}` },
+      { cookieDomain: "site.example", initiatorChain: [`https://${host}/script.js`] },
+    ]) assert.equal(resolveCanonicalCookieKnowledge(name, context).category, "unknown", `${name} ${JSON.stringify(context)}`);
+  }
 });

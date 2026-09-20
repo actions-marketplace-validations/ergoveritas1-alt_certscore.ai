@@ -7,7 +7,7 @@
   "types": "./dist/src/handler.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "bundle": "esbuild src/handler.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist-bundle/src/handler.js --external:playwright --external:pdf-parse --minify --tsconfig=../../tsconfig.base.json",
+    "bundle": "esbuild src/handler.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist-bundle/src/handler.js --external:playwright --external:pdf-parse --external:sharp --minify --tsconfig=../../tsconfig.base.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test src/*.test.ts",
     "clean": "rm -rf dist dist-bundle"
@@ -18,13 +18,15 @@
     "@aws-sdk/client-sqs": "^3.1069.0",
     "@certscore/contracts": "workspace:*",
     "@certscore/scan-core": "workspace:*",
-    "pdf-parse": "^2.4.5"
+    "@website-signal-risk-scanner/shared": "workspace:*",
+    "pdf-parse": "^2.4.5",
+    "sharp": "0.34.5"
   },
   "optionalDependencies": {
     "@napi-rs/canvas-linux-x64-gnu": "0.1.80"
   },
   "devDependencies": {
-    "esbuild": "^0.27.3",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.27.3"
   }
 }

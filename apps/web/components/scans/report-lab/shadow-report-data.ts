@@ -1,3 +1,7 @@
+import type { SiteIntegrityReportFinding } from "../../../lib/scans/site-integrity-report";
+import type { ChoicePathExecution } from "@certscore/contracts";
+import type { ExternalScanNoGoProjection } from "@website-signal-risk-scanner/shared";
+import type { GpcResponseAssessment } from "@certscore/contracts";
 import type { ExecutiveRejectPathProjection } from "../executive-summary-card";
 
 export const SHADOW_REPORT_SCAN_ID = "333757ef-ddc0-4d68-aef8-f220859706c9";
@@ -68,6 +72,7 @@ export function isShadowReportVariant(value: string): value is ShadowReportVaria
 }
 
 export type ShadowFinding = {
+  priority?: "high";
   correctionSteps: string[];
   evidenceJson: Record<string, unknown>;
   id: string;
@@ -99,11 +104,63 @@ export type ShadowEvidenceRow = {
   title: string;
 };
 
+export type ExecutiveAcceptPathProjection = {
+  execution?: ChoicePathExecution;
+  afterClickCoverage?: "complete" | "partial";
+  registrationConfirmed?: boolean;
+  evidenceRows: Array<{
+    detail: string | null;
+    label: string;
+  }>;
+  label: string;
+  note: string;
+  observationWindowMs: number | null;
+  resolverMethod: string | null;
+  scoreEffect: "none";
+  state: "activity_observed" | "review_signal" | "no_activity_observed" | "incomplete";
+  timelineEvents?: Array<{
+    atMs: number;
+    detail: string | null;
+    label: string;
+  }>;
+};
+
+export type ChoicePathComparison = {
+  label: string;
+  note: string;
+  state: "different" | "indistinguishable";
+};
+
+export type GpcResponseReportProjection = {
+  assessment: GpcResponseAssessment;
+  californiaDeductionPoints: 0 | 15;
+  comparisonHeadline: string;
+  coverageSummary: string;
+  evidenceRefs: string[];
+  headline: string;
+  summary: string;
+};
+
 export type ShadowReportData = {
+  executiveRuntimeCards?: import("../../../lib/scans/executive-runtime-cards").ExecutiveRuntimeCard[];
+  siteIntegrity?: SiteIntegrityReportFinding | null;
+  siteIntegritySummary?: import("../../../lib/scans/site-integrity-report").SiteIntegritySiteReport;
+  resultDisposition?: never;
+  formDestinations?: import("@certscore/contracts").FormDestinationProjection | null;
+  formDestinationWarning?: boolean;
+  cmsSecurity?: import("@certscore/contracts").CmsSecurityProjection | null;
+  siteMetadata?: import("@certscore/contracts").SiteMetadataProjection | null;
+  fullSite?: import("@website-signal-risk-scanner/shared").CrawlOptions;
+  resourceInventory?: import("../../../lib/scans/single-page-resource-inventory").SinglePageResourceInventory;
+  runtimeEvidenceGraph?: import("@certscore/api-contracts").ApiRuntimeEvidenceGraphProjection;
+  inventorySummary?: import("../report-inventory-summary").ReportInventoryMetric[];
+  collectionTableRows?: import("../collection-surfaces-table").CollectionSurfaceTableRow[];
   scan: {
     benchmark: string;
     createdAt: string;
     duration: string;
+    startedAt?: string;
+    completedAt?: string;
     host: string;
     id: string;
     observedWindow: string;
@@ -118,12 +175,21 @@ export type ShadowReportData = {
     domains: number;
     fields: number;
     forms: number;
-    nonEssentialStorage: number | null;
-    thirdPartyRequests: number;
+    nonEssentialCookiesStorage: number;
+    nonEssentialRequests: number;
+    thirdPartyEmbeds: number;
     vendors: number;
   };
   controls: { accept: string; options: string; reject: string };
+  consentInspectionNotice?: string | null;
+  consentControlBehavior?: string | null;
   consentVendor: string | null;
+  gpcResponse?: GpcResponseReportProjection | null;
+  gpcLaneStatus?: "completed" | "not_requested" | "unavailable";
+  policySurfaceCoverage: "complete" | "limited" | "unavailable";
+  policySurfaceLinkObserved?: boolean;
+  acceptPath?: ExecutiveAcceptPathProjection | null;
+  choicePathComparison?: ChoicePathComparison | null;
   rejectPath?: ExecutiveRejectPathProjection | null;
   coverage: {
     concern: number;
@@ -162,6 +228,7 @@ export type ShadowReportData = {
     evidence: string;
     evidenceJson?: Record<string, unknown>;
     entityRelationship: string;
+    name: string;
     observed: string;
     priority: string;
     purpose: string;
@@ -197,6 +264,13 @@ export type ShadowReportData = {
   }>;
 };
 
+export type NoGoReportData = Pick<ShadowReportData, "scan" | "fullSite"> &
+  ExternalScanNoGoProjection & {
+    score: { label: "Not scored"; value: null };
+  };
+
+export type TimelineReportData = ShadowReportData | NoGoReportData;
+
 export const SHADOW_REPORT: ShadowReportData = {
   scan: {
     id: SHADOW_REPORT_SCAN_ID,
@@ -216,8 +290,9 @@ export const SHADOW_REPORT: ShadowReportData = {
     label: "Watch"
   },
   metrics: {
-    thirdPartyRequests: 8,
-    nonEssentialStorage: 0,
+    nonEssentialRequests: 8,
+    thirdPartyEmbeds: 2,
+    nonEssentialCookiesStorage: 0,
     vendors: 3,
     domains: 4,
     forms: 1,
@@ -229,6 +304,7 @@ export const SHADOW_REPORT: ShadowReportData = {
     options: "Not observed"
   },
   consentVendor: "BST DSGVO Cookie",
+  policySurfaceCoverage: "complete",
   coverage: {
     rows: 29,
     usableEvidence: 19,
@@ -637,10 +713,10 @@ export const SHADOW_REPORT: ShadowReportData = {
     },
     {
       id: "privacy-contact-point",
-      title: "Privacy contact point",
+      title: "DPO contact point (where applicable)",
       status: "Not confirmed",
       summary: "Not confirmed by scan evidence; No production-approved topic match was established. This neutral result does not establish that the disclosure is absent.",
-      correctionSteps: ["Review whether a usable privacy contact channel is explicit and attributable in the retained policy surface."],
+      correctionSteps: ["Review whether a designated DPO and attributable contact channel are explicit in the retained policy surface, where a DPO is applicable."],
       evidenceJson: { status: "not_confirmed", reason: "no_production_approved_topic_match", absenceEstablished: false }
     },
     {
@@ -711,6 +787,7 @@ export const SHADOW_REPORT: ShadowReportData = {
       purpose: "Embedded media",
       evidence: "Non-essential",
       entityRelationship: "External entity",
+      name: "Facebook Page Plugin",
       observed: "6.21s",
       domains: "facebook.com",
       relationship: "Cross-site",
@@ -730,6 +807,7 @@ export const SHADOW_REPORT: ShadowReportData = {
       purpose: "Cookie compliance",
       evidence: "Contextual",
       entityRelationship: "Unknown",
+      name: "BST DSGVO Cookie",
       observed: "5.57s",
       domains: "pferdeklinik-roentorf.de",
       relationship: "Same-site",
@@ -749,6 +827,7 @@ export const SHADOW_REPORT: ShadowReportData = {
       purpose: "CDN",
       evidence: "Contextual",
       entityRelationship: "External entity",
+      name: "Google Fonts",
       observed: "5.71s",
       domains: "fonts.googleapis.com, fonts.gstatic.com",
       relationship: "Cross-site",

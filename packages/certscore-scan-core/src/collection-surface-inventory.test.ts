@@ -27,10 +27,42 @@ function row(index: number, overrides: Partial<CollectionSurfaceCaptureRow> = {}
 }
 
 test("classifies canonical collection semantics without retaining values", () => {
+  assert.equal(classifyCollectionSurfaceSemanticCategory(row(0, { autocompleteToken: "url", label: "Website URL to scan" })), "website_url");
   assert.equal(classifyCollectionSurfaceSemanticCategory(row(0, { inputType: "email", label: "Correo electrónico" })), "email");
   assert.equal(classifyCollectionSurfaceSemanticCategory(row(1, { label: "Social Security Number" })), "social_security_number");
   assert.equal(classifyCollectionSurfaceSemanticCategory(row(2, { autocompleteToken: "cc-number" })), "payment_card");
   assert.equal(classifyCollectionSurfaceSemanticCategory(row(3, { elementType: "textarea", label: "Message" })), "free_text");
+});
+
+test("standalone UI toggles do not become forms or contaminate unrelated collection controls", () => {
+  const standalone = { structure: "unassociated_controls" as const, groupKey: "unassociated_controls", title: undefined, method: undefined, actionHostname: undefined };
+  const toggles = [undefined, "Menü öffnen", "Dark mode"].map((label, index) => row(index, {
+    ...standalone, inputType: "checkbox", controlKind: "checkbox", label,
+  }));
+  const snapshot = { pageUrl: "https://example.com/contact", rows: toggles, inspectedFieldCandidateCount: 3, candidateScanTruncated: false };
+  const empty = buildCollectionSurfaceInventory(snapshot, Date.now());
+  assert.equal(empty.forms.length, 0);
+  assert.equal(empty.coverage.candidateFormCount, 0);
+  assert.equal(empty.coverage.status, "complete");
+  assert.equal(empty.coverage.inspectedFieldCandidateCount, 3);
+  const withEmail = buildCollectionSurfaceInventory({ ...snapshot, rows: [...toggles, row(3, { ...standalone, inputType: "email", label: "Email" })], inspectedFieldCandidateCount: 4 }, Date.now());
+  assert.equal(withEmail.forms.length, 1);
+  assert.deepEqual(withEmail.forms[0]?.fields.map((field) => field.inputType), ["email"]);
+  assert.equal(withEmail.coverage.status, "complete");
+  assert.equal(withEmail.coverage.candidateFieldCount, 1);
+});
+
+test("native and role form choices and standalone collection-purpose controls remain eligible", () => {
+  const rows = [
+    row(0, { inputType: "checkbox", controlKind: "checkbox", label: "Ich stimme zu" }),
+    row(1, { structure: "role_form", groupKey: "js-form", inputType: "checkbox", controlKind: "checkbox", label: "Choice", method: undefined, actionHostname: undefined }),
+    row(2, { structure: "unassociated_controls", groupKey: "standalone", inputType: "checkbox", controlKind: "checkbox", label: "Subscribe to newsletter", method: undefined, actionHostname: undefined }),
+    row(3, { structure: "unassociated_controls", groupKey: "standalone", inputType: "search", label: "Search" }),
+  ];
+  const inventory = buildCollectionSurfaceInventory({ pageUrl: "https://example.com/", rows, inspectedFieldCandidateCount: rows.length, candidateScanTruncated: false }, Date.now());
+  assert.equal(inventory.forms.length, 3);
+  assert.equal(inventory.coverage.retainedFieldCount, 4);
+  assert.equal(inventory.coverage.status, "complete");
 });
 
 test("bounds pathological pages to 10 forms, 20 fields per form, and 60 total fields", () => {

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
+  "manifestVersion": "devPreview",
+  "version": "1.0.3",
+  "id": "b971ee8e-f595-4a87-8b18-a401171f821d",
+  "developer": {
+    "name": "CertScore.ai",
+    "mpnId": "7150890",
+    "websiteUrl": "https://certscore.ai/",
+    "privacyUrl": "https://certscore.ai/privacy",
+    "termsOfUseUrl": "https://certscore.ai/terms",
+    "contactInfo": {
+      "defaultSupport": {
+        "userEmailsForChatSupport": [
+          "support@certscore.ai"
+        ],
+        "emailsForEmailSupport": [
+          "support@certscore.ai"
+        ]
+      }
+    }
+  },
+  "name": {
+    "short": "CertScore Web Privacy Scanner",
+    "full": "CertScore Web Privacy Scanner"
+  },
+  "description": {
+    "short": "Free, usage-limited website privacy scans with findings and supporting evidence.",
+    "full": "CertScore Web Privacy Scanner offers free, usage-limited scanning of public websites and evidence-backed review of cookies, trackers, CMPs and consent controls, privacy-policy and disclosure signals, observable form and third-party embed activity, and HTTPS/TLS.\n\nBuilt for developers and agencies reviewing websites for GDPR/ePrivacy and CCPA concerns. Use its MCP tools from a connected agent to request or reuse a scan, check progress, retrieve a report, and inspect paginated supporting evidence. Review observed signals and coverage limitations before deciding your next steps.\n\nConsent-choice observations are available only when the scan retains eligible evidence. A completed control interaction does not by itself establish consent or refusal registration. Results are review aids, not legal advice, certification, or a compliance determination.\n\nRequirements: Access to Microsoft Copilot Studio and permission to add and use the connector in your organization's environment are required. Your Microsoft plan and administrator policies govern availability. This connector uses publisher-configured Microsoft Entra application authentication. No separate CertScore account, paid CertScore subscription, or personal CertScore API key is required. Scan and retrieval limits apply; see the documentation for current limits and retry guidance. Only publicly accessible websites are supported; authenticated pages and private-network targets are excluded.\n\nGet started and help: https://certscore.ai/developers/mcp\nUsage limits and API documentation: https://certscore.ai/developers/reference\nContact us: https://certscore.ai/contact-sales\nEmail support: support@certscore.ai\nWebsite: https://certscore.ai/\nPrivacy: https://certscore.ai/privacy\nTerms: https://certscore.ai/terms"
+  },
+  "agentConnectors": [
+    {
+      "id": "certscore-microsoft-mcp",
+      "displayName": "CertScore Web Privacy Scanner",
+      "description": "Scan or reuse a public-website assessment, check status, retrieve its bounded report bundle, and page through retained report evidence when needed.",
+      "toolSource": {
+        "remoteMcpServer": {
+          "mcpServerUrl": "https://mcp.certscore.ai/mcp/microsoft",
+          "mcpToolDescription": {
+            "file": "mcptools.json"
+          },
+          "authorization": {
+            "type": "AzureKeyVault",
+            "referenceId": "https://cs-msft-mcp-kv-7150890.vault.azure.net/"
+          }
+        }
+      }
+    }
+  ],
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#020617"
+}

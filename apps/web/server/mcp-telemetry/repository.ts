@@ -6,16 +6,20 @@ import { isPlatformAdminEmail } from "../admin/platform-admin";
 import { persistProductAnalyticsEvent } from "../product-analytics/repository";
 
 export async function persistMcpActivationEvent(event: McpActivationEvent) {
+  const user = event.userId
+    ? await queryOne<{ email: string }>(`select email from public.users where id = $1::uuid limit 1`, [event.userId], { readOnly: true })
+    : null;
+  const isStaff = isPlatformAdminEmail(user?.email);
   await query(
     `with inserted as (
        insert into public.mcp_activation_events (
          event_id, occurred_at, stage, surface, auth_class, session_id, actor_id,
          source, source_attribution, caller_product, client_family, client_name,
          attribution_confidence, attribution_signals, attribution_ruleset_version,
-         execution_channel, installation_origin
+         execution_channel, installation_origin, authenticated_user_id, is_staff
        ) values (
          $1::uuid, $2::timestamptz, $3, $4, $5, $6, $7,
-         $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17
+         $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $19::uuid, $20
        )
        on conflict (event_id) do nothing
        returning event_id
@@ -52,16 +56,11 @@ export async function persistMcpActivationEvent(event: McpActivationEvent) {
       event.executionChannel,
       event.installationOrigin,
       MCP_TELEMETRY_RETENTION_DAYS,
+      event.userId,
+      isStaff,
     ],
   );
   if (event.surface !== "mcp_authenticated") return;
-  const user = event.userId
-    ? await queryOne<{ email: string }>(
-        `select email from public.users where id = $1::uuid limit 1`,
-        [event.userId],
-        { readOnly: true }
-      )
-    : null;
   await persistProductAnalyticsEvent({
     category: "interaction",
     eventName: event.stage,
@@ -74,7 +73,8 @@ export async function persistMcpActivationEvent(event: McpActivationEvent) {
     countryCode: null,
     deviceClass: "unknown",
     isBot: false,
-    isStaff: isPlatformAdminEmail(user?.email),
+    isStaff,
+    mcpSessionId: event.sessionId,
     osFamily: "server",
     organizationId: event.organizationId,
     referringDomain: null,
@@ -93,7 +93,7 @@ export async function persistMcpTelemetryEvent(event: McpTelemetryEvent) {
          client_name, requester_ip, requester_ip_hash, requester_network,
          requested_resource_type, requested_resource,
          caller_product, attribution_confidence, attribution_signals,
-         attribution_ruleset_version, execution_channel, installation_origin
+         attribution_ruleset_version, execution_channel, installation_origin, request_details
        ) values (
          $1::uuid, $2::timestamptz, $3, $4, $5, $6, $7,
          $8, $9::uuid, $10, $11, $12, $13,
@@ -106,7 +106,7 @@ export async function persistMcpTelemetryEvent(event: McpTelemetryEvent) {
          )), $16, $17, $18, $19, $20,
          $21, $22, $23, $24, $25,
          $26, $27::inet, $28, $29, $30, $31,
-         $32, $33, $34::jsonb, $35, $36, $37
+         $32, $33, $34::jsonb, $35, $36, $37, $39::jsonb
        )
        on conflict (event_id) do nothing
        returning event_id
@@ -163,6 +163,7 @@ export async function persistMcpTelemetryEvent(event: McpTelemetryEvent) {
       event.executionChannel,
       event.installationOrigin,
       MCP_TELEMETRY_RETENTION_DAYS,
+      event.requestDetails ? JSON.stringify(event.requestDetails) : null,
     ],
   );
 }

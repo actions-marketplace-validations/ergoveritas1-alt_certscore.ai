@@ -107,7 +107,7 @@ test("Oxfam A/R/O remains observed when a later same-document state is collapsed
     requestedUrl: "https://oxfam.org/en",
   });
 
-  assert.equal(assessment.artifactVersion, "2.0");
+  assert.equal(assessment.artifactVersion, "2.2");
   assert.equal(assessment.controls.accept.state, "observed");
   assert.equal(assessment.controls.reject.state, "observed");
   assert.equal(assessment.controls.options.state, "observed");
@@ -163,6 +163,154 @@ test("limited coordinator coverage preserves observed controls without certifyin
   assert.equal(assessment.controls.accept.state, "observed");
   assert.equal(assessment.controls.reject.state, "observed");
   assert.equal(assessment.controls.options.state, "observed");
+});
+
+test("withheld screenshots do not erase verified same-document structured inventory", () => {
+  const url = "https://shop.example/";
+  const token = "document-token-shop";
+  const source = bundle([
+    { actionType: "accept_all", label: "Accept", visible: true, layer: "first_layer" },
+    { actionType: "reject_all", label: "Decline", visible: true, layer: "first_layer" },
+    { actionType: "manage_preferences", label: "Customise", visible: true, layer: "first_layer" },
+  ], { url });
+  source.domSnapshots[0]!.documentIdentity = { source: "cdp_loader_id", token };
+  source.consentUiObservations[0]!.documentIdentity = { source: "cdp_loader_id", token };
+  source.consentUiObservations[0]!.documentUrl = url;
+  source.consentUiObservations[0]!.inventoryOutcome = "complete_with_controls";
+  source.consentUiObservations[0]!.basis = [
+    "recovery:bounded_same_session_consent_packet_completed",
+  ];
+  source.consentUiObservations[0]!.captureDiagnostics = {
+    completedChannels: ["dom_inventory", "accessibility_tree", "geometry"],
+    failedChannels: [],
+    timedOutChannels: [],
+  };
+  source.screenshots = [{
+    artifactId: "screenshot_pre_consent_geometry_proof",
+    capturedAtMs: 6_490,
+    captureMethod: "primary_viewport_fallback",
+    consentStateAtTime: "pre_consent",
+    displayStatus: "withheld",
+    displayWithheldReason: "safety_check_unavailable",
+    documentIdentity: { source: "cdp_loader_id", token },
+    pagePhase: "network_idle",
+    path: "/artifacts/screenshot-pre-consent-geometry-proof.png",
+    retentionStatus: "withheld",
+    safetyFailureCode: "finalization_deadline_exceeded",
+    url,
+    withheldReason: "safety_check_unavailable",
+  }];
+  const geometryEvidence = geometry([
+    {
+      candidateId: "accept",
+      actionType: "accept_all",
+      label: "Accept",
+      layer: "first_layer",
+      decisionStatus: "confirmed_visible",
+      screenshotArtifactRef: "/lane/screenshot-pre-consent-geometry-proof.png",
+    },
+    {
+      candidateId: "reject",
+      actionType: "reject_all",
+      label: "Decline",
+      layer: "first_layer",
+      decisionStatus: "confirmed_visible",
+      screenshotArtifactRef: "/lane/screenshot-pre-consent-geometry-proof.png",
+    },
+    {
+      candidateId: "options",
+      actionType: "manage_preferences",
+      label: "Customise",
+      layer: "first_layer",
+      decisionStatus: "confirmed_visible",
+      screenshotArtifactRef: "/lane/screenshot-pre-consent-geometry-proof.png",
+    },
+  ]) as Record<string, unknown>;
+  geometryEvidence.documentIdentity = { source: "cdp_loader_id", token };
+  geometryEvidence.screenshotArtifactRef = "/lane/screenshot-pre-consent-geometry-proof.png";
+
+  const assessment = deriveMaterializedConsentControlAssessment({
+    bundle: source,
+    consentControlGeometryEvidence: geometryEvidence,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true),
+    finalUrl: url,
+    noGo: false,
+    requestedUrl: url,
+  });
+
+  assert.equal(assessment.assessmentStatus, "complete");
+  assert.equal(assessment.coverage.status, "complete");
+  assert.equal(assessment.coverage.requiredChannels.includes("screenshot"), false);
+  assert.equal(assessment.coverage.incompleteChannels.includes("screenshot"), false);
+  assert.equal(assessment.surface.status, "observed_actionable");
+  assert.equal(assessment.controls.accept.state, "observed");
+  assert.equal(assessment.controls.reject.state, "observed");
+  assert.equal(assessment.controls.options.state, "observed");
+  assert.equal(assessment.visualEvidence?.status, "withheld");
+  assert.ok(assessment.visualEvidence?.reasonCodes.includes("finalization_deadline_exceeded"));
+  assert.equal(source.screenshots[0]?.retentionStatus, "withheld");
+
+  source.screenshots[0] = {
+    ...source.screenshots[0]!,
+    displayStatus: "available",
+    displayWithheldReason: undefined,
+    retentionStatus: "available",
+    safetyFailureCode: undefined,
+    withheldReason: undefined,
+  };
+  const retainedAssessment = deriveMaterializedConsentControlAssessment({
+    bundle: source,
+    consentControlGeometryEvidence: geometryEvidence,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true),
+    finalUrl: url,
+    noGo: false,
+    requestedUrl: url,
+  });
+
+  assert.deepEqual(retainedAssessment.controls, assessment.controls);
+  assert.equal(retainedAssessment.visualEvidence?.status, "available");
+  assert.notEqual(retainedAssessment.provenance.sourceHash, assessment.provenance.sourceHash);
+
+  assert.equal(retainedAssessment.assessmentStatus, "complete");
+  assert.equal(retainedAssessment.coverage.status, "complete");
+  assert.equal(retainedAssessment.controls.accept.state, "observed");
+  assert.equal(retainedAssessment.controls.reject.state, "observed");
+  assert.equal(retainedAssessment.controls.options.state, "observed");
+
+  source.screenshots[0]!.documentIdentity = { source: "cdp_loader_id", token: "unrelated-document" };
+  const wrongDocumentVisual = deriveMaterializedConsentControlAssessment({
+    bundle: source,
+    consentControlGeometryEvidence: geometryEvidence,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true),
+    noGo: false,
+  });
+  assert.equal(wrongDocumentVisual.visualEvidence?.status, "unavailable");
+  assert.deepEqual(wrongDocumentVisual.visualEvidence?.artifactRefs, []);
+  assert.deepEqual(wrongDocumentVisual.controls, assessment.controls);
+
+  source.screenshots = [];
+  const missingVisual = deriveMaterializedConsentControlAssessment({
+    bundle: source,
+    consentControlGeometryEvidence: geometryEvidence,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true),
+    noGo: false,
+  });
+  assert.equal(missingVisual.visualEvidence?.status, "unavailable");
+  assert.deepEqual(missingVisual.controls, assessment.controls);
+  assert.equal(missingVisual.assessmentStatus, "complete");
+
+  source.consentUiObservations[0]!.documentIdentity = { source: "cdp_loader_id", token: "stale-document" };
+  const mismatched = deriveMaterializedConsentControlAssessment({
+    bundle: source,
+    consentControlGeometryEvidence: geometryEvidence,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true),
+    noGo: false,
+  });
+  assert.equal(mismatched.assessmentStatus, "limited");
+  assert.equal(mismatched.document.identityStatus, "mismatched");
+  assert.equal(mismatched.controls.accept.state, "unknown");
+  assert.equal(mismatched.controls.reject.state, "unknown");
+  assert.equal(mismatched.controls.options.state, "unknown");
 });
 
 test("limited coordinator coverage keeps an empty first-layer inventory unknown", () => {
@@ -597,6 +745,35 @@ test("geometry projection retains inline and persistent options presentation", (
     assessment.evidence.find((row) => row.evidenceId === "footer-options")?.layer,
     "deeper_layer",
   );
+});
+
+test("geometry projection derives retained timing from capturedAt when observedAtMs is absent", () => {
+  const source = bundle([
+    { actionType: "accept_all", label: "Accept", visible: true, layer: "first_layer" },
+  ]);
+  source.startedAt = "2026-07-27T18:04:00.000Z";
+  const geometryEvidence = geometry([{
+    candidateId: "captured-at-options",
+    actionType: "manage_preferences",
+    label: "Customise",
+    layer: "first_layer",
+    decisionStatus: "confirmed_visible",
+  }]) as Record<string, unknown>;
+  delete geometryEvidence.observedAtMs;
+  geometryEvidence.capturedAt = "2026-07-27T18:04:08.700Z";
+
+  const assessment = deriveMaterializedConsentControlAssessment({
+    bundle: source,
+    consentControlGeometryEvidence: geometryEvidence,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true),
+    finalUrl: "https://oxfam.org/en",
+    noGo: false,
+    requestedUrl: "https://oxfam.org/en",
+  });
+
+  const options = assessment.evidence.find((row) => row.evidenceId === "captured-at-options");
+  assert.equal(options?.observedAtMs, 8_700);
+  assert.equal(assessment.controls.options.firstObservedAtMs, 8_700);
 });
 
 test("geometry projection carries a custom first-layer settings control into ConsentControlAssessment v2", () => {
@@ -1085,9 +1262,24 @@ test("complete same-document no-surface coverage produces factual not-observed v
   });
 
   assert.equal(assessment.surface.status, "not_observed");
+  assert.equal(assessment.surface.firstObservedAtMs, null, "inspection time is not a banner appearance");
+  assert.equal(assessment.surface.lastObservedAtMs, null);
   assert.equal(assessment.controls.accept.state, "not_observed");
   assert.equal(assessment.controls.reject.state, "not_observed");
   assert.equal(assessment.controls.options.state, "not_observed");
+});
+
+test("a retained loading empty inventory cannot be promoted by a stale complete inspection", () => {
+  const captured = bundle([], { captureStatus: "no_evidence", likelyPresent: false });
+  captured.consentUiObservations[0]!.documentReadyState = "loading";
+  const assessment = deriveMaterializedConsentControlAssessment({ bundle: captured,
+    consentControlGeometryEvidence: geometry([], { firstLayerAccept: false, firstLayerReject: false, firstLayerOptions: false }),
+    consentSurfaceInspection: completeInspection("no_surface_observed_complete_coverage", false),
+    finalUrl: "https://oxfam.org/en", noGo: false, requestedUrl: "https://oxfam.org/en",
+  });
+  assert.equal(assessment.assessmentStatus, "limited");
+  for (const control of ["accept", "reject", "options"] as const) assert.equal(assessment.controls[control].state, "unknown");
+  assert.equal(assessment.surface.firstObservedAtMs, null);
 });
 
 test("first-layer save with every observed optional default off is both options and necessary-only refusal", () => {
@@ -1236,4 +1428,116 @@ test("redirected-document evidence cannot be attributed to a different final doc
   assert.equal(assessment.document.identityStatus, "mismatched");
   assert.equal(assessment.controls.accept.state, "unknown");
   assert.equal(assessment.surface.status, "unknown");
+});
+
+for (const control of [
+  { label: "Decide later", tagName: "button", classifierReasonCodes: [] },
+  { label: "Learn more", tagName: "a", classifierReasonCodes: ["ambiguous_information_control"] },
+]) test(`an unclassified ${control.tagName} beside verified Options cannot establish Accept/Reject absence`, () => {
+  const g = geometry([{
+    candidateId: "unresolved", actionType: "other", ...control,
+    layer: "first_layer", consentContextConfirmed: true, enabled: true,
+    intersectsViewport: true, boundingBox: { width: 120, height: 40 }, decisionStatus: "ambiguous",
+  }], { firstLayerAccept: false, firstLayerReject: false, firstLayerOptions: true });
+  const result = deriveMaterializedConsentControlAssessment({
+    bundle: bundle([{ actionType: "manage_preferences", label: "Cookie Settings", visible: true, layer: "first_layer" }]),
+    consentControlGeometryEvidence: g, consentSurfaceInspection: completeInspection("actionable_surface_observed", true), noGo: false,
+  });
+  assert.equal(result.controls.options.state, "observed");
+  assert.equal(result.controls.accept.state, "unknown");
+  assert.equal(result.controls.reject.state, "unknown");
+  assert.equal(result.assessmentStatus, "limited");
+  assert.ok(result.coverage.reasonCodes.includes("unresolved_visible_consent_decision"));
+});
+
+test("unverified AX positives stay limited while independently verified DOM controls survive", () => {
+  const result = deriveMaterializedConsentControlAssessment({
+    bundle: bundle([
+      { actionType: "accept_all", label: "Accept cookies", visible: true, layer: "first_layer" },
+      { actionType: "manage_preferences", label: "Privacy Center", visible: true, tagName: "ax-node", selectorHint: "ax:7", layer: "first_layer" },
+    ]),
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true), noGo: false,
+  });
+  assert.equal(result.controls.accept.state, "observed");
+  assert.equal(result.controls.options.state, "unknown");
+  assert.ok(result.coverage.reasonCodes.includes("accessibility_control_proof_unverified"));
+});
+
+test("a challenged consent session remains limited when runtime coverage continues", () => {
+  const b = bundle([], { likelyPresent: false, captureStatus: "no_evidence" });
+  b.consentUiObservations[0]!.inventoryOutcome = "complete_empty";
+  const g = { ...geometry([], { firstLayerAccept: false, firstLayerReject: false, firstLayerOptions: false }), access: { status: "loaded", httpStatus: 498 } };
+  const result = deriveMaterializedConsentControlAssessment({ bundle: b, consentControlGeometryEvidence: g,
+    consentSurfaceInspection: completeInspection("no_surface_observed_complete_coverage", false), noGo: false });
+  assert.equal(result.assessmentStatus, "limited");
+  assert.equal(result.controls.accept.state, "unknown");
+  assert.ok(result.coverage.reasonCodes.includes("consent_session_access_limited"));
+});
+
+function independentConsentLaneFixture() {
+  const b = bundle([{ actionType: "accept_all", label: "Accept all cookies", visible: true, layer: "first_layer" }]);
+  const identity = { source: "cdp_loader_id" as const, token: "consent-document-token" };
+  b.consentUiObservations[0]!.documentUrl = "https://oxfam.org/en";
+  b.consentUiObservations[0]!.documentIdentity = identity;
+  b.domSnapshots[0]!.documentIdentity = identity;
+  b.scanLaneRuns = [{ laneId: "consent_proof", executionOutcome: "success" }] as CanonicalEvidenceBundle["scanLaneRuns"];
+  b.scanEvidenceLaneAssessment = { lanes: { consent: "usable" } } as CanonicalEvidenceBundle["scanEvidenceLaneAssessment"];
+  return { b, g: { ...geometry([], { firstLayerAccept: true, firstLayerReject: false, firstLayerOptions: false }), documentIdentity: identity } };
+}
+
+test("three retained document bindings preserve consent evidence despite another lane's blocked final URL", () => {
+  const { b, g } = independentConsentLaneFixture();
+  const result = deriveMaterializedConsentControlAssessment({ bundle: b, consentControlGeometryEvidence: g,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true), noGo: true,
+    finalUrl: "https://oxfam.org/blocked" });
+  assert.equal(result.controls.accept.state, "observed");
+  assert.equal(result.document.canonicalDocumentId, "https://oxfam.org/en");
+  assert.equal(result.scan.noGo, false);
+});
+
+test("missing or mismatched consent binding cannot override a blocked document", () => {
+  for (const missing of ["geometry", "observation", "snapshot", "lane"] as const) {
+    const { b, g } = independentConsentLaneFixture();
+    if (missing === "geometry") g.documentIdentity = { source: "cdp_loader_id", token: "other" };
+    if (missing === "observation") delete b.consentUiObservations[0]!.documentIdentity;
+    if (missing === "snapshot") delete b.domSnapshots[0]!.documentIdentity;
+    if (missing === "lane") b.scanLaneRuns = [];
+    const result = deriveMaterializedConsentControlAssessment({ bundle: b, consentControlGeometryEvidence: g,
+      consentSurfaceInspection: completeInspection("actionable_surface_observed", true), noGo: true,
+      finalUrl: "https://oxfam.org/blocked" });
+    assert.equal(result.controls.accept.state, "unknown", missing);
+    assert.equal(result.scan.noGo, true, missing);
+  }
+});
+
+test("new materialization preserves legacy classifier provenance rather than inventing a registry version", () => {
+  const result = deriveMaterializedConsentControlAssessment({ bundle: bundle([{ actionType: "accept_all", label: "Accept", visible: true }]), noGo: false });
+  assert.equal(result.provenance.projectorVersion, "2.2.0");
+  assert.equal(result.evidence[0]?.classifier?.registryVersion, "consent-control-label-registry");
+});
+
+
+test("a browser error document never establishes a complete no-control inventory", () => {
+  const { b, g } = independentConsentLaneFixture();
+  const url = "chrome-error://chromewebdata/";
+  b.consentUiObservations[0] = { ...b.consentUiObservations[0]!, documentUrl: url, controls: [], captureStatus: "no_evidence", likelyPresent: false, inventoryOutcome: "complete_empty" };
+  b.domSnapshots[0]!.url = url;
+  const result = deriveMaterializedConsentControlAssessment({ bundle: b, consentControlGeometryEvidence: { ...g, pageUrl: url, access: { status: "loaded", httpStatus: 200 } },
+    consentSurfaceInspection: completeInspection("no_surface_observed_complete_coverage", false), finalUrl: "https://oxfam.org/en", noGo: false });
+  assert.equal(result.assessmentStatus, "limited");
+  for (const control of Object.values(result.controls)) assert.equal(control.state, "unknown");
+  assert.ok(result.coverage.reasonCodes.includes("consent_session_access_limited"));
+});
+
+
+test("AX navigation uncertainty survives materialization without suppressing independent positive controls", () => {
+  const source = bundle([{ actionType: "accept_all", label: "Accept all", visible: true, layer: "first_layer" }]);
+  source.consentUiObservations[0]!.basis = [...(source.consentUiObservations[0]!.basis ?? []), "unresolved_visible_consent_decision"];
+  source.consentUiObservations[0]!.inventoryOutcome = "partial";
+  source.consentUiObservations[0]!.captureStatus = "incomplete";
+  const assessment = deriveMaterializedConsentControlAssessment({ bundle: source, consentControlGeometryEvidence: null,
+    consentSurfaceInspection: completeInspection("actionable_surface_observed", true), noGo: false });
+  assert.equal(assessment.controls.accept.state, "observed");
+  assert.equal(assessment.controls.options.state, "unknown");
+  assert.equal(assessment.assessmentStatus, "limited");
 });

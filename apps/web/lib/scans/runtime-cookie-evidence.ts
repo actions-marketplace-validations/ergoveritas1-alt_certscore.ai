@@ -1,3 +1,4 @@
+import { verifiedCookieInventoryIdentity } from "./retained-cookie-inventory-identity";
 import { resolveCanonicalCookieKnowledge } from "@certscore/vendor-resolver";
 import { getDomain as getTldtsDomain, getHostname as getTldtsHostname } from "tldts";
 import {
@@ -7,6 +8,7 @@ import {
 } from "./runtime-vendor-ownership";
 
 export type RuntimeCookieEvidenceRow = {
+  exactStorageIdentity?: string;
   category: string;
   cookieName: string;
   cookiePath?: string;
@@ -63,6 +65,7 @@ export type PreConsentStorageReconciliationStatus =
   | "aggregate_unavailable";
 
 export type PreConsentStorageAssessmentEvidenceRow = {
+  exactStorageIdentity?: string;
   category: string;
   domain: string | null;
   essentiality: "essential" | "non_essential" | "unknown";
@@ -103,7 +106,7 @@ export type PreConsentStorageAssessment = {
 export type PreConsentStorageMetricProjection = {
   available: boolean;
   explanation: string;
-  label: "Non-essential storage";
+  label: "Classified non-essential storage" | "Pre-consent storage";
   scope: "nonessential_only";
   status: "measured_positive" | "measured_zero" | "partially_classified" | "unavailable";
   value: number | null;
@@ -766,6 +769,9 @@ function normalizeCookieWriteRow(row: Record<string, unknown>, hybrid: Record<st
   return {
     category,
     cookieName,
+    exactStorageIdentity: verifiedCookieInventoryIdentity(row) ?? (typeof row.cookieName === "string" && typeof row.domain === "string" &&
+      typeof row.cookiePath === "string" && (row.partitionKey === null || typeof row.partitionKey === "string")
+        ? JSON.stringify([row.cookieName, row.domain, row.cookiePath, row.partitionKey]) : undefined),
     cookiePath: getString(row.cookiePath ?? row.cookie_path ?? row.path) ?? "/",
     partitionContext: getString(row.partitionContext ?? row.partition_context ?? row.partitionKey ?? row.partition_key) ??
       (getBoolean(row.partitioned) === true ? "partitioned_unspecified" : "unpartitioned_or_unknown"),
@@ -1105,6 +1111,9 @@ export function buildPreConsentStorageAssessment(input: {
   const classifiedNonEssentialRows = preConsentRows.filter((row) =>
     isEligibleNonEssentialPreconsentStorageMetricRow(row)
   );
+  const provenNonEssentialWriteRows = preConsentRows.filter(
+    isEligibleNonEssentialPreconsentStorageRow
+  );
   const classifiedEssentialRows = preConsentRows.filter((row) => row.essentiality === "essential");
   const unclassifiedRows = preConsentRows.filter((row) => row.essentiality === "unknown");
   const excludedRows = preConsentRows.filter((row) =>
@@ -1133,7 +1142,7 @@ export function buildPreConsentStorageAssessment(input: {
   const status: PreConsentStorageAssessmentStatus =
     !captureRetained
       ? "insufficient_evidence"
-      : classifiedNonEssentialRows.length > 0
+      : provenNonEssentialWriteRows.length > 0
         ? "classified_nonessential_observed"
         : unclassifiedRows.length > 0 ||
             reconciliationStatus === "aggregate_exceeds_attributed_rows" ||
@@ -1159,6 +1168,7 @@ export function buildPreConsentStorageAssessment(input: {
     name: row.cookieName,
     party: row.party,
     storageType: "cookie" as const,
+    ...(row.exactStorageIdentity ? { exactStorageIdentity: row.exactStorageIdentity } : {}),
     timingEvidence: mapPreConsentStorageTimingEvidence(row)
   }));
 
@@ -1170,9 +1180,7 @@ export function buildPreConsentStorageAssessment(input: {
     classifiedNonEssentialCount: classifiedNonEssentialRows.length,
     excludedFunctionalOrConsentCount: excludedRows.length,
     evidenceRows,
-    provenWriteCount: preConsentRows.filter((row) =>
-      row.timingEvidence === "before_consent_cookie_write"
-    ).length,
+    provenWriteCount: provenNonEssentialWriteRows.length,
     reconciliationStatus,
     snapshotPresenceCount: snapshotRows.length,
     status,
@@ -1202,7 +1210,7 @@ export function projectPreConsentStorageMetric(
     return {
       available: true,
       explanation: `Classified non-essential storage was observed before a recorded consent action.${limitation}`,
-      label: "Non-essential storage",
+      label: "Classified non-essential storage",
       scope: "nonessential_only",
       status: "measured_positive",
       value: assessment.classifiedNonEssentialCount
@@ -1212,7 +1220,7 @@ export function projectPreConsentStorageMetric(
     return {
       available: true,
       explanation: "Storage was scanned and no non-essential storage was detected in the reported scope.",
-      label: "Non-essential storage",
+      label: "Classified non-essential storage",
       scope: "nonessential_only",
       status: "measured_zero",
       value: 0
@@ -1221,10 +1229,16 @@ export function projectPreConsentStorageMetric(
   if (assessment.status === "partially_classified") {
     return {
       available: false,
-      explanation: assessment.unclassifiedCount > 0
-        ? `Pre-consent storage was retained, but ${assessment.unclassifiedCount} record${assessment.unclassifiedCount === 1 ? " remains" : "s remain"} unclassified.`
-        : "Pre-consent storage was retained, but the aggregate count could not be reconciled to attributed storage rows.",
-      label: "Non-essential storage",
+      explanation: [
+        "Pre-consent storage was retained.",
+        assessment.unclassifiedCount > 0
+          ? `${assessment.unclassifiedCount} record${assessment.unclassifiedCount === 1 ? " remains" : "s remain"} unclassified.` : null,
+        assessment.reconciliationStatus !== "reconciled"
+          ? `Inventory reconciliation is unresolved (${assessment.reconciliationStatus}): aggregate ${assessment.aggregateObservedCount ?? "unavailable"}, attributed records ${assessment.attributedPreConsentRecordCount}.` : null,
+        assessment.evidenceRows.some((row) => row.timingEvidence === "unknown")
+          ? "Pre-consent timing is unresolved for one or more records." : null,
+      ].filter(Boolean).join(" "),
+      label: "Pre-consent storage",
       scope: "nonessential_only",
       status: "partially_classified",
       value: null
@@ -1233,8 +1247,8 @@ export function projectPreConsentStorageMetric(
   if (assessment.status === "snapshot_presence_only") {
     return {
       available: false,
-      explanation: "Non-essential storage candidates were present in a pre-consent snapshot, but write timing was not confirmed.",
-      label: "Non-essential storage",
+      explanation: "Classified non-essential storage identities were present in a pre-consent snapshot, but write timing was not confirmed.",
+      label: "Pre-consent storage",
       scope: "nonessential_only",
       status: "partially_classified",
       value: null
@@ -1243,7 +1257,7 @@ export function projectPreConsentStorageMetric(
   return {
     available: false,
     explanation: "Pre-consent storage capture or attribution was insufficient for a non-essential storage count.",
-    label: "Non-essential storage",
+    label: "Pre-consent storage",
     scope: "nonessential_only",
     status: "unavailable",
     value: null

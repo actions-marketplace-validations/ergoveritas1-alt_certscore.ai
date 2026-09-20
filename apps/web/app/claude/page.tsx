@@ -189,6 +189,7 @@ export default function ClaudeLandingPage() {
         </div>
       </section>
 
+      <section className="mx-auto max-w-6xl px-6 py-8"><h2 className="text-2xl font-semibold">Connect your CertScore.ai workspace</h2><p className="mt-3">Hosted MCP OAuth lets you scan public websites, retrieve reports and access previous scans in your authorized workspace. Account and workspace eligibility apply.</p><Link className="mt-4 inline-block text-sky-700" href="/developers/mcp#hosted-oauth-start">Hosted OAuth setup</Link></section>
       <SiteFooter />
     </main>
   );

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { FullSiteControls, type FullSiteFormValue } from "./full-site-controls";
 import { createPortal } from "react-dom";
 import type { LocalV2ScanProfile } from "./scan-submit-progress";
 import { ScanFromMarker } from "./scan-from-icons";
@@ -37,6 +39,8 @@ export type ServerScanFrom = Exclude<ScanFrom, "local_extension">;
 const DEFAULT_SELECTABLE_SCAN_FROM = "eu_ie" satisfies ServerScanFrom;
 
 type ScanFromSelectProps = {
+  includeFullSiteOption?: boolean;
+  onFullSiteChange?: (value: FullSiteFormValue) => void;
   allowRestrictedScanOptions?: boolean;
   compact?: boolean;
   freshRescanName?: string;
@@ -78,6 +82,8 @@ function SelectedScanFromMarker({ option }: { option: (typeof SCAN_FROM_OPTIONS)
 
 export function ScanFromSelect({
   allowRestrictedScanOptions = false,
+  includeFullSiteOption = false,
+  onFullSiteChange,
   compact = false,
   freshRescanName = "forceNewScan",
   freshRescanValue,
@@ -88,21 +94,22 @@ export function ScanFromSelect({
   includeScanFromOptions = true,
   localV2ScanProfileName = "localV2ScanProfile",
   localV2RunViaLambdaName = "localV2RunViaLambda",
-  localV2RunViaLambdaValue,
   name = "scanFrom",
   onChange,
   onFreshRescanChange,
-  onLocalV2RunViaLambdaChange,
   variant = "field",
   value = "eu_ie"
 }: ScanFromSelectProps) {
+  const pathname = usePathname();
+  const [crawl, setCrawl] = useState<FullSiteFormValue>();
+  const showCrawl = includeFullSiteOption && (pathname === "/app" || pathname?.startsWith("/app/")) && value !== "local_extension";
   const [isOpen, setIsOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
-  const [uncontrolledFreshRescan, setUncontrolledFreshRescan] = useState(false);
-  const [uncontrolledLocalV2RunViaLambda, setUncontrolledLocalV2RunViaLambda] = useState(true);
+  const [uncontrolledFreshRescan, setUncontrolledFreshRescan] = useState(true);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuContentRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const options = SCAN_FROM_OPTIONS.filter((option) => {
     if ((!includeLocalExtension || !allowRestrictedScanOptions) && option.value === "local_extension") {
@@ -117,12 +124,14 @@ export function ScanFromSelect({
     SCAN_FROM_OPTIONS[0];
   const selectedValue = selectedOption.value;
   const freshRescan = freshRescanValue ?? uncontrolledFreshRescan;
-  const localV2RunViaLambda = allowRestrictedScanOptions
-    ? (localV2RunViaLambdaValue ?? uncontrolledLocalV2RunViaLambda)
-    : true;
-  const showLocalV2RunViaLambdaOption =
-    process.env.NODE_ENV !== "production" && includeLocalV2ScanProfileOption && allowRestrictedScanOptions;
-  const hasVisibleMenuContent = includeScanFromOptions || includeFreshRescanOption || showLocalV2RunViaLambdaOption;
+  const hasVisibleMenuContent = includeScanFromOptions || includeFreshRescanOption || showCrawl;
+
+  useEffect(() => {
+    if (!showCrawl && crawl) {
+      setCrawl(undefined);
+      onFullSiteChange?.(undefined);
+    }
+  }, [showCrawl, crawl, onFullSiteChange]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -162,14 +171,13 @@ export function ScanFromSelect({
       const width = variant === "icon" ? Math.min(320, viewportWidth - viewportPadding * 2) : Math.min(288, viewportWidth - viewportPadding * 2);
       const desiredLeft = variant === "icon" ? buttonRect.right - width + 96 : buttonRect.left;
       const left = Math.min(Math.max(viewportPadding, desiredLeft), Math.max(viewportPadding, viewportWidth - width - viewportPadding));
-      const measuredHeight = menuRef.current?.scrollHeight;
+      // Measure unclamped content so expanding controls can grow the menu.
+      const measuredHeight = menuContentRef.current ? menuContentRef.current.getBoundingClientRect().height + 12 : 0;
       const targetHeight = measuredHeight && measuredHeight > 0
         ? measuredHeight
         : includeFreshRescanOption
           ? 440
-          : showLocalV2RunViaLambdaOption && !includeScanFromOptions
-            ? 190
-            : 260;
+          : 260;
       const spaceBelow = viewportHeight - anchorBottom - gap - viewportPadding;
       const spaceAbove = anchorTop - gap - viewportPadding;
       const opensAbove = spaceBelow < Math.min(targetHeight, 300) && spaceAbove > spaceBelow;
@@ -185,14 +193,17 @@ export function ScanFromSelect({
     }
 
     updateMenuPosition();
+    const contentObserver = new ResizeObserver(updateMenuPosition);
+    if (menuContentRef.current) contentObserver.observe(menuContentRef.current);
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
 
     return () => {
+      contentObserver.disconnect();
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
     };
-  }, [includeFreshRescanOption, includeScanFromOptions, isOpen, showLocalV2RunViaLambdaOption, variant]);
+  }, [includeFreshRescanOption, includeScanFromOptions, isOpen, variant, Boolean(crawl)]);
 
   function selectScanFrom(nextValue: ScanFrom) {
     onChange?.(nextValue);
@@ -204,13 +215,6 @@ export function ScanFromSelect({
       setUncontrolledFreshRescan(nextValue);
     }
     onFreshRescanChange?.(nextValue);
-  }
-
-  function setLocalV2RunViaLambda(nextValue: boolean) {
-    if (localV2RunViaLambdaValue === undefined) {
-      setUncontrolledLocalV2RunViaLambda(nextValue);
-    }
-    onLocalV2RunViaLambdaChange?.(nextValue);
   }
 
   const menuOptions = options;
@@ -229,7 +233,7 @@ export function ScanFromSelect({
         <input name={localV2ScanProfileName} type="hidden" value="standard" />
       ) : null}
       {includeLocalV2ScanProfileOption ? (
-        <input name={localV2RunViaLambdaName} type="hidden" value={localV2RunViaLambda ? "true" : "false"} />
+        <input name={localV2RunViaLambdaName} type="hidden" value="true" />
       ) : null}
       {includeFreshRescanOption && freshRescan ? <input name={freshRescanName} type="hidden" value="true" /> : null}
       {variant === "field" ? (
@@ -252,18 +256,21 @@ export function ScanFromSelect({
           {variant === "field" ? <span>{selectedOption.label}</span> : null}
         </button>
       ) : null}
-      {isOpen && isMounted
+      {showCrawl && crawl ? <><input type="hidden" name="fullSite" value="true" />{Object.entries(crawl.crawlOptions).map(([key, val]) => <input key={key} type="hidden" name={key} value={String(val)} />)}</> : null}
+      {isMounted
         ? createPortal(
             <div
               className="fixed z-[1000] isolate overflow-y-auto rounded-2xl border border-slate-200 bg-white py-1.5 shadow-[0_18px_46px_rgba(15,23,42,0.16)]"
               ref={menuRef}
               style={{
+                display: isOpen ? undefined : "none",
                 left: menuPosition?.left ?? 16,
                 maxHeight: menuPosition?.maxHeight ?? 320,
                 top: menuPosition?.top ?? 16,
                 width: menuPosition?.width ?? (variant === "icon" ? 320 : 288)
               }}
             >
+              <div ref={menuContentRef}>
               {includeScanFromOptions ? (
                 <div className="pb-1">
                   <div className="px-3 pb-1.5 pt-1 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-slate-400">Scan from</div>
@@ -301,40 +308,10 @@ export function ScanFromSelect({
                   </div>
                 </div>
               ) : null}
-              {includeFreshRescanOption || showLocalV2RunViaLambdaOption ? (
+              {includeFreshRescanOption || showCrawl ? (
                 <div className={includeScanFromOptions ? "border-t border-slate-200/70 pt-1" : "pb-1"}>
                   <div className="px-3 pb-1.5 pt-1 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-slate-400">Options</div>
-                  {showLocalV2RunViaLambdaOption ? (
-                    <label
-                      className="flex w-full cursor-pointer items-center justify-between gap-4 px-3 py-2.5 text-left transition hover:bg-slate-50"
-                      title="On uses the selected regional AWS Lambda scanner. Off uses the local Lambda simulator when running on localhost."
-                    >
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-slate-700">Run via Lambda</span>
-                      </span>
-                      <input
-                        checked={localV2RunViaLambda}
-                        className="sr-only"
-                        onChange={(event) => setLocalV2RunViaLambda(event.target.checked)}
-                        type="checkbox"
-                      />
-                      <span
-                        className={
-                          localV2RunViaLambda
-                            ? "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-sky-500 transition"
-                            : "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-slate-200 transition"
-                        }
-                      >
-                        <span
-                          className={
-                            localV2RunViaLambda
-                              ? "h-4 w-4 translate-x-4 rounded-full bg-white shadow-sm transition"
-                              : "h-4 w-4 translate-x-0.5 rounded-full bg-white shadow-sm transition"
-                          }
-                        />
-                      </span>
-                    </label>
-                  ) : null}
+                  {showCrawl ? <FullSiteControls active={isOpen} onChange={next => { setCrawl(next); onFullSiteChange?.(next); }} /> : null}
                   {includeFreshRescanOption ? (
                     <label
                       className="flex w-full cursor-pointer items-center justify-between gap-4 px-3 py-2.5 text-left transition hover:bg-slate-50"
@@ -368,6 +345,7 @@ export function ScanFromSelect({
                   ) : null}
                 </div>
               ) : null}
+              </div>
             </div>,
             document.body
           )

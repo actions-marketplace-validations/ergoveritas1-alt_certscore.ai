@@ -9,7 +9,7 @@ CertScore.ai MCP Light is the no-account, low-friction remote MCP for evidence-b
 | Endpoint | `https://mcp.certscore.ai/mcp/light` |
 | Transport | Streamable HTTP |
 | Authentication | None; do not send an API key, bearer token, or OAuth configuration |
-| Version | `0.2.16` |
+| Version | `0.2.21` |
 
 Configure an MCP client as a remote HTTP server with the endpoint above. Product configuration formats differ, so use the client's current remote-MCP UI or documentation rather than adapting a local stdio example.
 
@@ -26,7 +26,7 @@ For Cursor, Cline, Kilo, GitHub, and other MCP clients, select Streamable HTTP (
 
 ## Tools
 
-Light intentionally exposes exactly three tools:
+Light exposes the three-step scan/status/bundle workflow plus paginated report evidence:
 
 - `certscore_scan_site`: request a scan of a public URL or reuse an eligible recent completed scan. Retain the returned `scanId`. A new scan may also return `preConsentPreview`, a bounded partial preview of checkpoint cookie/tracker observations. Its counts are partial, not the full scan tally, and must never be reported as final totals. Prefer the default `freshness=latest`; use `refresh` only when the user explicitly asks for a fresh or repeated scan.
 - `certscore_get_scan_status`: poll an active scan using only its stable `scanId`. Honor the returned retry delay and stop at a terminal state. A preview may also appear here, but it does not stop polling.
@@ -35,6 +35,8 @@ Light intentionally exposes exactly three tools:
 MCP Light applies a 25,000-byte response ceiling. Larger requested bundle budgets are explicitly clamped in response metadata; when the complete tier exceeds the ceiling, use the returned canonical report or evidence URL rather than repeatedly increasing `maxBytes`.
 
 The bundle can include observations about pre-consent cookies and browser storage, trackers and resolved vendors, CMP and consent-control signals, privacy-policy and disclosure surfaces, GDPR/ePrivacy and CCPA/CPRA review signals, and HTTPS/TLS transport. It returns only evidence and findings present in the canonical scan projection.
+
+- `certscore_get_report_evidence_page`: retrieve the persisted public report in pages; follow `pagination.nextCursor` to completion and preserve coverage limitations. Current setup and catalog: https://certscore.ai/developers/mcp.
 
 ## Scan lifecycle
 

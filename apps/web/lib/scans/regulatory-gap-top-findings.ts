@@ -1,4 +1,5 @@
 import { CERT_SCORE_FINDING_REGISTRY, type CertScoreFinding } from "./finding-registry";
+import { readChecklistRemediation } from "./checklist-remediation";
 
 export type RegulatoryGapTopFindingRow = {
   assessmentDirection?: string;
@@ -61,6 +62,8 @@ const REGULATORY_GAP_REMEDIATION_BY_ROW_ID: Partial<Record<string, string>> = {
 };
 
 function getRegulatoryGapRemediation(row: RegulatoryGapTopFindingRow) {
+  const retained = readChecklistRemediation(row.criticalEvidence?.retainedEvidence?.remediation);
+  if (retained?.steps.length) return retained.steps.join(" ");
   const projectedFindings = row.criticalEvidence?.projectedFindings;
   if (Array.isArray(projectedFindings)) {
     for (const projectedFinding of projectedFindings) {
@@ -113,14 +116,17 @@ export function buildRegulatoryGapTopFindings(input: RegulatoryGapTopFindingInpu
   ]);
 }
 
-// Keep the distinct cookie/storage checklist concern visible. Other overlapping
-// tracker-category rows are supporting evidence for the primary tracking card.
+// Keep the distinct cookie/storage checklist concern visible. Overlapping
+// tracker-category rows and duplicate iframe/embed rows become supporting
+// evidence for one primary runtime card.
 const PRECONSENT_TRACKING_CLUSTER_ROW_IDS = new Set([
   "pre_consent_third_party_tracking",
   "advertising_retargeting_vendor_signal_observed",
   "retargeting_behavioral_advertising_signal_observed",
   "analytics_vendor_observed",
-  "embedded_content_pre_consent"
+  "third_party_iframe_pre_consent",
+  "embedded_content_pre_consent",
+  "social_media_embed_pre_consent"
 ]);
 
 function regulatoryRowId(finding: CertScoreFinding) {
@@ -148,12 +154,22 @@ function clusterRelatedRuntimeTopFindings(findings: CertScoreFinding[]) {
     shortSummary: finding.shortSummary
   }));
   const clusteredRowIds = new Set(clustered.map(regulatoryRowId));
-  const groupedLabel = clusteredRowIds.has("embedded_content_pre_consent")
-    ? "Pre-consent tracking and embedded services"
-    : "Pre-consent non-essential tracking";
+  const hasTrackingRow = clusteredRowIds.has("pre_consent_third_party_tracking");
+  const hasEmbeddedRow =
+    clusteredRowIds.has("third_party_iframe_pre_consent") ||
+    clusteredRowIds.has("embedded_content_pre_consent") ||
+    clusteredRowIds.has("social_media_embed_pre_consent");
+  const groupedLabel = hasTrackingRow && hasEmbeddedRow
+    ? "Tracking and embedded content before consent"
+    : hasEmbeddedRow
+      ? "Third-party embeds before consent"
+      : "Pre-consent non-essential tracking";
   const groupedPrimary: CertScoreFinding = {
     ...primary,
     label: groupedLabel,
+    shortSummary: hasTrackingRow && hasEmbeddedRow
+      ? "Tracking requests and embedded content were observed before consent. Review each observation’s evidence, affected pages and consent requirements."
+      : primary.shortSummary,
     evidencePreview: [
       ...primary.evidencePreview,
       ...supporting.map((finding) => `Supporting signal: ${finding.label}`)
@@ -163,7 +179,8 @@ function clusterRelatedRuntimeTopFindings(findings: CertScoreFinding[]) {
       ...primary.evidenceDetails,
       policyEvidenceDetails: {
         ...primary.evidenceDetails?.policyEvidenceDetails,
-        groupedRuntimeSignals: supportingRows
+        groupedRuntimeSignals: supportingRows,
+        primaryRuntimeSignal: { id: regulatoryRowId(primary), label: primary.label, shortSummary: primary.shortSummary }
       }
     }
   };
@@ -287,6 +304,11 @@ function isPotentialConcernCoverageRow(row: RegulatoryGapTopFindingRow) {
 }
 
 function getRegulatoryTopFindingConcernKind(row: RegulatoryGapTopFindingRow): RegulatoryTopFindingConcernKind | null {
+  // Inventory-only coverage cannot create an executive finding. The owning
+  // normalized concern/policy must first establish projectable evidence.
+  if (row.criticalEvidence?.pipeline?.projectionStage === "coverage_fallback" &&
+      row.criticalEvidence?.pipeline?.ws01EvidenceRole === "retained_pre_consent_tracker_inventory") return null;
+
   if (isArticle13ExtractionLimitedRow(row)) {
     return null;
   }

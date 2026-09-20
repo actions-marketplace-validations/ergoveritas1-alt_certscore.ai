@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { CertScoreError, type PulseResult } from "@certscore/sdk";
-import { mcpScanBundleOutputSchema, mcpScanStatusOutputSchema } from "@certscore/api-contracts";
-import { boundEvidencePacket, buildScanBundle, explainFinding, exportFindings, limitPreConsentRows, paginateFindingList, scanBundleText, scanSiteText, scanStatusText, toToolError, toToolResult, withMcpAgentGuidance, withMcpScanProvenanceGuidance } from "./tools.js";
+import { mcpScanBundleOutputSchema, mcpScanStatusOutputSchema, mcpPreConsentCookiesTrackersOutputSchema } from "@certscore/api-contracts";
+import { boundEvidencePacket, buildScanBundle, explainFinding, exportFindings, limitPreConsentRows, paginateFindingList, pulseReportText, scanBundleText, scanSiteText, scanStatusText, toToolError, toToolResult, withMcpAgentGuidance, withMcpScanProvenanceGuidance } from "./tools.js";
 
 const report = {
   type: "certscore_pulse",
@@ -290,11 +291,13 @@ test("buildScanBundle honors the caller's byte budget", () => {
       scanId: "scan_123",
       domain: "example.com",
       status: "completed",
+      scanFrom: "eu_ie",
       score: 72
     }
   } as any);
 
   assert.ok(new TextEncoder().encode(JSON.stringify(bundle)).byteLength <= 8_000);
+  assert.equal(bundle.scanFrom, "eu_ie");
   assert.equal((bundle.mcpMetadata as Record<string, unknown>).requestedMaxBytes, 8_000);
   assert.equal((bundle.mcpMetadata as Record<string, unknown>).effectiveMaxBytes, 8_000);
   assert.equal((bundle.mcpMetadata as Record<string, unknown>).responseCeilingBytes, 200_000);
@@ -387,6 +390,7 @@ test("documented 8 KB findings budget preserves compact row-level pre-consent ev
       domain: "example.com",
       url: "https://example.com",
       status: "completed",
+      scanFrom: "eu_ie",
       score: 72,
       scoreStatus: "final",
       links: {
@@ -718,6 +722,7 @@ test("findings and evidence modes preserve useful content at the 5000-byte minim
       domain: "example.com",
       url: "https://example.com",
       status: "completed",
+      scanFrom: "eu_ie",
       score: 72,
       scoreStatus: "final",
       links: {
@@ -747,6 +752,7 @@ test("findings and evidence modes preserve useful content at the 5000-byte minim
   const evidence = buildScanBundle({ ...common, detail: "evidence" });
 
   assert.equal(findings.findings.length, 1);
+  assert.equal(findings.scanFrom, "eu_ie");
   assert.equal(findings.findings[0]?.id, "finding_1");
   assert.equal(
     findings.findings[0]?.links?.self ?? findings.findings[0]?.evidenceUrl,
@@ -754,6 +760,7 @@ test("findings and evidence modes preserve useful content at the 5000-byte minim
   );
   assert.ok(findings.mcpMetadata.actualBytes <= 5_000);
   assert.equal(evidence.findings.length, 1);
+  assert.equal(evidence.scanFrom, "eu_ie");
   assert.equal(evidence.evidenceSummary.digests[0]?.findingId, "finding_1");
   assert.equal(typeof evidence.evidenceSummary.digests[0]?.evidenceUrl, "string");
   assert.ok(evidence.mcpMetadata.actualBytes <= 5_000);
@@ -1072,9 +1079,13 @@ test("scan bundle text exposes compact row evidence, neutral score terminology, 
   assert.match(text, /Do not infer unobserved technologies, legal compliance, or a legal violation from scores or findings/i);
   assert.match(text, /CertScore priority=high/i);
   assert.doesNotMatch(text, /compliance score|compliant baseline|criticality=/i);
-  assert.match(bundle.interpretationGuidance.statement, /When postRefusalObservation is confirmed and termination\.kind is evidence_satisfied/i);
+  assert.match(bundle.interpretationGuidance.statement, /When postAcceptObservation or postRefusalObservation is confirmed and termination\.kind is evidence_satisfied/i);
   assert.match(bundle.interpretationGuidance.statement, /observation stopped intentionally after qualifying evidence was retained/i);
   assert.match(bundle.interpretationGuidance.statement, /mention unmeasured longer-term persistence only when relevant/i);
+  assert.equal(bundle.gpcResponse, undefined);
+  assert.equal(bundle.postAcceptObservation, null);
+  assert.equal(bundle.postRefusalObservation, null);
+  assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
   assert.ok(text.length <= 8_000);
 });
 
@@ -1091,10 +1102,16 @@ test("scan bundle makes intentional post-refusal evidence termination explicit",
       status: "completed",
       score: 42,
       postRefusalObservation: {
+        afterAction: {
+          policyVersion: "bounded_after_action_capture.v2", action: "reject", activationStatus: "completed",
+          stopReason: "window_elapsed", requestsDropped: 0, requestCount: 3, storageWriteCount: 1, storageSnapshotRetained: true,
+        },
         status: "confirmed_observation",
         refusalExercised: true,
         observationCount: 2,
         productionProjectable: true,
+        evidenceDisposition: "confirmed",
+        indeterminateReason: null,
         verdict: "eligible_nonessential_activity_observed_after_confirmed_refusal",
         interpretation: "Reject was confirmed, and eligible non-essential storage activity was observed afterward.",
         observationStrategy: "stop_on_first_eligible_activity",
@@ -1111,10 +1128,226 @@ test("scan bundle makes intentional post-refusal evidence termination explicit",
   } as any);
 
   const text = scanBundleText(bundle);
+  assert.equal(bundle.postRefusalObservation?.afterAction?.requestCount, 3);
   assert.match(text, /Reject Path: Reject was confirmed, and eligible non-essential storage activity was observed afterward\./);
   assert.match(text, /observation then stopped intentionally because qualifying evidence had been captured/i);
   assert.match(text, /Reject Path coverage limitation: The remainder of the persistence window was not measured\./);
   assert.doesNotMatch(text, /observation_early_exit|persistence_observation_not_settled_due_to_early_exit/);
+  assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
+});
+
+test("scan bundle surfaces the typed GPC response and keeps California scoring separate", () => {
+  const delta = {
+    baselineCount: 1,
+    gpcCount: 1,
+    countDelta: 0,
+    baselineOnly: [],
+    gpcOnly: [],
+    shared: ["Example Ads|pixel|advertising"],
+  };
+  const bundle = buildScanBundle({
+    detail: "summary",
+    findings: { type: "certscore_finding_list", scanId: "scan_gpc", findings: [] },
+    preConsentCookiesTrackers: null,
+    report,
+    scan: {
+      type: "certscore_scan",
+      scanId: "scan_gpc",
+      domain: "example.com",
+      status: "completed",
+      score: 42,
+      gpcResponse: {
+        status: "no_observable_response",
+        findingTitle: "No observable GPC response",
+        summary: "No observable baseline delta was retained under the equivalent passive GPC condition.",
+        scoreEffect: "none",
+        legalInterpretation: "not_assessed",
+        comparison: {
+          comparable: true,
+          protocol: "passive_baseline_with_sec_gpc",
+          baselineArtifact: { lane: "runtime_evidence", sha256: "a".repeat(64), sizeBytes: 100 },
+          gpcArtifact: { lane: "gpc_observation", sha256: "b".repeat(64), sizeBytes: 110 },
+          enabledProof: {
+            secGpcHeaderValue: "1",
+            requestsWithSecGpc: 2,
+            requestEventIds: ["gpc-request-1", "gpc-request-2"],
+            navigatorGlobalPrivacyControl: true,
+          },
+          deltas: {
+            cookies: delta,
+            trackers: delta,
+            advertisingOrMeasurementActivity: delta,
+            consentOrCmpBehavior: delta,
+          },
+          limitationKeys: [],
+        },
+        californiaPolicy: { applied: true, deductionPoints: 15 },
+        evidenceUrl: "https://certscore.ai/api/v2/scans/scan_gpc/findings/gpc_response",
+      },
+    },
+  } as any);
+
+  const text = scanBundleText(bundle);
+  assert.equal(bundle.gpcResponse?.status, "no_observable_response");
+  assert.match(text, /GPC response: No observable GPC response; status=no_observable_response/);
+  assert.match(text, /Sec-GPC: 1 proof retained on 2 request\(s\)/);
+  assert.match(text, /California scoring policy: −15 points/);
+  assert.match(bundle.interpretationGuidance.statement, /do not call the result a GPC violation or say GPC was not honored/i);
+  assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
+});
+
+test("terminal MCP status text surfaces GPC, Accept, and Reject lane results", () => {
+  const text = scanStatusText({
+    status: "completed",
+    scanId: "scan_lane_results",
+    gpcResponse: {
+      status: "responsive",
+      findingTitle: "GPC response",
+      comparison: { enabledProof: { requestsWithSecGpc: 3 } },
+    },
+    postAcceptObservation: { interpretation: "Accept was confirmed and eligible activity was observed afterward." },
+    postRefusalObservation: { interpretation: "Reject was confirmed and no eligible activity was observed during the completed window." },
+  });
+
+  assert.match(text, /GPC response: GPC response; status=responsive; Sec-GPC: 1 proof retained on 3 request\(s\)/);
+  assert.match(text, /Accept Path: Accept was confirmed/);
+  assert.match(text, /Reject Path: Reject was confirmed/);
+});
+
+test("terminal failed status keeps preliminary preview as diagnostic context without stale polling guidance", () => {
+  const value = withMcpAgentGuidance({
+    status: "failed",
+    scanId: "scan_failed_preview",
+    recommendedNextAction: "Retry certscore_scan_site with freshness=refresh after the recommended delay.",
+    preConsentPreview: {
+      generatedAt: "2026-09-08T16:11:19.488Z",
+      sourceLane: "runtime_evidence",
+      runtimeCoverage: { status: "limited_partial" },
+      cookies: [],
+      trackers: [],
+      operationalVendors: [],
+      summary: {
+        cookieCount: 0,
+        returnedCookieCount: 0,
+        trackingVendorCount: 0,
+        returnedTrackingVendorCount: 0,
+        operationalVendorCount: 0,
+        returnedOperationalVendorCount: 0,
+        vendorCount: 0,
+        thirdPartyRequestCount: 0,
+      },
+      observationOnlyDisclaimer: "Partial preview only. Continue polling, then retrieve the canonical scan bundle.",
+    },
+  });
+  const text = scanStatusText(value);
+
+  assert.match(text, /status=failed/);
+  assert.match(text, /retained diagnostic context only/);
+  assert.match(text, /do not continue polling/);
+  assert.match(text, /Next: .*retry certscore_scan_site/i);
+  assert.match(text, /Full report: not available/);
+  assert.doesNotMatch(text, /Continue sequential status polling|Wait for terminal scan status/);
+  assert.doesNotMatch(text, /Continue polling, then retrieve/);
+  assert.equal(value.preConsentPreview.observationOnlyDisclaimer, "Preliminary passive observations only; not findings, a score, or a final result.");
+});
+
+test("successful bundle offers an optional attributed trial path without changing Light authentication", () => {
+  const text = scanBundleText({
+    status: "completed",
+    scanId: "scan_trial_cta",
+    domain: "example.test",
+    score: 88,
+    findings: [],
+    findingsMetadata: { total: 0, returned: 0 },
+  }, { lightTrialCta: true });
+
+  assert.match(text, /Optional user follow-up/);
+  assert.match(text, /7-day CertScore trial/);
+  assert.match(text, /utm_source=mcp_light/);
+  assert.match(text, /https:\/\/mcp\.certscore\.ai\/mcp after account authorization/);
+  assert.match(text, /Light remains no-auth/);
+});
+
+test("successful bundle reserves the optional trial path when detailed findings fill TextContent", () => {
+  const text = scanBundleText({
+    status: "completed",
+    scanId: "scan_trial_cta_full",
+    domain: "example.test",
+    score: 41,
+    findings: Array.from({ length: 40 }, (_, index) => ({
+      id: `finding_${index}`,
+      title: `Finding ${index}`,
+      summary: "Detailed retained observation. ".repeat(80),
+      priority: "high",
+      confidence: "good",
+    })),
+    findingsMetadata: { total: 40, returned: 40 },
+    preConsentCookiesTrackers: { returned: 0, total: 8, truncated: true, rows: [] },
+  }, { lightTrialCta: true });
+
+  assert.ok(text.length <= 8_000);
+  assert.match(text, /7-day CertScore trial/);
+  assert.match(text, /OAuth-capable clients/);
+  assert.match(text, /Light remains no-auth/);
+});
+
+test("scan bundle surfaces canonical post-Accept findings and observation metadata", () => {
+  const finding = publicFinding(
+    "post_accept_consent_dependent_activity",
+    "Confirmed acceptance was followed by eligible non-essential analytics activity.",
+  );
+  const bundle = buildScanBundle({
+    detail: "summary",
+    findings: {
+      type: "certscore_finding_list",
+      scanId: "scan_accept",
+      findings: [finding],
+    },
+    preConsentCookiesTrackers: null,
+    report: {
+      ...report,
+      scanId: "scan_accept",
+      topFindings: [{
+        ...report.topFindings[0],
+        id: "post_accept_consent_dependent_activity",
+        label: "Activity observed after confirmed acceptance",
+        plainEnglish: "Confirmed acceptance was followed by eligible non-essential analytics activity.",
+      }],
+    },
+    scan: {
+      type: "certscore_scan",
+      scanId: "scan_accept",
+      domain: "example.com",
+      status: "completed",
+      score: 42,
+      postAcceptObservation: {
+        status: "confirmed_observation",
+        acceptanceExercised: true,
+        observationCount: 3,
+        productionProjectable: true,
+        evidenceDisposition: "confirmed",
+        indeterminateReason: null,
+        verdict: "eligible_nonessential_activity_observed_after_confirmed_acceptance",
+        interpretation: "Accept was confirmed, and eligible non-essential network and storage activity was observed afterward.",
+        observationStrategy: "stop_on_first_eligible_activity",
+        termination: {
+          kind: "evidence_satisfied",
+          intentional: true,
+          trigger: "acceptance_signal_contradiction_observed",
+        },
+        completedAt: "2026-09-01T12:00:09.000Z",
+        coverageLimitations: [],
+        limitations: [],
+      },
+    },
+  } as any);
+
+  const text = scanBundleText(bundle);
+  assert.equal(bundle.findings[0]?.id, "post_accept_consent_dependent_activity");
+  assert.equal(bundle.postAcceptObservation?.productionProjectable, true);
+  assert.match(text, /Accept Path: Accept was confirmed, and eligible non-essential network and storage activity was observed afterward\./);
+  assert.match(text, /observation then stopped intentionally because qualifying evidence had been captured/i);
+  assert.match(text, /post_accept_consent_dependent_activity/);
   assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
 });
 
@@ -1404,7 +1637,7 @@ test("toToolError promotes typed creation quota details", () => {
   assert.deepEqual(payload.error?.creationRateLimit, creationRateLimit);
   assert.equal(payload.error?.retryAfterSeconds, 30);
   assert.match(payload.error?.recommendedNextAction ?? "", /No scan was created/i);
-  assert.match(payload.error?.recommendedNextAction ?? "", /contact support@certscore\.ai/i);
+  assert.match(payload.error?.recommendedNextAction ?? "", /certscore_get_latest_domain_scan/);
 });
 
 test("toToolError preserves the non-public target reason without exposing an address", () => {
@@ -1460,6 +1693,15 @@ test("limitPreConsentRows caps inventory rows and records truncation metadata", 
   });
 });
 
+test("dedicated inventory MCP output preserves graph identities independently of row pagination", () => {
+  const graph = { contractVersion: "certscore.runtime-evidence-graph-projection.v1", scanId: "00000000-0000-4000-8000-000000000123", status: "limited", sourceBundle: { sha256: "a".repeat(64), sizeBytes: 1000, verified: true }, registryVersion: "fixture", graphs: [{ captureId: "fixture:runtime_evidence", scenario: "pre_consent", sourceHash: "b".repeat(64), startedAt: "2026-09-04T00:00:00.000Z", completedAt: "2026-09-04T00:00:01.000Z", nodes: [{ id: "request", kind: "request", label: "request", observedAtMs: 0 }, { id: "response", kind: "response", label: "response", observedAtMs: 1 }], edges: [{ id: "edge", from: "request", to: "response", relation: "response_to", basis: "cdp", directness: "direct" }], stacks: [], coverage: { status: "partial", capabilities: [], reasons: ["fixture"], droppedNodes: 0, droppedEdges: 0, unresolvedRequests: 0, pendingTasks: 0 } }], limitations: ["fixture"], findingOrScoreEffect: false };
+  const input = { type: "certscore_pre_consent_cookies_trackers", scanId: graph.scanId, domain: "example.com", rows: [], summary: { rowCount: 0, trackerCount: 0, cookieCount: 0, requestCount: 0 }, runtimeEvidenceGraph: graph, links: { self: "https://certscore.ai/api/v2/scans/fixture/pre-consent-cookies-trackers", report: "https://certscore.ai/scan/fixture" }, disclaimer: "Fixture only" };
+  const output = withMcpAgentGuidance(limitPreConsentRows(input, { maxRows: 1 }), "existing_scan_retrieved");
+  const parsed = mcpPreConsentCookiesTrackersOutputSchema.parse(output);
+  assert.deepEqual(parsed.runtimeEvidenceGraph, graph);
+  assert.deepEqual(toToolResult(output).structuredContent?.runtimeEvidenceGraph, graph);
+});
+
 test("boundEvidencePacket leaves small evidence packets unchanged", () => {
   const payload = {
     type: "certscore_pulse_evidence",
@@ -1494,4 +1736,255 @@ test("boundEvidencePacket truncates oversized evidence packets with MCP metadata
   assert.equal(metadata.maxSerializedChars, 20_000);
   assert.equal(typeof metadata.originalSerializedChars, "number");
   assert.ok(JSON.stringify(result).length <= 20_000);
+});
+
+const retainedAuthenticationNoGo = JSON.parse(readFileSync(new URL("./test-fixtures/authentication-no-go-scan.json", import.meta.url), "utf8")).scan;
+
+test("retained 401 is explicit in every MCP text surface, including the default tool response", () => {
+  const value = withMcpAgentGuidance(structuredClone(retainedAuthenticationNoGo));
+  const texts = [scanStatusText(value), scanSiteText(value), scanBundleText(value), pulseReportText(value),
+    (toToolResult(value).content[0] as { text: string }).text];
+  for (const text of texts) {
+    assert.match(text, /^CertScore scan: Sign-in required/);
+    assert.match(text, /Not scored/);
+    assert.ok(text.includes(value.noGo.explanation));
+    assert.match(text, /HTTP 401/);
+    assert.ok(text.includes(`Next: ${value.noGo.recommendedNextAction}`));
+    assert.match(text, /Retry likely to help: no/);
+    assert.match(text, /not proof of compliance/);
+    assert.doesNotMatch(text, /7-day CertScore trial|utm_source=mcp_light/);
+    assert.ok(text.length <= 8_000);
+    assert.doesNotMatch(text, /CertScore score=|Canonical findings complete|GPC response:/);
+  }
+});
+
+test("MCP text never promotes raw 401 hints or an inactive no-go object into a blocker", () => {
+  const value = { ...retainedAuthenticationNoGo, resultDisposition: null, status: "completed", score: 92, mainDocumentStatus: 401 };
+  for (const text of [scanStatusText(value), scanSiteText(value), scanBundleText(value), pulseReportText(value)]) {
+    assert.doesNotMatch(text, /CertScore scan: Sign-in required|Not scored/);
+  }
+});
+
+test("retained 401 no-go remedy and evidence survive all bundle tiers and supported tight budgets", () => {
+  for (const detail of ["summary", "findings", "evidence", "full"] as const) {
+    for (const maxBytes of [5_000, 8_000, 25_000]) {
+      const scan = structuredClone(retainedAuthenticationNoGo);
+      const bundle = buildScanBundle({ detail, maxBytes, responseCeilingBytes: 25_000, scan,
+        findings: { type: "certscore_finding_list", scanId: scan.scanId, findings: [] },
+        report: null, evidence: null, preConsentCookiesTrackers: null });
+      assert.equal(bundle.resultDisposition, "no_go");
+      assert.equal(bundle.score, null);
+      assert.equal(bundle.riskLevel, null);
+      assert.deepEqual(bundle.findings, []);
+      assert.deepEqual(bundle.noGo, scan.noGo);
+      assert.equal(bundle.recommendedNextAction, scan.noGo.recommendedNextAction);
+      assert.equal(bundle.error.recommendedNextAction, scan.noGo.recommendedNextAction);
+      assert.equal(bundle.error.retryable, false);
+      assert.ok(bundle.mcpMetadata.actualBytes <= maxBytes, `${detail}/${maxBytes}: ${bundle.mcpMetadata.actualBytes}`);
+      assert.equal(bundle.mcpMetadata.actualBytes, Buffer.byteLength(JSON.stringify(bundle)));
+      assert.deepEqual(mcpScanBundleOutputSchema.safeParse(bundle).error?.issues ?? [], [], `${detail}/${maxBytes}`);
+      const text = scanBundleText(bundle);
+      assert.match(text, /HTTP 401/);
+      assert.ok(text.includes(scan.noGo.recommendedNextAction));
+      assert.doesNotMatch(text, /Canonical findings complete|retry only for omitted envelope/);
+      for (const section of ["gpcResponse", "postAcceptObservation", "postRefusalObservation"]) {
+        if (bundle[section]) assert.deepEqual(bundle[section], scan[section]);
+        else assert.ok(bundle.mcpMetadata.omittedSections.includes(section));
+      }
+      if (maxBytes === 25_000) assert.equal(bundle.mcpMetadata.truncated, false);
+      else assert.equal(bundle.mcpMetadata.truncated, true);
+      assert.deepEqual(scan, retainedAuthenticationNoGo, "budgeting must not mutate retained input");
+    }
+  }
+});
+
+
+test("no-go text preserves reason-specific retry guidance rather than hardcoding authentication", () => {
+  const value = { ...retainedAuthenticationNoGo, noGo: {
+    ...retainedAuthenticationNoGo.noGo,
+    reasonCode: "maintenance_or_unavailable",
+    title: "Access temporarily restricted",
+    explanation: "The requested content was temporarily unavailable to the scanner.",
+    evidenceExcerpt: null,
+    retryLikelyToHelp: true,
+    recommendedNextAction: "Try again after the temporary restriction clears.",
+  } };
+  const text = scanStatusText(value);
+  assert.match(text, /Access temporarily restricted/);
+  assert.match(text, /Retry likely to help: yes/);
+  assert.ok(text.includes(value.noGo.recommendedNextAction));
+  assert.doesNotMatch(text, /HTTP 401|Sign-in required/);
+});
+
+test("scan-target rejection gives readable correction guidance while preserving the API reason", () => {
+  for (const message of ["Enter a valid public URL or domain.", "We could not find DNS records for that domain. Check the spelling and try again."]) {
+    const result = toToolError(new CertScoreError(message, { code: "invalid_url", status: 400 }), { scanCreation: true });
+    const payload = JSON.parse(result.content[0]?.type === "text" ? result.content[0].text : "{}");
+    assert.equal(payload.error.code, "invalid_url");
+    assert.equal(payload.error.field, "url");
+    assert.equal(payload.error.scanStarted, false);
+    assert.equal(payload.error.retryable, false);
+    assert.ok(payload.error.message.includes(message));
+    assert.match(payload.error.recommendedNextAction, /Do not repeat the same invalid request/);
+    assert.match(payload.error.recommendedNextAction, /bare domain is accepted/);
+    assert.match(payload.error.recommendedNextAction, /www only if it is the intended site/);
+    assert.match(result.content[1]?.type === "text" ? result.content[1].text : "", /Scan target rejected\. No scan was started/);
+  }
+});
+
+test("target guidance keeps private targets denied and leaves read errors and transient failures unchanged", () => {
+  const denied = toToolError(new CertScoreError("This target is not eligible for public website scanning.", {
+    code: "invalid_url", status: 400, responseBody: { error: { reasonCode: "non_public_target" } },
+  }), { scanCreation: true });
+  const error = JSON.parse(denied.content[0]?.type === "text" ? denied.content[0].text : "{}").error;
+  assert.equal(error.reasonCode, "non_public_target");
+  assert.match(error.recommendedNextAction, /Do not retry this private or ineligible target/);
+  assert.doesNotMatch(error.recommendedNextAction, /www/);
+  for (const [failure, context] of [
+    [new CertScoreError("Invalid scan ID.", { code: "invalid_url", status: 400 }), {}],
+    [new CertScoreError("DNS verification unavailable", { code: "internal_error", status: 503 }), { scanCreation: true }],
+  ] as const) {
+    const result = toToolError(failure, context);
+    const payload = JSON.parse(result.content[0]?.type === "text" ? result.content[0].text : "{}");
+    assert.equal(payload.error.scanStarted, undefined);
+    assert.equal(payload.error.message, failure.message);
+    assert.equal(payload.error.retryable, failure.status === 503);
+  }
+});
+
+
+test("DNS reason codes survive MCP errors and terminal guidance identifies new-scan quota", () => {
+  for (const reasonCode of ["domain_not_found", "dns_unavailable", "non_public_target"]) {
+    const transient = reasonCode === "dns_unavailable";
+    const result = toToolError(new CertScoreError("DNS validation failed", {
+      code: transient ? "internal_error" : "invalid_url", status: transient ? 500 : 400,
+      responseBody: { error: { reasonCode, retryAfterSeconds: transient ? 60 : null } },
+    }), { scanCreation: true });
+    const payload = JSON.parse((result.content[0] as { text: string }).text);
+    assert.equal(payload.error.reasonCode, reasonCode);
+    assert.equal(payload.error.retryable, transient);
+  }
+  for (const error of [undefined, { code: "scanner_runtime_failure", message: "Scan failed", retryable: false, recommendedNextAction: "Contact support." }]) {
+    const result = withMcpAgentGuidance({ type: "certscore_scan_job", status: "failed", scanId: "00000000-0000-4000-8000-000000000123", error });
+    assert.match(result.error!.recommendedNextAction, /polling the same scanId will not resume/);
+    assert.match(result.error!.recommendedNextAction, /uses scan quota/);
+    assert.match(result.error!.recommendedNextAction, /Support reference: 00000000/);
+  }
+});
+
+test("GPC v3 MCP text preserves completed bounded findings alongside an indeterminate paired comparison", async () => {
+  const { gpcProductionRuntimeFixture } = await import("../../certscore-contracts/src/test-fixtures/gpc-production");
+  const { gpcRuntimeFixture } = await import("../../certscore-contracts/src/test-fixtures/gpc-runtime");
+  const { buildGpcResponseAssessment } = await import("../../certscore-scan-core/src/gpc-response-assessment");
+  const { buildGpcProductionAssessment } = await import("../../certscore-scan-core/src/gpc-production-observation");
+  const { describeGpcBoundedObservation } = await import("../../certscore-contracts/src/gpc-bounded-observation");
+  const { createHash } = await import("node:crypto");
+  const gpc = gpcProductionRuntimeFixture(); gpc.gpcSignalObservation!.workerCount = 1;
+  const bytes = Buffer.from(JSON.stringify(gpc));
+  const pointer = { uri: "s3://fixture/gpc.json", sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length };
+  const comparison = buildGpcResponseAssessment({ baseline: gpcRuntimeFixture({ enabled: false }), baselineArtifact: pointer, gpc, gpcArtifact: pointer });
+  const assessment = buildGpcProductionAssessment({ scanId: gpc.scanId, source: { bytes, pointer }, comparison });
+  const { baselineArtifact, gpcArtifact, delivery, evidenceRefs, ...rest } = assessment.comparison;
+  const safePointer = { sha256: pointer.sha256, sizeBytes: pointer.sizeBytes };
+  const { generatedAt, ...publicAssessment } = assessment;
+  const gpcResponse = { ...publicAssessment, summary: describeGpcBoundedObservation(assessment.observation), comparison: { ...rest,
+    baselineArtifact: { ...safePointer, lane: "runtime_evidence" }, gpcArtifact: { ...safePointer, lane: "gpc_observation" }, delivery: { status: delivery.status } },
+    californiaPolicy: { applied: false, deductionPoints: 0 }, evidenceUrl: "https://certscore.ai/evidence" };
+  const bundle = buildScanBundle({ detail: "summary", report, findings: { type: "certscore_finding_list", scanId: gpc.scanId, findings: [] },
+    preConsentCookiesTrackers: null, scan: { type: "certscore_scan", scanId: gpc.scanId, domain: "example.test", status: "completed", score: 42, gpcResponse } } as any);
+  const text = scanBundleText(bundle);
+  assert.match(text, /GPC observation: Bounded GPC observation completed/);
+  assert.match(text, /1 classified/);
+  assert.match(text, /status=indeterminate/);
+  assert.equal(bundle.gpcResponse.observation.registration.sale, "unknown");
+  assert.match(bundle.interpretationGuidance.statement, /completion does not mean GPC was honored/);
+  assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
+});
+
+test("completed bundle preserves unconfirmed after-click facts without a registered verdict", () => {
+  const observation = {
+    status: "unconfirmed", refusalExercised: false, observationCount: 0,
+    productionProjectable: false, evidenceDisposition: "indeterminate", indeterminateReason: "registration_unconfirmed",
+    verdict: "no_confirmed_post_refusal_verdict",
+    interpretation: "Reject was clicked. 4 requests were retained afterward. Consent registration is reported separately.",
+    observationStrategy: "not_applicable", termination: { kind: "unavailable", intentional: false, trigger: "unavailable" },
+    completedAt: "2026-09-11T12:00:00.000Z", coverageLimitations: [], limitations: [],
+    afterAction: {
+      policyVersion: "bounded_after_action_capture.v2", action: "reject", activationStatus: "completed",
+      stopReason: "window_elapsed", requestsDropped: 0, requestCount: 4, storageWriteCount: 0, storageSnapshotRetained: true,
+    },
+  };
+  const bundle = buildScanBundle({
+    detail: "summary", findings: { type: "certscore_finding_list", scanId: "scan_after_click", findings: [] },
+    preConsentCookiesTrackers: null, report,
+    scan: { type: "certscore_scan", scanId: "scan_after_click", domain: "example.com", status: "completed", score: 72,
+      postRefusalObservation: observation },
+  } as any);
+  assert.deepEqual(bundle.postRefusalObservation?.afterAction, observation.afterAction);
+  assert.equal(bundle.postRefusalObservation?.productionProjectable, false);
+  assert.equal(bundle.postRefusalObservation?.verdict, "no_confirmed_post_refusal_verdict");
+  assert.match(scanBundleText(bundle), /Reject was clicked\. 4 requests were retained afterward/);
+  assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
+});
+
+test("create permission errors expose structured next actions and support", () => {
+  const result=toToolError(new CertScoreError('Missing scan:create',{status:403,code:'forbidden',responseBody:{error:{recommendedNextAction:'Reauthorize with scan:create.'}}}),{scanCreation:true});
+  assert.equal(result.isError,true);
+  const error=JSON.parse((result.content[0] as {text:string}).text).error;
+  assert.equal(error.scanStarted,false);
+  assert.equal(error.alternativeTool,'certscore_get_latest_domain_scan');
+  assert.equal(error.upgradeSupportEmail,'support@certscore.ai');
+  assert.match(error.recommendedNextAction,/Reauthorize/);
+});
+
+test("bundle text reserves scan identity, risk, finding IDs and inventory counts before long sections", () => {
+  const text=scanBundleText({scanId:'00000000-0000-4000-8000-000000000123',status:'completed',score:92,riskLevel:'Monitor',findings:[{id:'storage_review'}],preConsentCookiesTrackers:{total:2,rows:[{},{}]},coverage:{summary:'x'.repeat(30000)}});
+  assert.match(text,/score=92/);
+  assert.match(text,/Risk: Monitor/);
+  assert.match(text,/storage_review/);
+  assert.match(text,/total=2; returned=2/);
+  assert.match(text,/https:\/\/certscore.ai\/scan\//);
+});
+
+
+test('creation quota recovery is self-serve and does not recommend reconnecting', () => {
+  const result = toToolError(new CertScoreError('Quota exhausted', {status:429, code:'rate_limited', responseBody:{error:{retryAfterSeconds:3600, creationRateLimit:{hourlyLimit:20}, recommendedNextAction:'Contact support for approval.'}}}), {scanCreation:true});
+  const text = result.content[0]; assert.equal(text.type, 'text');
+  const {error} = JSON.parse(text.text as string);
+  assert.equal(error.scanStarted, false);
+  assert.equal(error.quotaConsumed, false);
+  assert.equal(error.recovery.requiresReauthorization, false);
+  assert.equal(error.recovery.retryAfterSeconds, 3600);
+  assert.equal(error.alternativeTool, 'certscore_get_latest_domain_scan');
+  assert.doesNotMatch(error.recommendedNextAction, /support for approval/);
+});
+
+
+test("tiny report provides finding IDs and a read-only path to omitted descriptions", () => {
+  const text = pulseReportText({scanId: "scan_tiny", topFindings: [{id: "storage_review", label: "Storage review", criticality: "high", confidence: "good"}]});
+  assert.match(text, /findingId=storage_review/);
+  assert.match(text, /description and evidence detail are not included in this response tier/);
+  assert.match(text, /certscore_list_findings with scanId=scan_tiny/);
+  assert.match(text, /certscore_explain_finding/);
+  assert.doesNotMatch(text, /No compact description|evidence=unknown/);
+});
+
+test("bundle distinguishes byte-budget inventory omission from missing evidence", () => {
+  const text = scanBundleText({scanId: "scan_bounded", status: "completed", mcpMetadata: {omittedSections: ["preConsentCookiesTrackers"]}});
+  assert.match(text, /inventory: omitted to fit the response byte limit/);
+  assert.match(text, /certscore_get_pre_consent_cookies_trackers with scanId=scan_bounded/);
+  assert.doesNotMatch(text, /inventory: total=unknown|No row-level pre-consent inventory was available|7-day CertScore trial|mcp_light/);
+  const unavailable = scanBundleText({scanId: "scan_active", status: "running"});
+  assert.match(unavailable, /inventory: not included in this response/);
+  assert.doesNotMatch(unavailable, /omitted to fit/);
+});
+
+test("read deadline expiration is retryable rather than an input correction", () => {
+  const result = toToolError(new DOMException("CertScore request timed out.", "TimeoutError"));
+  const item = result.content[0]; assert.equal(item.type, "text");
+  const {error} = JSON.parse(item.text as string);
+  assert.equal(error.retryable, true);
+  assert.equal(error.retryAfterSeconds, 30);
+  assert.match(error.recommendedNextAction, /retry the same request/);
+  assert.doesNotMatch(error.recommendedNextAction, /Correct the request/);
 });

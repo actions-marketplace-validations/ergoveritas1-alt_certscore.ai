@@ -36,7 +36,8 @@ const statusProjectionPath = "apps/web/server/scans/scan-status-projection.ts";
 test("scan report projection requires the canonical v2 consent assessment", async () => {
   const source = await readFile(projectionPath, "utf8");
 
-  assert.match(source, /scoreVersion: canonicalScore === null \? null : GDPR_EPRIVACY_EVIDENCE_SCORE_VERSION/);
+  assert.match(source, /scoreVersion: canonicalScore === null \? null : CANONICAL_OVERALL_SCORE_VERSION/);
+  assert.match(source, /scoreSource: canonicalScore === null[\s\S]*CANONICAL_OVERALL_SCORE_SOURCE/);
   assert.match(source, /buildRuntimeCookieInventory/);
   assert.match(source, /runtimeCookieRows/);
   assert.match(source, /Refusing to mark scan .* report projection ready before ConsentControlAssessment v2 is materialized/);
@@ -59,8 +60,8 @@ test("report projection writer stays current while readiness uses the bounded re
     readFile(statusProjectionPath, "utf8")
   ]);
 
-  assert.equal(SCAN_REPORT_PROJECTION_VERSION, "scan-report-projection-v24");
-  assert.match(contractSource, /SCAN_REPORT_PROJECTION_VERSION = "scan-report-projection-v24"/);
+  assert.equal(SCAN_REPORT_PROJECTION_VERSION, "scan-report-projection-v26");
+  assert.match(contractSource, /SCAN_REPORT_PROJECTION_VERSION = "scan-report-projection-v26"/);
   assert.match(projectionSource, /from "\.\/scan-report-projection-contract"/);
   assert.match(statusSource, /from "\.\/scan-report-projection-contract"/);
   assert.match(

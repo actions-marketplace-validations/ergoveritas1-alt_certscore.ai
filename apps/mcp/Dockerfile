@@ -16,6 +16,7 @@ RUN corepack enable
 WORKDIR /app
 
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY patches ./patches
 COPY apps/browser-extension/package.json ./apps/browser-extension/package.json
 COPY apps/mcp/package.json ./apps/mcp/package.json
 COPY apps/v2-dag-lambda/package.json ./apps/v2-dag-lambda/package.json
@@ -34,6 +35,7 @@ RUN --mount=type=cache,id=wc01-mcp-pnpm-store,target=/pnpm/store \
   && pnpm install --frozen-lockfile --filter @certscore/mcp-http...
 
 COPY apps/mcp ./apps/mcp
+COPY packages/certscore-contracts ./packages/certscore-contracts
 COPY packages/certscore-api-contracts ./packages/certscore-api-contracts
 COPY packages/certscore-mcp-auth ./packages/certscore-mcp-auth
 COPY packages/certscore-mcp ./packages/certscore-mcp
@@ -42,20 +44,21 @@ COPY packages/shared ./packages/shared
 
 RUN rm -rf \
   ./apps/mcp/dist \
+  ./packages/certscore-contracts/dist \
   ./packages/certscore-api-contracts/dist \
   ./packages/certscore-mcp-auth/dist \
   ./packages/certscore-mcp/dist \
   ./packages/certscore-sdk/dist \
   ./packages/shared/dist
 
-RUN pnpm --filter @certscore/api-contracts build
-RUN pnpm --filter @certscore/sdk build
-RUN pnpm --filter @certscore/mcp-auth build
-RUN pnpm --filter @certscore/mcp build
+# build:deps compiles contracts and shared before API contracts, then the SDK,
+# auth and MCP packages. Keep the clean image build in that dependency order.
 RUN pnpm --filter @certscore/mcp-http build
 
 FROM builder AS prod-deps
 
+# MCP's production dependency subset does not include the browser patch.
+RUN node -e "const fs=require('fs');const p=require('./package.json');p.pnpm.allowNonAppliedPatches=true;fs.writeFileSync('package.json',JSON.stringify(p))"
 RUN rm -rf /app/deploy/mcp \
   && pnpm --filter @certscore/mcp-http deploy --prod --legacy /app/deploy/mcp
 
@@ -72,6 +75,8 @@ ENV BUILD_GIT_REF="${BUILD_GIT_REF}"
 ENV BUILD_GIT_SHA="${BUILD_GIT_SHA}"
 ENV BUILD_IMAGE_TAG="${BUILD_IMAGE_TAG}"
 ENV BUILD_RUNTIME_TARGET="${BUILD_RUNTIME_TARGET}"
+
+RUN apk upgrade --no-cache
 
 WORKDIR /app
 

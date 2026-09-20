@@ -71,6 +71,17 @@ test("validation deployment classifiers include web server dependencies compiled
   assert.match(predeploySource, /file\.startsWith\("apps\/web\/server\/"\)/);
 });
 
+test("validation cached runtime refreshes every direct workspace dependency and checks installed behavior", async () => {
+  const dockerfile = await readFile("apps/validation-worker/Dockerfile", "utf8");
+  const runtime = dockerfile.split("FROM ${VALIDATION_WORKER_RUNTIME_BASE} AS runtime")[1]!;
+  const manifest = JSON.parse(await readFile("apps/validation-worker/package.json", "utf8"));
+  for (const [name, version] of Object.entries(manifest.dependencies)) {
+    if (!String(version).startsWith("workspace:")) continue;
+    assert.ok(runtime.includes(`./node_modules/${name}/dist`), `Current build must replace cached ${name}`);
+  }
+  assert.match(runtime, /RUN node \.\/verify-installed-compaction\.cjs/);
+});
+
 test("production ops monitor assumes the validation role for ECS probes", async () => {
   const source = await readFile(".github/workflows/prod-ops-monitor.yml", "utf8");
 
@@ -262,10 +273,13 @@ test("routine scanner deploys promote immutable digests without recreating infra
   const verifyFunction = source.match(/async function verifyScanners[\s\S]*?\n}\n\nasync function ensureWorkflowRun/)?.[0] ?? "";
   assert.match(deployFunction, /imageDetails\[0\]\.imageDigest/);
   assert.match(deployFunction, /await applyScannerRuntimeConfiguration\(\)/);
-  assert.match(deployFunction, /"lambda", "update-function-code"/);
+  assert.match(deployFunction, /synchronizeScannerImage\(awsScannerImageControl\(region\), digestImageUri, true\)/);
+  assert.match(deployFunction, /synchronizeScannerImage\(awsScannerImageControl\(region, true\), digestImageUri, true\)/);
+  const imageControl = await readFile("scripts/lib/scanner-image-provenance.ts", "utf8");
+  assert.match(imageControl, /"lambda", "update-function-code"/);
   assert.ok(
     deployFunction.indexOf("await applyScannerRuntimeConfiguration()") <
-      deployFunction.indexOf('"lambda", "update-function-code"'),
+      deployFunction.indexOf("await synchronizeScannerImage("),
     "scanner runtime configuration must converge before image promotion"
   );
   assert.doesNotMatch(deployFunction, /setup-dev-aws-image\.sh/);
@@ -276,6 +290,24 @@ test("routine scanner deploys promote immutable digests without recreating infra
   assert.match(verifyFunction, /endsWith\(`@\$\{expectedDigest\}`\)/);
   assert.match(verifyFunction, /payload\.MemorySize !== SCANNER_MEMORY_SIZE/);
   assert.doesNotMatch(verifyFunction, /endsWith\(`:\$\{expectedSha\}`\)/);
+});
+
+test("checked-in AWS deployment paths keep the all-eligible Accept worker enabled", async () => {
+  const [scannerTerraform, webTerraform, webWorkflow, deployFast, parityCheck] = await Promise.all([
+    readFile(scannerTerraformPath, "utf8"),
+    readFile(webTerraformPath, "utf8"),
+    readFile(".github/workflows/web-aws-ecs-deploy.yml", "utf8"),
+    readFile("scripts/deploy-fast.ts", "utf8"),
+    readFile("scripts/check-regional-scanner-parity.ts", "utf8"),
+  ]);
+
+  assert.match(scannerTerraform, /CERTSCORE_POST_ACCEPT_WORKER_ENABLED\s+=\s+"1"/);
+  assert.match(webTerraform, /name\s+=\s+"CERTSCORE_POST_ACCEPT_WORKER_ENABLED", value\s+=\s+"1"/);
+  assert.match(webTerraform, /name\s+=\s+"CERTSCORE_POST_ACCEPT_WORKER_ROLLOUT_MODE", value\s+=\s+"all_eligible"/);
+  assert.match(deployFast, /CERTSCORE_POST_ACCEPT_WORKER_ENABLED:\s*"1"/);
+  assert.match(webWorkflow, /name:"CERTSCORE_POST_ACCEPT_WORKER_ENABLED",value:"1"/);
+  assert.match(webWorkflow, /name:"CERTSCORE_POST_ACCEPT_WORKER_ROLLOUT_MODE",value:"all_eligible"/);
+  assert.match(parityCheck, /postAcceptWorkerEnabled !== "1"/);
 });
 
 test("regional scanner parity follows the bounded Lambda and region-specific proxy contracts", async () => {

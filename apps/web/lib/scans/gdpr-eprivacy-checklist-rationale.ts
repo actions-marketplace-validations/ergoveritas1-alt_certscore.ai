@@ -1,3 +1,4 @@
+import { describePreconsentTrackingTiming, readPreconsentTrackingTiming } from "./preconsent-tracking-timing";
 import type { GdprEprivacyCoverageChecklistItem } from "./gdpr-eprivacy-coverage-checklist";
 import { getEvidenceLabel } from "./gdpr-eprivacy-assessment-direction";
 
@@ -51,24 +52,11 @@ function getSpecificChecklistRowRationale(item: GdprEprivacyCoverageChecklistIte
 
   if (item.id === "pre_consent_third_party_tracking") {
     if (evidenceLabel === "Not observed") {
-      return "No tracking-classified 3rd party request was observed before a recorded consent action.";
+      return "No request met the tracking-classified threshold before a recorded consent action. Broader third-party requests or embedded services, when present, are reported separately and do not by themselves establish tracking.";
     }
-    const canonicalSummary = getCanonicalRuntimeEvidenceSummary({
-      fallbackFirstSeenMs: firstSeenMs,
-      item,
-      lead: "Pre-consent non-essential tracking evidence was retained",
-      maxEntries: 2,
-      rowKind: "tracking"
-    });
-    if (canonicalSummary) {
-      return canonicalSummary;
-    }
-    return joinRationaleParts([
-      vendorPhrase
-        ? `Tracking-classified 3rd party requests fired before any recorded consent action: ${vendorPhrase}`
-        : "Tracking-classified 3rd party requests fired before any recorded consent action",
-      formatFirstSeenPhrase(firstSeenMs)
-    ]);
+    return item.status === "Gap observed" || item.assessmentStatus === "gap_observed"
+      ? describePreconsentTrackingTiming(evidence.trackingRequestTiming)
+      : item.criticalEvidence.statusBasis;
   }
 
   if (item.id === "pre_consent_cookies_storage") {
@@ -92,10 +80,13 @@ function getSpecificChecklistRowRationale(item: GdprEprivacyCoverageChecklistIte
         ? "Non-essential cookies or browser storage"
         : `${count} non-essential cookie or browser-storage item${count === 1 ? "" : "s"}`;
       return provenWriteCount > 0
-        ? `${countPhrase} ${count === 1 ? "was" : "were"} observed before consent.${typeof firstSeenMs === "number" ? ` First observed at ${formatElapsedSeconds(firstSeenMs)} after scan start.` : ""} Exact set time was captured for ${provenWriteCount}.`
+        ? `${countPhrase} ${count === 1 ? "was" : "were"} observed before consent.${typeof firstSeenMs === "number" ? ` First observed at ${formatElapsedSeconds(firstSeenMs)} after scan start.` : ""} Direct write-level timing was captured for ${provenWriteCount}.`
         : typeof firstSeenMs === "number"
           ? `${countPhrase} ${count === 1 ? "was" : "were"} observed before consent. First observed at ${formatElapsedSeconds(firstSeenMs)} after scan start.`
           : `${countPhrase} ${count === 1 ? "was" : "were"} observed before consent. First-seen times reflect the pre-consent check.`;
+    }
+    if (item.assessmentStatus === "review_signal" || item.status === "Review signal") {
+      return "Pre-consent storage was retained, but classification, reconciliation, or direct write timing remained incomplete. This is review evidence, not a clean result or a confirmed non-essential write count.";
     }
     const canonicalSummary = getCanonicalRuntimeEvidenceSummary({
       fallbackFirstSeenMs: firstSeenMs,
@@ -937,6 +928,7 @@ function getEvidenceVendorNames(item: GdprEprivacyCoverageChecklistItem) {
 
 function getFirstEvidenceMs(item: GdprEprivacyCoverageChecklistItem) {
   const evidence = getRetainedEvidenceRecord(item);
+  if (item.id === "pre_consent_third_party_tracking") return minNumber(readPreconsentTrackingTiming(evidence.trackingRequestTiming).map(row => row.firstSeenMs));
   const direct = getFirstNumberFromRecord(evidence, [
     "firstObservedMs",
     "first_observed_ms",

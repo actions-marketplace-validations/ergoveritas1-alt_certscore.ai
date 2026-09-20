@@ -1,11 +1,17 @@
+import type { McpResponseSummary } from "@website-signal-risk-scanner/shared";
 import { createHmac, randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import shared from "@website-signal-risk-scanner/shared";
-import type { McpActivationStage, McpTelemetryEvent, McpTelemetrySurface } from "@website-signal-risk-scanner/shared";
+import type { McpActivationStage, McpRequestDetails, McpTelemetryEvent, McpTelemetrySurface } from "@website-signal-risk-scanner/shared";
 import { projectMcpToolInvocationObservation, type McpToolInvocationObservation } from "@certscore/mcp/server";
 import type { AnonymousRequesterNetwork } from "@website-signal-risk-scanner/shared";
+import { CERTSCORE_MCP_VERSION } from "@certscore/mcp/version";
 
 const {
+  boundMcpRequestDetails,
+  captureMcpCallerInput,
+  mergeMcpCallerInputs,
+  sanitizeMcpTaskContext,
   MCP_CALLER_ATTRIBUTION_RULESET_VERSION,
   MCP_TELEMETRY_INTEGRATION,
   mcpActivationEventSchema,
@@ -53,6 +59,7 @@ type CreateHostedMcpTelemetryInput = {
 };
 
 type ToolRequestContext = {
+  rateLimit?: McpRequestDetails["rateLimit"];
   requesterIp?: string | null;
   requesterNetwork?: AnonymousRequesterNetwork;
 };
@@ -215,6 +222,13 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
   const fetchImpl = input.fetch ?? globalThis.fetch;
   const logger = input.logger ?? console;
   const client = classifyHostedMcpClient(input);
+  const initialization = input.clientInfoBody as { params?: { clientInfo?: unknown; capabilities?: unknown; protocolVersion?: unknown } } | undefined;
+  const initialInput = captureMcpCallerInput({}, { client_initialization: {
+    ...(initialization?.params?.clientInfo !== undefined ? { clientInfo: initialization.params.clientInfo } : {}),
+    ...(initialization?.params?.capabilities !== undefined ? { capabilities: initialization.params.capabilities } : {}),
+    ...(initialization?.params?.protocolVersion !== undefined ? { protocolVersion: initialization.params.protocolVersion } : {}),
+  } }, { expanded: process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED === "1" });
+  initialInput.fields = initialInput.fields.filter(field => field.path !== "arguments");
   const conversationId = firstHeader(input.headers, "openai-conversation-id");
   const ingestionUrl = new URL("/api/internal/mcp-telemetry", input.baseUrl);
   const sentActivationStages = new Set<McpActivationStage>();
@@ -230,8 +244,10 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
     sourceAttribution: client.sourceAttribution,
   });
 
-  const deliver = (event: { eventId: string }, context: { stage?: string; toolName?: string }) => {
+  const deliver = (event: { eventId: string; requestId?: string }, context: { stage?: string; toolName?: string }) => {
     const deliveryStartedAt = Date.now();
+    const correlation = { eventId: event.eventId, requestId: event.requestId ?? null };
+    logger.log?.(JSON.stringify({ event: "mcp.telemetry_delivery_started", ...correlation, surface: input.surface }));
     const body = JSON.stringify(event);
     const timestamp = String(Math.floor(Date.now() / 1_000));
     const send = (attempt: number): Promise<number> => Promise.resolve().then(() => fetchImpl(ingestionUrl, {
@@ -257,6 +273,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
         attempts,
         durationMs: Date.now() - deliveryStartedAt,
         event: "mcp.telemetry_delivery",
+        ...correlation,
         outcome: "accepted",
         stage: context.stage ?? null,
         surface: input.surface,
@@ -267,6 +284,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
         attempts: TELEMETRY_DELIVERY_ATTEMPTS,
         durationMs: Date.now() - deliveryStartedAt,
         event: "mcp.telemetry_write_failed",
+        ...correlation,
         errorName: error instanceof Error ? error.name : "UnknownError",
         stage: context.stage ?? null,
         surface: input.surface,
@@ -320,6 +338,30 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
     const sessionValue = conversationId ?? input.sessionId();
     const eventRequesterIp = requestContext?.requesterIp ?? input.requesterIp ?? null;
     const parsed = mcpTelemetryEventSchema.safeParse({
+      requestDetails: boundMcpRequestDetails({
+        version: process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED === "1" ? 2 : 1,
+        ...(eventRequesterIp && input.requesterIp ? {requesterChanged: eventRequesterIp !== input.requesterIp} : {}),
+        ...(observation.callerInput ? { callerInput: mergeMcpCallerInputs(observation.callerInput, initialInput) } : {}),
+        captureBasis: observation.captureBasis ?? "validated_arguments",
+        ...(observation.taskContext ? { taskContext: observation.taskContext } : {}),
+        ...(observation.timing ? { timing: observation.timing } : {}),
+        ...(observation.response ? { response: observation.response } : {}),
+        serverVersion: CERTSCORE_MCP_VERSION,
+        ...(/^[a-f0-9]{40}$/.test(process.env.BUILD_GIT_SHA ?? "") ? { serverRevision: process.env.BUILD_GIT_SHA } : {}),
+        toolSchemaVersion: "2026-09-08.task-context.1",
+        ...(() => {
+          const body = input.clientInfoBody as { params?: { clientInfo?: { version?: unknown } } } | undefined;
+          const version = body?.params?.clientInfo?.version;
+          return typeof version === "string" && /^[a-zA-Z0-9_.:-]{1,128}$/.test(version) ? { clientVersion: version } : {};
+        })(),
+        arguments: observation.requestArguments?.values ?? {},
+        argumentsOmitted: observation.requestArguments?.omitted ?? true,
+        actorBasis: !client.actorId ? "unavailable"
+          : input.authenticatedActorId || input.authenticatedActorBinding ? "authenticated"
+          : firstHeader(input.headers, "openai-ephemeral-user-id") ? "provider_ephemeral" : "requester_binding",
+        sessionBasis: conversationId ? "provider_conversation" : input.sessionId() ? "mcp_session" : "unavailable",
+        rateLimit: requestContext?.rateLimit ?? observation.rateLimit ?? null,
+      }),
       actorId: client.actorId,
       attributionConfidence: client.attributionConfidence,
       attributionRulesetVersion: client.attributionRulesetVersion,
@@ -340,7 +382,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
       occurredAt: new Date().toISOString(),
       outcome: observation.outcome,
       quotaOutcome: observation.quotaOutcome,
-      requestId: randomUUID(),
+      requestId: observation.requestId ?? randomUUID(),
       requestedResource: observation.requestedResource,
       requestedResourceType: observation.requestedResourceType,
       requesterIp: eventRequesterIp,
@@ -383,10 +425,13 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
     observeActivation(stage: McpActivationStage) {
       reportActivation(stage);
     },
+    observeToolRequestStarted(request: { requestId: string; toolName: string; startedAt: string }) {
+      logger.log?.(JSON.stringify({ event: "mcp.request_started", requestId: request.requestId, toolName: sanitizedTransportToolName(request.toolName), startedAt: request.startedAt, surface: input.surface }));
+    },
     observeToolInvocation(observation: McpToolInvocationObservation, requestContext?: ToolRequestContext) {
       report(observation, requestContext);
     },
-    observeTransportRateLimit(input: { body: unknown; durationMs: number; requesterIp?: string | null; requesterNetwork?: AnonymousRequesterNetwork; scanId?: string | null; toolName: string }) {
+    observeTransportRateLimit(input: { requestId?: string; responseSummary?: McpResponseSummary; body: unknown; durationMs: number; requesterIp?: string | null; requesterNetwork?: AnonymousRequesterNetwork; scanId?: string | null; toolName: string; rateLimit?: McpRequestDetails["rateLimit"] }) {
       const args = parsedToolArguments(input.body);
       const projected = projectMcpToolInvocationObservation({
         args,
@@ -396,6 +441,11 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
       });
       report({
         ...projected,
+        requestId: input.requestId,
+        ...(input.responseSummary ? { response: { bytes: null, truncated: null, summary: input.responseSummary } } : {}),
+        captureBasis: "protocol_request",
+        callerInput: captureMcpCallerInput(args, (input.body as { params?: { _meta?: unknown } } | null)?.params?._meta, { expanded: process.env.MCP_EXPANDED_CALLER_INPUT_ENABLED === "1" }),
+        ...(sanitizeMcpTaskContext(args.taskContext) ? { taskContext: sanitizeMcpTaskContext(args.taskContext)! } : {}),
         errorCode: "rate_limited",
         outcome: "rate_limited",
         quotaOutcome: "rate_limited",
@@ -403,7 +453,7 @@ export function createHostedMcpTelemetry(input: CreateHostedMcpTelemetryInput) {
         scanId: typeof input.scanId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(input.scanId) ? input.scanId : projected.scanId,
         scanStatus: "rate_limited",
         transportOutcome: "http_429",
-      }, { requesterIp: input.requesterIp, requesterNetwork: input.requesterNetwork });
+      }, { requesterIp: input.requesterIp, requesterNetwork: input.requesterNetwork, rateLimit: input.rateLimit });
     },
   };
 }

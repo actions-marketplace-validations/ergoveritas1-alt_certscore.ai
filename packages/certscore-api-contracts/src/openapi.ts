@@ -238,6 +238,21 @@ export function buildPulseV1OpenApiDocument() {
             scanStatus: { type: "string" },
             resultDisposition: { type: "string", enum: ["no_go"] },
             noGo: { type: "object", additionalProperties: true, description: "Reason-specific public no-go presentation; includes reasonCode, title, explanation, summary, limitationKind, recommendedNextAction, retryLikelyToHelp, and a bounded evidenceExcerpt when available." },
+            gpcResponse: {
+              type: ["object", "null"],
+              additionalProperties: true,
+              description: "Jurisdiction-neutral GPC result with Sec-GPC: 1 enablement proof, baseline-versus-GPC deltas, and separately identified California scoring policy when available."
+            },
+            postAcceptObservation: {
+              type: ["object", "null"],
+              additionalProperties: true,
+              description: "Typed result or explicit coverage limitation from the isolated Accept observation path."
+            },
+            postRefusalObservation: {
+              type: ["object", "null"],
+              additionalProperties: true,
+              description: "Typed result or explicit coverage limitation from the isolated Reject observation path."
+            },
             summary: {
               type: "object",
               additionalProperties: true,
@@ -321,7 +336,7 @@ export function buildPulseV1OpenApiDocument() {
                   type: "string",
                   enum: ["invalid_url", "not_found", "pulse_throttled", "rate_limited", "internal_error", "scan_unavailable", "unauthorized", "forbidden"]
                 },
-                reasonCode: { type: ["string", "null"], enum: ["non_public_target", null] },
+                reasonCode: { type: ["string", "null"], enum: ["non_public_target", "domain_not_found", "dns_unavailable", null] },
                 message: { type: "string" },
                 retryAfterSeconds: { type: ["integer", "null"] },
                 recommendedNextAction: { type: ["string", "null"] },

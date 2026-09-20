@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { certScoreMcpToolContracts } from "@certscore/api-contracts";
 import { CERTSCORE_MCP_VERSION, getCertScoreMcpDoctorReport } from "./index.js";
 import { createCertScoreMcpServer } from "./server.js";
 
 type MockResponse = {
+  delayMs?: number;
   status: number;
   body?: unknown;
   text?: string;
@@ -41,6 +43,11 @@ function installFetch(responses: MockResponse[]) {
     if (!next) {
       throw new Error("Unexpected fetch call");
     }
+    if (next.delayMs) await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(init?.signal?.reason); };
+      const timer = setTimeout(() => { init?.signal?.removeEventListener("abort", abort); resolve(); }, next.delayMs);
+      if (init?.signal?.aborted) abort(); else init?.signal?.addEventListener("abort", abort, { once: true });
+    });
     if (next.text !== undefined) {
       return textResponse(next.status, next.text, next.headers);
     }
@@ -81,6 +88,21 @@ function parseToolJson(result: Awaited<ReturnType<Client["callTool"]>>) {
   assert.equal(first?.type, "text");
   return JSON.parse(first.text) as Record<string, unknown>;
 }
+
+test("request credential failures never fall back to the initialization credential", async () => {
+  const mock = installFetch([]);
+  try {
+    for (const resolveApiKey of [() => "", () => { throw new Error("Request context missing"); }]) {
+      await withMcpClient(async client => {
+        const result = await client.callTool({ name: "certscore_get_scan_status", arguments: {
+          scanId: "00000000-0000-4000-8000-000000000123",
+        } });
+        assert.equal(result.isError, true);
+        assert.equal(mock.calls.length, 0, "no request uses the stale static credential");
+      }, { apiKey: "stale-initialization-credential", resolveApiKey });
+    }
+  } finally { mock.restore(); }
+});
 
 function assertToolOutputSchema(name: (typeof certScoreMcpToolContracts)[number]["name"], payload: Record<string, unknown>) {
   const contract = certScoreMcpToolContracts.find((candidate) => candidate.name === name);
@@ -200,11 +222,13 @@ test("CertScore MCP server exposes the scoped v1 tool surface", async () => {
       [
         "certscore_explain_finding",
         "certscore_export_findings",
+        "certscore_get_connection_status",
         "certscore_get_evidence",
         "certscore_get_latest_domain_pre_consent_cookies_trackers",
         "certscore_get_latest_domain_scan",
         "certscore_get_pre_consent_cookies_trackers",
         "certscore_get_report",
+        "certscore_get_report_evidence_page",
         "certscore_get_scan",
         "certscore_get_scan_bundle",
         "certscore_get_scan_status",
@@ -220,7 +244,7 @@ test("CertScore Light exposes only the focused no-account workflow", async () =>
     const tools = await client.listTools();
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
-      ["certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]
+      ["certscore_get_report_evidence_page", "certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]
     );
     const scanSiteTool = tools.tools.find((tool) => tool.name === "certscore_scan_site");
     assert.deepEqual(scanSiteTool?.annotations, {
@@ -285,7 +309,7 @@ test("CertScore Light exposes only the focused no-account workflow", async () =>
     assert.ok(bundleTool?.outputSchema?.required?.includes("scanFrom"));
     assert.match(bundleTool?.description ?? "", /Returns the completed or completed-limited CertScore evidence bundle/);
     assert.match(bundleTool?.description ?? "", /persisted execution provenance/);
-    assert.match(bundleTool?.description ?? "", /Reject Path content is present only for confirmed, evidence-qualified post-refusal observations/i);
+    assert.match(bundleTool?.description ?? "", /Accept and Reject results distinguish registered decisions from retained after-click facts/i);
     assert.match(bundleTool?.description ?? "", /not legal advice, certification, or a compliance determination/i);
     for (const tool of [scanSiteTool, statusTool, bundleTool]) {
       assert.doesNotMatch(tool?.description ?? "", /\b(?:never|must|should|do not|call|wait|continue polling|stop polling)\b/i);
@@ -366,6 +390,7 @@ test("README documents current MCP tool surface and public docs", () => {
   assert.deepEqual(packageJson.files, ["dist", "README.md", "LICENSE", "server.json", "server-light.json"]);
   assert.equal(packageJson.dependencies?.["@certscore/api-contracts"], undefined);
   assert.equal(packageJson.dependencies?.["@certscore/sdk"], undefined);
+  assert.equal(packageJson.dependencies?.["@website-signal-risk-scanner/shared"], undefined);
   assert.equal(packageJson.devDependencies?.["@certscore/api-contracts"], "workspace:*");
   assert.equal(packageJson.devDependencies?.["@certscore/sdk"], "workspace:*");
 
@@ -432,8 +457,13 @@ test("Light registry metadata and distribution copy stay aligned", () => {
 
   for (const source of [submissions, packets]) {
     assert.match(source, /Official MCP Registry/);
-    assert.match(source, /Version `0\.2\.16` was published.*August 28, 2026/i);
-    assert.match(source, /active latest version of `ai\.certscore\/mcp-light`/i);
+    assert.match(source, /direct official latest API returns 0\.2\.20/);
+    assert.match(source, /Runtime is independently verified at 0\.2\.21/);
+    assert.match(source, /missing ai\.certscore namespace permission/);
+    assert.match(source, /No-auth Streamable HTTP website privacy scanner/);
+    assert.match(source, /recommended discovery entry/i);
+    assert.match(source, /do not deprecate|must not be deprecated|stdio.*remains active/i);
+    assert.match(source, /ai\.certscore\/mcp-light/i);
     assert.match(source, /https:\/\/registry\.modelcontextprotocol\.io\/\?q=ai\.certscore%2Fmcp-light/);
   }
 });
@@ -518,6 +548,7 @@ test("Cursor and OpenAI plugin packages preserve independent release versions an
   };
   const cursorLicense = readFileSync(new URL("../../../integrations/cursor/certscore-website-privacy-preflight/LICENSE", import.meta.url), "utf8");
   const cursorReadme = readFileSync(new URL("../../../integrations/cursor/certscore-website-privacy-preflight/README.md", import.meta.url), "utf8");
+  const cursorSkill = readFileSync(new URL("../../../integrations/cursor/certscore-website-privacy-preflight/skills/website-privacy-preflight/SKILL.md", import.meta.url), "utf8");
   const openAiPlugin = JSON.parse(readFileSync(new URL("../../../integrations/openai/certscore-website-privacy-preflight/.codex-plugin/plugin.json", import.meta.url), "utf8")) as {
     description?: string;
     interface?: {
@@ -538,7 +569,9 @@ test("Cursor and OpenAI plugin packages preserve independent release versions an
   const openAiSubmissionPacket = readFileSync(new URL("../../../docs/mcp-light-submission-packets.md", import.meta.url), "utf8");
 
   assert.equal(cursorPlugin.name, "certscore-website-privacy-preflight");
-  assert.equal(cursorPlugin.version, "1.0.2");
+  assert.equal(cursorPlugin.version, "1.0.4");
+  assert.match(JSON.stringify(cursorPlugin), /GPC/i);
+  assert.match(JSON.stringify(cursorPlugin), /Accept Path/i);
   assert.match(JSON.stringify(cursorPlugin), /Reject Path/i);
   assert.equal(cursorPlugin.license, "Apache-2.0");
   assert.equal(cursorMarketplace.plugins?.[0]?.license, "Apache-2.0");
@@ -549,13 +582,18 @@ test("Cursor and OpenAI plugin packages preserve independent release versions an
   assert.match(cursorLicense, /Copyright 2026 CertScore\.ai, LLC/);
   assert.match(cursorReadme, /license applies only to the files in `integrations\/cursor\/certscore-website-privacy-preflight`/);
   assert.match(cursorReadme, /trademarks.*other repository components remain governed by their respective licenses and terms/is);
+  assert.match(cursorSkill, /gpcResponse/);
+  assert.match(cursorSkill, /postAcceptObservation/);
+  assert.match(cursorSkill, /postRefusalObservation/);
+  assert.match(cursorSkill, /score-neutral behavior baseline/);
+  assert.match(cursorSkill, /limited coverage rather than a pass/);
   assert.deepEqual(cursorMcp.mcpServers, {
     "CertScore.ai": { type: "streamable-http", url: "https://mcp.certscore.ai/mcp/light" }
   });
-  assert.deepEqual(cursorMarketplace.plugins?.map(({ name, source, version }) => ({ name, source, version })), [{
+  assert.deepEqual(cursorMarketplace.plugins?.filter(({ name }) => name === "certscore-website-privacy-preflight").map(({ name, source, version }) => ({ name, source, version })), [{
     name: "certscore-website-privacy-preflight",
     source: "integrations/cursor/certscore-website-privacy-preflight",
-    version: "1.0.2"
+    version: "1.0.4"
   }]);
 
   assert.equal(openAiPlugin.name, "certscore-website-privacy-preflight");
@@ -567,9 +605,18 @@ test("Cursor and OpenAI plugin packages preserve independent release versions an
   });
   assert.match(openAiMetadata, /transport: "streamable_http"/);
   assert.match(openAiMetadata, /url: "https:\/\/mcp\.certscore\.ai\/mcp\/light"/);
-  assert.match(JSON.stringify(openAiPlugin), /post-refusal/i);
-  assert.match(openAiMetadata, /post-refusal/i);
-  assert.match(openAiSkill, /post-refusal/i);
+  assert.match(JSON.stringify(openAiPlugin), /GPC/i);
+  assert.match(JSON.stringify(openAiPlugin), /Accept/i);
+  assert.match(JSON.stringify(openAiPlugin), /Reject/i);
+  assert.match(openAiMetadata, /GPC/i);
+  assert.match(openAiMetadata, /Accept/i);
+  assert.match(openAiMetadata, /Reject/i);
+  assert.match(openAiSkill, /gpcResponse/);
+  assert.match(openAiSkill, /postAcceptObservation/);
+  assert.match(openAiSkill, /postRefusalObservation/);
+  assert.match(openAiSkill, /score-neutral behavior baseline/i);
+  assert.match(openAiSkill, /non-confirmed observation status as limited coverage rather than a pass/i);
+  assert.match(openAiSkill, /Do not independently browse the target or click its consent controls/i);
   assert.match(JSON.stringify(openAiPlugin), /preliminary cookie\/tracker/i);
   assert.match(openAiMetadata, /preliminary cookie and tracker evidence/i);
   assert.match(openAiSkill, /preConsentPreview/);
@@ -584,6 +631,11 @@ test("Cursor and OpenAI plugin packages preserve independent release versions an
   for (const path of ["test1.html", "test2.html", "test3.html", "test4.html"]) {
     assert.match(openAiSubmissionPacket, new RegExp(`https://ergoveritas\\.com/${path.replaceAll(".", "\\.")}`));
   }
+  assert.match(openAiSubmissionPacket, /Tool annotation justifications/);
+  assert.match(openAiSubmissionPacket, /at most one bounded deterministic Accept action and one bounded deterministic Reject/i);
+  assert.match(openAiSubmissionPacket, /passive `Sec-GPC: 1` comparison/i);
+  assert.match(openAiSubmissionPacket, /OpenAI review correction completed September 3, 2026/i);
+  assert.doesNotMatch(openAiSubmissionPacket, /cannot accept consent/i);
   assert.doesNotMatch(openAiSkill, /Claude|Cursor/);
   for (const tool of ["certscore_scan_site", "certscore_get_scan_status", "certscore_get_scan_bundle"]) {
     assert.match(openAiSkill, new RegExp(tool));
@@ -705,7 +757,7 @@ test("certscore_scan_site returns a newly accepted scan immediately by default",
     await withMcpClient(async (client) => {
       const raw = await client.callTool({
           name: "certscore_scan_site",
-          arguments: { url: "https://example.com", freshness: "refresh", scanFrom: "eu_ie" }
+          arguments: { url: "https://example.com", freshness: "refresh", scanFrom: "eu_ie", taskContext: { purpose: "tracking_check", integrationId: "qc", integrationVersion: "1", skillVersion: "1" } }
         });
       const result = parseToolJson(raw);
       assert.equal(result.type, "certscore_scan_job");
@@ -719,6 +771,42 @@ test("certscore_scan_site returns a newly accepted scan immediately by default",
       assert.equal(result.recommendedNextTool, "certscore_get_scan_status");
       assert.match(String(result.recommendedNextAction), /Do not poll in parallel or resubmit certscore_scan_site/);
       assert.match(mock.calls[0] ?? "", /\/api\/v2\/scans$/);
+      assert.equal(mock.calls.length, 1);
+      assert.equal(JSON.parse(mock.requestBodies[0]!).taskContext, undefined);
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("certscore_scan_site drops invalid optional task context instead of rejecting the scan", async () => {
+  const mock = installFetch([
+    {
+      status: 202,
+      body: {
+        type: "certscore_scan_job",
+        status: "queued",
+        jobId: "00000000-0000-4000-8000-000000000124",
+        scanId: "00000000-0000-4000-8000-000000000124",
+        executionMode: "new_scan",
+        reused: false,
+        freshnessDecision: "no_eligible_recent_scan_queued"
+      }
+    }
+  ]);
+  try {
+    await withMcpClient(async (client) => {
+      const raw = await client.callTool({
+        name: "certscore_scan_site",
+        arguments: {
+          url: "https://example.com",
+          freshness: "latest",
+          taskContext: { purpose: "unsupported-purpose" }
+        }
+      });
+      const result = parseToolJson(raw);
+      assert.equal(result.status, "queued");
+      assert.equal(result.error, null);
       assert.equal(mock.calls.length, 1);
     });
   } finally {
@@ -833,7 +921,7 @@ test("MCP Light certscore_scan_site returns a verified preliminary preview withi
 
 test("MCP Light certscore_scan_site falls back to the unchanged scanId when the preview window expires", async () => {
   const scanId = "00000000-0000-4000-8000-000000000224";
-  const mock = installFetch([{
+  const queuedResponse = {
     status: 202,
     body: {
       type: "certscore_scan_job",
@@ -844,7 +932,8 @@ test("MCP Light certscore_scan_site falls back to the unchanged scanId when the 
       reused: false,
       freshnessDecision: "no_eligible_recent_scan_queued",
     },
-  }]);
+  };
+  const mock = installFetch([queuedResponse, queuedResponse]);
   try {
     await withMcpClient(async (client) => {
       const result = parseToolJson(await client.callTool({
@@ -856,7 +945,10 @@ test("MCP Light certscore_scan_site falls back to the unchanged scanId when the 
       assert.equal(result.status, "queued");
       assert.equal(result.preConsentPreview, undefined);
       assert.equal(result.recommendedNextTool, "certscore_get_scan_status");
-      assert.equal(mock.calls.length, 1);
+      assert.ok(mock.calls.length === 1 || mock.calls.length === 2);
+      if (mock.calls.length === 2) {
+        assert.equal(mock.requestHeaders[1]?.get("x-certscore-mcp-internal-operation"), "scan_site_wait");
+      }
     }, {
       initialPreConsentPreviewWaitMs: 20,
       toolProfile: "light",
@@ -994,6 +1086,7 @@ test("certscore_get_scan_status requires the stable scanId", async () => {
     const payload = parseToolJson(missing);
     assert.deepEqual(payload.error, {
       code: "invalid_arguments",
+      issues: [{ field: "scanId", code: "invalid_type", required: true }],
       message: "The scanId field is required.",
       field: "scanId",
       retryable: false,
@@ -1014,6 +1107,7 @@ test("certscore_scan_site returns typed validation details when url is missing",
     assert.equal(payload.status, "invalid_arguments");
     assert.deepEqual(payload.error, {
       code: "invalid_arguments",
+      issues: [{ field: "url", code: "invalid_type", required: true }],
       message: "The url field is required.",
       field: "url",
       retryable: false,
@@ -1716,6 +1810,13 @@ test("tool errors are returned as machine-readable JSON without invalid success-
       const result = parseToolJson(raw);
       const error = result.error as Record<string, unknown>;
       assert.equal(error.name, "InvalidUrlError");
+      assert.equal(error.field, "url");
+      assert.equal(error.scanStarted, false);
+      assert.equal(error.inputCorrectionRequired, true);
+      assert.match(String(error.message), /No scan was started/);
+      assert.match(String(error.recommendedNextAction), /bare domain is accepted/);
+      assert.match(String(error.recommendedNextAction), /www only if it is the intended site/);
+      assert.equal(raw.content.length, 2);
       assert.equal(error.code, "invalid_url");
       assert.equal(error.retryable, false);
       assert.equal(error.retryAfterSeconds, null);
@@ -1747,5 +1848,122 @@ test("certscore_get_scan returns an MCP error while a scan resource is not ready
     });
   } finally {
     mock.restore();
+  }
+});
+
+
+test("Light MCP returns retained authentication no-go text and typed remedies within tight bundle budgets", async () => {
+  const scan = JSON.parse(readFileSync(new URL("./test-fixtures/authentication-no-go-scan.json", import.meta.url), "utf8")).scan;
+  for (const maxBytes of [5_000, 8_000]) {
+    const mock = installFetch([{ status: 200, body: scan }]);
+    try {
+      await withMcpClient(async (client) => {
+        const result = await client.callTool({ name: "certscore_get_scan_bundle", arguments: { scanId: scan.scanId, detail: "full", maxBytes } });
+        const bundle = parseToolJson(result);
+        assertToolOutputSchema("certscore_get_scan_bundle", bundle);
+        assert.equal(bundle.score, null);
+        assert.equal(bundle.resultDisposition, "no_go");
+        assert.deepEqual(bundle.noGo, scan.noGo);
+        assert.equal(bundle.recommendedNextAction, scan.noGo.recommendedNextAction);
+        assert.ok(Buffer.byteLength(JSON.stringify(bundle)) <= maxBytes);
+        assert.equal(bundle.fullReport, undefined, "a no-go result has no full report to serialize");
+        const text = result.content?.find((item: any) => item.type === "text") as { text: string };
+        assert.match(text.text, /^CertScore scan: Sign-in required/);
+        assert.match(text.text, /HTTP 401/);
+        assert.ok(text.text.includes(scan.noGo.recommendedNextAction));
+        assert.doesNotMatch(text.text, /Canonical findings complete/);
+        assert.equal(mock.calls.length, 1, "no Pulse, inventory or evidence fetch for a no-go");
+      }, { toolProfile: "light" });
+    } finally { mock.restore(); }
+  }
+});
+
+
+test("optional null arguments identify every rejected field without calling the origin", async () => {
+  const mock = installFetch([]);
+  try {
+    await withMcpClient(async client => {
+      const result = await client.callTool({ name: "certscore_get_scan_bundle", arguments: {
+        scanId: "00000000-0000-4000-8000-000000000123", detail: null, maxBytes: null, maxFindings: null, maxPreConsentRows: null,
+      } });
+      assert.equal(result.isError, true);
+      const error = parseToolJson(result).error as Record<string, any>;
+      assert.deepEqual(error.issues.map((issue: any) => issue.field).sort(), ["detail", "maxBytes", "maxFindings", "maxPreConsentRows"].sort());
+      assert.match(error.recommendedNextAction, /Omit optional parameters.*do not send null/);
+      assert.equal(mock.calls.length, 0);
+    });
+  } finally { mock.restore(); }
+});
+
+test("initialize explains OAuth scopes and Light routing without inventing quota", async () => {
+  for (const scopes of [["scan:read","mcp"],["scan:read","scan:create","mcp"]]) {
+    await withMcpClient(async client => {
+      const {setup} = JSON.parse(client.getInstructions()!);
+      assert.deepEqual(setup.scopesGranted, scopes);
+      assert.equal(setup.route,"hosted_oauth");
+      assert.equal(setup.createAllowedByScope,scopes.includes("scan:create"));
+      assert.equal(setup.quotaRemaining,null);
+      assert.equal(setup.recommendedNextTool,scopes.includes("scan:create")?"certscore_scan_site":"certscore_get_latest_domain_scan");
+    },{grantedOAuthScopes:scopes});
+  }
+  await withMcpClient(async client => {
+    const {setup} = JSON.parse(client.getInstructions()!);
+    assert.equal(setup.route,"light");
+    assert.match(setup.guidance,/Light supports eligible public scans, not workspace history/);
+  },{toolProfile:"light"});
+});
+
+test("Cursor Hosted OAuth package uses the seeded public client and exact fixed callbacks", () => {
+  const config=JSON.parse(readFileSync(new URL('../../../integrations/cursor/certscore-hosted-oauth/mcp.json',import.meta.url),'utf8'));
+  const server=config.mcpServers['CertScore Hosted OAuth'];
+  assert.equal(server.url,'https://mcp.certscore.ai/mcp');
+  assert.equal(server.auth.CLIENT_ID,'certscore_cursor_hosted_oauth_v1');
+  assert.equal(server.auth.CLIENT_SECRET,undefined);
+  assert.deepEqual(server.auth.scopes,['scan:read','scan:create','mcp']);
+  const migration=readFileSync(new URL('../../../packages/db/migrations/0198_cursor_hosted_oauth_client.sql',import.meta.url),'utf8');
+  assert.ok(migration.includes(server.auth.CLIENT_ID));
+  assert.match(migration,/https:\/\/www.cursor.com\/agents\/mcp\/oauth\/callback/);
+  assert.match(migration,/http:\/\/localhost:8787\/callback/);
+});
+
+test("OAuth and Light retrieve typed report pages, forward cursors, and guide continuation", async () => {
+  const scanId = '9ba99a8c-b1ad-44c1-985f-92cef760ab40';
+  const cursor = `v1.${'a'.repeat(64)}.1`;
+  const page = { type: 'certscore_report_evidence_page', version: 1, scanId, snapshot: 'a'.repeat(64), reportUrl: `https://certscore.ai/scan/${scanId}`, entries: [{ path: '/findings', value: [{ id: 'retained' }] }], pagination: { offset: 0, returned: 1, total: 2, complete: false, nextCursor: cursor }, coverage: { scope: 'public_report_projection', exportTruncated: false, observationCompleteness: 'see_report_coverage', exclusions: [] }, reconstruction: 'JSON Pointer entries', download: { url: `https://certscore.ai/api/v2/scans/${scanId}/report-evidence?format=download`, mediaType: 'application/json', bytes: 790000, authentication: 'same_access_rules_as_mcp', instructions: 'Use MCP pagination if authenticated downloads are unavailable.' } };
+  for (const toolProfile of ['full', 'light'] as const) {
+    const fetch = installFetch([{ status: 200, body: page, delayMs: 30 }, { status: 200, body: { ...page, pagination: { offset: 1, returned: 1, total: 2, complete: true, nextCursor: null } } }]);
+    try {
+      await withMcpClient(async (client) => {
+        const first = await client.callTool({ name: 'certscore_get_report_evidence_page', arguments: { scanId } });
+        assert.equal(first.isError, undefined);
+        assert.deepEqual(first.structuredContent, page);
+        assert.ok(JSON.stringify(first.content).includes('format=download'));
+        assert.ok(JSON.stringify(first.content).includes('authenticated downloads are unavailable'));
+        const guidance = (first._meta as any)['ai.certscore/responseGuidance'];
+        assert.deepEqual(guidance.nextAction.arguments, { scanId, cursor });
+        assert.equal(guidance.pagination.complete, false);
+        const last = await client.callTool({ name: 'certscore_get_report_evidence_page', arguments: { scanId, cursor } });
+        assert.equal((last.structuredContent as any).pagination.complete, true);
+        assert.equal(new URL(fetch.calls[1]).searchParams.get('cursor'), cursor);
+        assert.ok(fetch.calls.every(url => new URL(url).pathname.endsWith('/report-evidence')));
+      }, { toolProfile, timeout: 5 });
+    } finally { fetch.restore(); }
+  }
+});
+
+
+test("new sessions announce their current tool catalog for cached hosts", async () => {
+  for (const toolProfile of ["full", "light"] as const) {
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const server = createCertScoreMcpServer({ toolProfile });
+    const client = new Client({ name: "catalog-refresh-test", version: "1" });
+    let notices = 0;
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => { notices++; });
+    try {
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      const tools = await client.listTools();
+      assert.ok(tools.tools.some(tool => tool.name === "certscore_get_report_evidence_page"));
+      assert.equal(notices, 1);
+    } finally { await client.close(); await server.close(); }
   }
 });

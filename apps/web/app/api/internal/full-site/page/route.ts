@@ -1,0 +1,185 @@
+import { matchesFullSiteCompletionReceipt } from "../../../../../server/scans/full-site-completion-receipt";
+import { collectionSurfaceInventorySchema, collectionSurfaceSnapshotSchema } from "@certscore/contracts";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  claimFullSitePage,
+  completeFullSitePage,
+  queryOne,
+  readFullSiteArtifact,
+} from "@website-signal-risk-scanner/db";
+import {
+  FULL_SITE_ARTIFACT_LIMITS,
+  crawlObservationSchema,
+  compactCrawlObservation,
+} from "@website-signal-risk-scanner/shared";
+import { projectCrawlRuntimeGraph } from "../../../../../server/scans/runtime-evidence-graph-projection";
+const schema = z
+  .object({
+    operation: z.enum(["claim", "finish"]),
+    contractVersion: z.literal("certscore.full-site-page-dispatch.v1"),
+    pageId: z.string().uuid(),
+    attemptId: z.string().uuid(),
+    token: z.string().regex(/^[a-f0-9]{64}$/),
+    region: z.string().optional(),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+    sizeBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(FULL_SITE_ARTIFACT_LIMITS.inventory)
+      .optional(),
+    evidenceSizeBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(FULL_SITE_ARTIFACT_LIMITS.evidence)
+      .optional(),
+  })
+  .strict();
+export async function POST(request: Request) {
+  if (Number(request.headers.get("content-length")) > 4096)
+    return new Response(null, { status: 413 });
+  const reader = request.body?.getReader();
+  const parts: Uint8Array[] = [];
+  let bytes = 0;
+  if (reader)
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 4096) {
+          await reader.cancel();
+          return new Response(null, { status: 413 });
+        }
+        parts.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  const raw = Buffer.concat(parts).toString("utf8");
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return new Response(null, { status: 400 });
+  }
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) return new Response(null, { status: 400 });
+  const data = parsed.data;
+  if (data.operation === "claim")
+    return NextResponse.json(
+      {
+        grant: await claimFullSitePage({ ...data, region: data.region ?? "" }),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  const { createHash } = await import("node:crypto");
+  const row = await queryOne<{
+    scan_id: string;
+    configuration_hash: string;
+    bucket: string;
+    artifact_prefix: string;
+    region: string;
+    status: string;
+    artifact_json: unknown;
+  }>(
+    `select c.scan_id,c.configuration_hash,c.bucket,c.artifact_prefix,c.region,p.status,a.artifact_json
+    from full_site_pages p join full_site_crawls c on c.scan_id=p.scan_id
+    left join full_site_attempts a on a.id=p.attempt_id and a.page_id=p.id where p.id=$1 and p.attempt_id=$2 and p.token_hash=$3`,
+    [
+      data.pageId,
+      data.attemptId,
+      createHash("sha256").update(data.token).digest("hex"),
+    ],
+  );
+  if (!row) return new Response(null, { status: 403 });
+  if (row.status !== "active") return NextResponse.json({
+    accepted: ["completed", "partial", "blocked", "failed"].includes(row.status) &&
+      matchesFullSiteCompletionReceipt(row.artifact_json, data),
+  }, { headers: { "Cache-Control": "no-store" } });
+  if (!data.sha256 || !data.sizeBytes || !data.evidenceSizeBytes)
+    return new Response(null, { status: 400 });
+  const prefix = `${row.artifact_prefix}/${data.pageId}/${data.attemptId}`;
+  const packet = crawlObservationSchema.parse(
+    await readFullSiteArtifact({
+      bucket: row.bucket,
+      key: `${prefix}/inventory.json`,
+      region: row.region,
+      sha256: data.sha256,
+      sizeBytes: data.sizeBytes,
+      maxBytes: FULL_SITE_ARTIFACT_LIMITS.inventory,
+    }),
+  );
+  if (
+    packet.parentScanId !== row.scan_id ||
+    packet.pageJobId !== data.pageId ||
+    packet.attemptId !== data.attemptId ||
+    packet.configurationHash !== row.configuration_hash ||
+    packet.executionProfile !== "inventory_only"
+  )
+    return new Response(null, { status: 409 });
+  const rawEvidence = await readFullSiteArtifact({
+    bucket: row.bucket,
+    key: `${prefix}/evidence.json`,
+    region: row.region,
+    sha256: packet.sourceHash,
+    sizeBytes: data.evidenceSizeBytes,
+    maxBytes: FULL_SITE_ARTIFACT_LIMITS.evidence,
+  });
+  if (packet.collectionSurfaces) {
+    const raw = rawEvidence as { collectionSurfaceInventory?: unknown; collectionSurfaceSnapshots?: unknown[] };
+    const inventory = collectionSurfaceInventorySchema.safeParse(raw.collectionSurfaceInventory);
+    if (!inventory.success || JSON.stringify(inventory.data) !== JSON.stringify(packet.collectionSurfaces.inventory) || packet.collectionSurfaces.sourceSizeBytes !== data.evidenceSizeBytes) {
+      delete packet.collectionSurfaces;
+    } else {
+      const sourceInventoryHash = createHash("sha256").update(JSON.stringify(inventory.data)).digest("hex");
+      packet.collectionSurfaces.snapshots = (raw.collectionSurfaceSnapshots ?? []).flatMap(candidate => {
+        const parsed = collectionSurfaceSnapshotSchema.safeParse(candidate);
+        if (!parsed.success) return [];
+        const { data: encoded, ...snapshot } = parsed.data;
+        if (snapshot.sourceInventoryHash !== sourceInventoryHash || snapshot.pageUrl !== inventory.data.pageUrl || !inventory.data.forms.some(form => form.formRef === snapshot.formRef)) return [];
+        if (snapshot.status === "available") {
+          const bytes = Buffer.from(encoded!, "base64");
+          if (bytes.length !== snapshot.sizeBytes || createHash("sha256").update(bytes).digest("hex") !== snapshot.sha256) return [];
+        }
+        return [snapshot];
+      }).slice(0, 10);
+    }
+  }
+  if (packet.runtimeGraph) {
+    const graph = projectCrawlRuntimeGraph({ graph: (rawEvidence as { runtimeEvidenceGraph?: unknown })?.runtimeEvidenceGraph, pageId: data.pageId, attemptId: data.attemptId,
+      source: { sha256: packet.sourceHash, sizeBytes: data.evidenceSizeBytes, verificationStatus: "verified" } });
+    const verified = graph.graphs[0];
+    if (!verified || packet.runtimeGraph.sourceSizeBytes !== data.evidenceSizeBytes || verified.sourceHash !== packet.runtimeGraph.sha256 || verified.nodes.length !== packet.runtimeGraph.nodeCount || verified.edges.length !== packet.runtimeGraph.edgeCount) delete packet.runtimeGraph;
+  }
+  const accepted = await completeFullSitePage({
+    pageId: data.pageId,
+    attemptId: data.attemptId,
+    token: data.token,
+    status: packet.status,
+    observation: packet,
+    compact: compactCrawlObservation(packet),
+    finalUrl: packet.finalUrl,
+    failureKind: packet.failureKind,
+    retryAfterSeconds: packet.retryAfterSeconds,
+    artifact: {
+      bucket: row.bucket,
+      key: `${prefix}/inventory.json`,
+      sha256: data.sha256,
+      sizeBytes: data.sizeBytes,
+      maxBytes: FULL_SITE_ARTIFACT_LIMITS.inventory,
+      evidenceKey: `${prefix}/evidence.json`,
+      evidenceSizeBytes: data.evidenceSizeBytes,
+      sourceHash: packet.sourceHash,
+    },
+  });
+  return NextResponse.json(
+    { accepted },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}

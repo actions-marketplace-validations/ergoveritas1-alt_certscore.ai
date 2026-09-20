@@ -7,9 +7,42 @@ import {
   type NetworkResponseEvent,
   SCHEMA_VERSION,
   canonicalEvidenceBundleSchema,
+  postAcceptEvidencePacketSchema,
 } from "@certscore/contracts";
+import { RuntimeEvidenceGraphBuilder } from "./runtime-evidence-graph.js";
 import { compactCanonicalEvidenceBundleForRetention, summarizeSiteResourceSizes } from "./index.js";
 import { getScanProfile } from "./profiles.js";
+import { gpcImpactRequestSetHash } from "./gpc-impact-capture.js";
+
+test("retention restores complete small GPC windows without displacing priority evidence", () => {
+  const bundle = oversizedGoogleLikeBundle();
+  const baseline = compactCanonicalEvidenceBundleForRetention(bundle);
+  const retainedIds = new Set(baseline.networkEvents.map(e => e.eventId));
+  const lost = bundle.networkEvents.find(e => !retainedIds.has(e.eventId))!;
+  assert.ok(lost);
+  bundle.networkEvents = bundle.networkEvents.map(e => ({ ...e, timestampMs: e.eventId === lost.eventId ? 1000 : 2000 }));
+  const observed = bundle.networkEvents.filter(e => e.timestampMs === 1000);
+  bundle.gpcImpactCapture = { contractVersion: "certscore.gpc-impact-capture.v1", scope: "page_http_request_attempts_after_document_commit",
+    expectedEnabled: false, captureStartedAtMs: 0, capturedAtMs: 1500, readbackDocumentToken: "loader",
+    document: { token: "loader", urlSha256: "a".repeat(64), committedAtMs: 1000, secGpc: null }, requestsDropped: 0,
+    windows: [{ durationMs: 250, requestCount: 1, requestSetSha256: gpcImpactRequestSetHash(observed) }], limitationKeys: [] };
+  const result = compactCanonicalEvidenceBundleForRetention(bundle);
+  assert.ok(result.networkEvents.some(e => e.eventId === lost.eventId));
+  for (const id of retainedIds) assert.ok(result.networkEvents.some(e => e.eventId === id), id);
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 400 * 1024);
+  assert.deepEqual(result.gpcImpactCapture, bundle.gpcImpactCapture);
+  assert.equal(gpcImpactRequestSetHash(result.networkEvents.filter(e => e.timestampMs >= 1000 && e.timestampMs < 1250)), bundle.gpcImpactCapture.windows[0]!.requestSetSha256);
+  const constrained = compactCanonicalEvidenceBundleForRetention(bundle, 1);
+  assert.equal(constrained.gpcImpactCapture?.retentionStatus, "incomplete");
+  assert.deepEqual(constrained.gpcImpactCapture?.windows, bundle.gpcImpactCapture.windows, "original counts/digests are never rewritten");
+  assert.equal(canonicalEvidenceBundleSchema.safeParse(constrained).success, true);
+  const large = structuredClone(bundle);
+  large.networkEvents = large.networkEvents.map(e => ({ ...e, timestampMs: 1000 }));
+  large.gpcImpactCapture!.windows = [{ durationMs: 250, requestCount: large.networkEvents.length, requestSetSha256: gpcImpactRequestSetHash(large.networkEvents) }];
+  const bounded = compactCanonicalEvidenceBundleForRetention(large);
+  assert.equal(bounded.gpcImpactCapture?.retentionStatus, "incomplete", "large restoration does not lift the 16 KiB addition cap");
+  assert.deepEqual(bounded.gpcImpactCapture?.windows, large.gpcImpactCapture!.windows);
+});
 
 test("canonical bundle retention keeps report-critical evidence under 400 KB excluding screenshots", () => {
   const bundle = oversizedGoogleLikeBundle();
@@ -106,6 +139,34 @@ test("canonical evidence rejects duplicate policy observation identities", () =>
     }),
     /Duplicate policy surface observationId/,
   );
+});
+
+test("root and action graph bytes never displace existing canonical evidence during compaction", () => {
+  const bundle = oversizedGoogleLikeBundle();
+  bundle.postAcceptEvidence = postAcceptEvidencePacketSchema.parse({
+    artifactVersion: "certscore.post_accept_evidence.v1", artifactOnly: true, productionProjectable: false,
+    scanId: "accept", parentScanId: bundle.scanId, targetUrl: "https://example.test/", normalizedUrl: "https://example.test/",
+    observationBranch: "accept_only", phase: "post_action", consentAction: "accept",
+    startedAt: bundle.startedAt, completedAt: bundle.completedAt,
+    resolver: { found: false, method: "local_fixture_recipe", confidence: 0, recipeId: "fixture" },
+    acceptanceRegistration: { status: "not_attempted", acceptanceExercised: false, reason: "fixture", witnesses: [] },
+    observationWindowMs: 0, timing: { dispatchDelayMs: 0, navigationMs: 0, resolverMs: 0, confirmationMs: 0, observationMs: 0, totalMs: 0, readyAtMs: 0 },
+    network: { requests: [], postAcceptNonEssentialRequests: [], activeRequestIdsAtAcceptanceRegistration: [] },
+    storage: { preAction: [], postAction: [], writesAfterAccept: [], itemsCreatedOrChangedAfterAccept: [] },
+    observations: [], cancellation: { requested: false, outcome: "not_requested" }, limitations: [],
+  });
+  const baseline = compactCanonicalEvidenceBundleForRetention(bundle);
+  const graph = (scenario: "pre_consent" | "post_accept") => {
+    const builder = new RuntimeEvidenceGraphBuilder({ scanId: bundle.scanId, captureId: `fixture:${scenario}`, scenario, mode: "project", startedAt: bundle.startedAt, browserVersion: "fixture" });
+    for (let index = 0; index < 500; index++) builder.handle("main", "Network.requestWillBeSent", { requestId: String(index), frameId: "frame", loaderId: "document", documentURL: "https://example.test/", request: { url: `https://example.test/${index}`, method: "GET" }, initiator: { type: "other" } });
+    return builder.finish();
+  };
+  const root = graph("pre_consent"); const action = graph("post_accept");
+  const retained = compactCanonicalEvidenceBundleForRetention({ ...bundle, runtimeEvidenceGraphs: [root], postAcceptEvidence: { ...bundle.postAcceptEvidence, runtimeEvidenceGraph: action } });
+  assert.deepEqual(retained.runtimeEvidenceGraphs, [root]);
+  assert.deepEqual(retained.postAcceptEvidence?.runtimeEvidenceGraph, action);
+  delete retained.runtimeEvidenceGraphs; delete retained.postAcceptEvidence!.runtimeEvidenceGraph;
+  assert.deepEqual(retained, baseline);
 });
 
 function oversizedGoogleLikeBundle(): CanonicalEvidenceBundle {

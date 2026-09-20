@@ -1,4 +1,5 @@
 "use client";
+import { readPreconsentTrackingTiming } from "../../lib/scans/preconsent-tracking-timing";
 
 import React from "react";
 import { cn } from "@website-signal-risk-scanner/ui";
@@ -1127,8 +1128,10 @@ function getScanContextNote(item: GdprEprivacyCoverageChecklistItem) {
 
   if (item.id === "pre_consent_cookies_storage") {
     return item.status === "Observed" || item.status === "Gap observed"
-      ? "Cookies or browser storage were observed before a recorded consent action. Purpose and essentiality remain review context unless high-confidence non-essential evidence is retained."
-      : "No eligible pre-consent cookies or browser storage were observed before a recorded consent action.";
+      ? "Classified non-essential cookies or browser storage were observed before a recorded consent action. Direct write timing and snapshot-only observation are distinguished in the retained evidence."
+      : item.status === "Review signal" || item.status === "Not confirmed"
+        ? "Pre-consent storage was retained, but classification, reconciliation, or write timing remained incomplete. This is review evidence, not a clean or confirmed non-essential result."
+        : "No eligible classified non-essential pre-consent storage was observed before a recorded consent action.";
   }
 
   if (item.id === "pre_consent_third_party_tracking") {
@@ -1354,24 +1357,9 @@ function getSpecificChecklistRowRationale(item: GdprEprivacyCoverageChecklistIte
 
   if (item.id === "pre_consent_third_party_tracking") {
     if (evidenceLabel === "Not observed") {
-      return "No tracking-classified 3rd party request was observed before a recorded consent action.";
+      return "No request met the tracking-classified threshold before a recorded consent action. Broader third-party requests or embedded services, when present, are reported separately and do not by themselves establish tracking.";
     }
-    const canonicalSummary = getCanonicalRuntimeEvidenceSummary({
-      fallbackFirstSeenMs: firstSeenMs,
-      item,
-      lead: "Pre-consent non-essential tracking evidence was retained",
-      maxEntries: 2,
-      rowKind: "tracking"
-    });
-    if (canonicalSummary) {
-      return canonicalSummary;
-    }
-    return joinRationaleParts([
-      vendorPhrase
-        ? `Tracking-classified 3rd party requests fired before any recorded consent action: ${vendorPhrase}`
-        : "Tracking-classified 3rd party requests fired before any recorded consent action",
-      formatFirstSeenPhrase(firstSeenMs)
-    ]);
+    return deriveGdprEprivacyCoverageChecklistRowRationale(item);
   }
 
   if (item.id === "pre_consent_cookies_storage") {
@@ -2242,6 +2230,7 @@ function getEvidenceVendorNames(item: GdprEprivacyCoverageChecklistItem) {
 
 function getFirstEvidenceMs(item: GdprEprivacyCoverageChecklistItem) {
   const evidence = getRetainedEvidenceRecord(item);
+  if (item.id === "pre_consent_third_party_tracking") return minNumber(readPreconsentTrackingTiming(evidence.trackingRequestTiming).map(row => row.firstSeenMs));
   const direct = getFirstNumberFromRecord(evidence, [
     "firstObservedMs",
     "first_observed_ms",

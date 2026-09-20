@@ -19,7 +19,96 @@ type Args = {
   mode: "fast" | "full";
 };
 
+const RUNTIME_GRAPH_RELEASE_CHECK: Check = {
+  key: "runtime-graph-release",
+  label: "runtime graph persistence, access, API and rollout contracts",
+  command: [
+    "pnpm", "exec", "tsx", "--tsconfig", "apps/web/tsconfig.json", "--test",
+    "apps/web/server/scans/runtime-evidence-graph-access.test.ts",
+    "apps/web/server/scans/runtime-evidence-graph-dispatch.test.ts",
+    "apps/web/server/scans/runtime-evidence-graph-projection.test.ts",
+    "apps/web/server/scans/runtime-evidence-graph-read.test.ts",
+    "apps/web/server/scans/runtime-evidence-graph-storage.test.ts",
+    "apps/web/lib/api-v2/scan-resource.test.ts",
+    "apps/web/lib/api-v2/after-action-summary.test.ts",
+    "apps/web/lib/public-integration-versions.test.ts",
+    "apps/web/server/pulse/retrieval-quota.test.ts",
+    "scripts/runtime-graph-rollout.test.ts",
+    "scripts/lib/scanner-image-provenance.test.ts",
+    "apps/v2-dag-lambda/src/dev-scripts.test.ts",
+    "apps/validation-worker/src/validation/local-v2-dag-lambda-dispatch.test.ts",
+  ],
+};
+
+const SCAN_NO_GO_RELEASE_CHECK: Check = {
+  key: "scan-no-go-release",
+  label: "canonical no-go score, persistence and report regressions",
+  command: ["pnpm", "test:scan-no-go"],
+};
+
+const RUNTIME_GRAPH_CAPTURE_CHECK: Check = {
+  key: "runtime-graph-capture",
+  label: "runtime graph browser, correlation, retention and deadline regressions",
+  command: ["pnpm", "exec", "tsx", "--tsconfig", "tsconfig.base.json", "--test", "--test-concurrency=1",
+    "packages/certscore-contracts/src/runtime-evidence-graph.test.ts",
+    "packages/certscore-scan-core/src/runtime-evidence-graph.test.ts",
+    "packages/certscore-scan-core/src/runtime-evidence-graph-browser.test.ts",
+    "packages/certscore-scan-core/src/canonical-bundle-retention.test.ts",
+    "packages/certscore-scan-core/src/browser-recovery-cleanup.test.ts",
+    "packages/certscore-scan-core/src/consent-geometry-proof-budget.test.ts",
+    "packages/certscore-scan-core/src/gpc-response-assessment.test.ts",
+    "packages/certscore-scan-core/src/transport-security-scanner.test.ts"],
+};
+const REPRESENTATIVE_PROOF_CHECK: Check = {
+  key: "consent-representative-proof",
+  label: "same-session representative viewport proof regression",
+  command: ["pnpm", "exec", "tsx", "--tsconfig", "tsconfig.base.json", "--test", "--test-name-pattern=^consent-proof lane (binds a completed generic negative|retains same-document Playwright proof)", "packages/certscore-scan-core/src/integration-fixtures.test.ts"],
+};
+
+const GPC_OBSERVATION_RELEASE_CHECK: Check = {
+  key: "gpc-production-observation",
+  label: "GPC retained delivery, blocked requests, canonical projection and public contracts",
+  command: ["pnpm", "exec", "tsx", "--tsconfig", "tsconfig.base.json", "--test", "--test-concurrency=1",
+    "packages/certscore-contracts/src/gpc-impact.test.ts",
+    "packages/certscore-scan-core/src/gpc-impact-assessment.test.ts",
+    "packages/certscore-scan-core/src/gpc-impact-browser.test.ts",
+    "packages/certscore-scan-core/src/gpc-impact-cohort.test.ts",
+    "packages/certscore-scan-core/src/gpc-signal-capture.test.ts",
+    "packages/certscore-scan-core/src/gpc-semantic-monitor.test.ts",
+    "packages/certscore-scan-core/src/access-reliability.test.ts",
+    "packages/certscore-scan-core/src/cross-lane-access.test.ts",
+    "packages/certscore-scan-core/src/gpc-observation-finalization.test.ts",
+    "packages/certscore-scan-core/src/gpc-request-header-readback.test.ts",
+    "scripts/replay-gpc-impact.test.ts",
+    "scripts/replay-gpc-impact-cohort.test.ts",
+    "packages/certscore-scan-core/src/gpc-observation-completion.test.ts",
+    "packages/certscore-scan-core/src/gpc-pre-transmission-block.test.ts",
+    "packages/certscore-contracts/src/gpc-public-contract.test.ts",
+    "apps/web/lib/scans/gpc-production-observation.test.ts",
+    "apps/web/components/scans/report-lab/shadow-scan-report.test.ts",
+    "packages/certscore-mcp/src/tools.test.ts"],
+};
+
+const CONSENT_ACTION_SEMANTICS_CHECK: Check = {
+  key: "consent-action-semantics",
+  label: "multilingual consent classification and bounded Accept/Reject dispatch",
+  command: ["pnpm", "exec", "tsx", "--tsconfig", "tsconfig.base.json", "--test", "--test-concurrency=2",
+    "packages/certscore-contracts/src/consent-control-semantics.test.ts",
+    "packages/certscore-scan-core/src/cmp-action-semantic-proof.test.ts",
+    "packages/certscore-scan-core/src/cmp-control-actionability.test.ts",
+    "packages/certscore-scan-core/src/consent-action-binding.test.ts",
+    "packages/certscore-scan-core/src/consent-action-late-label.test.ts",
+    "packages/certscore-scan-core/src/post-accept-observer.test.ts",
+    "packages/certscore-scan-core/src/post-refusal-observer.test.ts"],
+};
+
 const ROOT_FULL_CHECKS: Check[] = [
+  CONSENT_ACTION_SEMANTICS_CHECK,
+  GPC_OBSERVATION_RELEASE_CHECK,
+  SCAN_NO_GO_RELEASE_CHECK,
+  RUNTIME_GRAPH_RELEASE_CHECK,
+  RUNTIME_GRAPH_CAPTURE_CHECK,
+  REPRESENTATIVE_PROOF_CHECK,
   {
     key: "deploy-topology",
     label: "deployment topology check",
@@ -79,6 +168,33 @@ const ROOT_FULL_CHECKS: Check[] = [
 
 const TARGETS: Target[] = [
   {
+    key: "mcp-http", label: "MCP public contracts and HTTP transport",
+    matches: file => file.startsWith("apps/mcp/") || file.startsWith("packages/certscore-mcp/") ||
+      file.startsWith("packages/certscore-api-contracts/") || file.startsWith("packages/certscore-sdk/"),
+    checks: [
+      { key: "mcp-http-typecheck", label: "MCP dependency build and HTTP typecheck", command: ["pnpm", "--filter", "@certscore/mcp-http", "typecheck"] },
+      { key: "mcp-http-tests", label: "MCP HTTP integration and telemetry", command: ["pnpm", "--filter", "@certscore/mcp-http", "test"] },
+    ],
+  },
+  {
+    key: "consent-action-semantics",
+    label: "consent action semantics and dispatch",
+    matches: file => file.startsWith("packages/certscore-contracts/src/") ||
+      /^packages\/certscore-scan-core\/src\/(?:post-accept-|post-refusal-|cmp-action-|consent-)/.test(file),
+    checks: [CONSENT_ACTION_SEMANTICS_CHECK],
+  },
+  {
+    key: "gpc-observation", label: "GPC bounded observation",
+    matches: file => file.includes("/gpc-") || file === "scripts/run-gpc-observation-local.ts" || file === "scripts/sync-gpc-observation-contract.ts" || file === "apps/v2-dag-lambda/src/handler.ts" || file === "packages/certscore-scan-core/src/index.ts",
+    checks: [GPC_OBSERVATION_RELEASE_CHECK],
+  },
+  {
+    key: "runtime-graph-operations",
+    label: "runtime graph rollout controls",
+    matches: file => file === "scripts/runtime-graph-rollout.ts" || file === "scripts/runtime-graph-rollout.test.ts" || file.startsWith("scripts/lib/scanner-image-provenance") || file === "scripts/repair-scanner-image-provenance.ts" || file === "scripts/deploy-fast.ts" || file === "scripts/check-regional-scanner-parity.ts",
+    checks: [RUNTIME_GRAPH_RELEASE_CHECK],
+  },
+  {
     key: "web",
     label: "public web",
     matches: (file) =>
@@ -94,6 +210,8 @@ const TARGETS: Target[] = [
       file.startsWith("packages/ui/") ||
       file.startsWith("packages/validation-shared/"),
     checks: [
+      RUNTIME_GRAPH_RELEASE_CHECK,
+      SCAN_NO_GO_RELEASE_CHECK,
       {
         key: "web-typecheck",
         label: "public web typecheck",
@@ -103,12 +221,13 @@ const TARGETS: Target[] = [
         key: "web-scan-source-contracts",
         label: "scan-source and forward-deploy contracts",
         command: [
-          "node", "--import", "tsx", "--test",
+          "pnpm", "exec", "tsx", "--tsconfig", "apps/web/tsconfig.test.json", "--test",
           "apps/web/components/marketing/domain-scan-form.test.ts",
           "apps/web/components/scans/scan-from-select.test.tsx",
           "apps/web/server/scans/recent-scan-reuse.test.ts",
           "apps/web/server/scans/restricted-scan-options.test.ts",
-          "scripts/assert-forward-web-deploy.test.ts"
+          "scripts/assert-forward-web-deploy.test.ts",
+          "scripts/web-deploy-migration-order.test.ts"
         ]
       },
       {
@@ -139,6 +258,7 @@ const TARGETS: Target[] = [
       file.startsWith("packages/validation-shared/") ||
       file.startsWith("packages/web-bot-auth/"),
     checks: [
+      RUNTIME_GRAPH_RELEASE_CHECK,
       {
         key: "validation-worker-typecheck",
         label: "validation worker typecheck",
@@ -165,6 +285,8 @@ const TARGETS: Target[] = [
       file.startsWith("scripts/local-v2-dag-lambda/") ||
       file === ".github/workflows/v2-regulatory-gold-corpus.yml",
     checks: [
+      RUNTIME_GRAPH_CAPTURE_CHECK,
+      REPRESENTATIVE_PROOF_CHECK,
       {
         key: "scan-core-typecheck",
         label: "v2 scan-core typecheck",
@@ -205,8 +327,14 @@ const TARGETS: Target[] = [
       file.startsWith("packages/db/") ||
       file === "scripts/apply-db-migrations.ts" ||
       file === "scripts/apply-db-migrations.mjs" ||
+      file === "scripts/web-deploy-migration-order.test.ts" ||
       file === ".github/workflows/prod-db-migrate.yml",
     checks: [
+      {
+        key: "db-migration-contracts",
+        label: "database migration compatibility and deploy ordering",
+        command: ["node", "--import", "tsx", "--test", "scripts/web-deploy-migration-order.test.ts"]
+      },
       {
         key: "db-typecheck",
         label: "database package typecheck",

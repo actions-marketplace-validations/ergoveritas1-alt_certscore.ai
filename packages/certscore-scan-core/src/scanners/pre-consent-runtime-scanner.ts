@@ -1,3 +1,16 @@
+import { installFormDestinationTracing } from "../form-destination-trace.js";
+import { CMS_ASSET_PATTERNS, SITE_INTEGRITY_LIMITS, siteIntegrityObservationSchema, type SiteIntegrityObservation } from "@certscore/contracts";
+import { createHash, randomUUID } from "node:crypto";
+import { createProxyDestinationCapture } from "../proxy-destination-capture.js";
+import { captureCollectionSurfaceSnapshots, type FormSnapshotReviewer } from "../collection-surface-snapshots";
+import { createGpcSignalCapture, installGpcNavigatorSignal } from "../gpc-signal-capture.js";
+import { startGpcObservationSession } from "../gpc-observation-session.js";
+import { createGpcImpactCapture } from "../gpc-impact-capture.js";
+import { installGpcSemanticMonitor } from "../gpc-semantic-monitor.js";
+import { recoveryNavigationTimeout, resetForNavigationRecovery, passiveReadinessTimeout } from "../access-reliability.js";
+import { captureGpcOptOutObservation } from "../gpc-opt-out-capture.js";
+import type { GpcOptOutObservation, GpcObservationSession, GpcImpactCapture } from "@certscore/contracts";
+import type { GpcSignalObservation } from "@certscore/contracts";
 import {
   type ArtifactRef,
   type AutomatedAccessObservation,
@@ -10,18 +23,23 @@ import {
   type DomSnapshotArtifact,
   type IframeEvent,
   type NetworkEvent,
-  type NetworkDestination,
   type NetworkResponseEvent,
   type RuntimeEvidenceEvent,
+  type RuntimeEvidenceGraph,
   type ScanModuleRun,
   type ScreenshotArtifact,
   type SetCookieMetadata,
   type ScriptEvent,
   type StorageSnapshot,
+  storageCaptureContextSchema,
   type TransportSecurityObservation,
   type ConsentUiObservation,
   type VisualCaptureSummary,
   classifyConsentControlLabel,
+  classifyConsentControlLinkDestination,
+  hasUnresolvedConsentDecision,
+  UNRESOLVED_CONSENT_DECISION,
+  classifyTransportHttpProbeOutcome,
   CONSENT_PREFERENCE_CATEGORY_REGISTRY,
   classifyConsentSurfaceText,
   classifyPrivacySurface,
@@ -29,6 +47,7 @@ import {
   isVerifiedTerminalConsentPacket,
   PRIVACY_EVIDENCE_LOCALE_REGISTRY,
 } from "@certscore/contracts";
+import { installRuntimeGraphCapture, type RuntimeGraphCaptureInput } from "../runtime-evidence-graph-capture.js";
 import {
   isCanonicalIdSyncEndpoint,
   resolveCanonicalCookieKnowledge,
@@ -45,6 +64,7 @@ import { isIP } from "node:net";
 import { connect as tlsConnect } from "node:tls";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Frame, type Page, type Request, type Response, type Route } from "playwright";
 import type { ArtifactWriter } from "../artifact-writer.js";
+import { consentGeometryProofCdpBudget } from "../consent-geometry-proof-budget.js";
 import { connectTlsThroughConfiguredProxy, proxyFetch } from "../proxy-fetch.js";
 import {
   captureConsentControlGeometry,
@@ -64,7 +84,7 @@ import {
   getRegistrableDomainFromUrl,
 } from "../domain-utils.js";
 import { chromiumContextOptions, chromiumLaunchOptions } from "../playwright-runtime.js";
-import { enrichNetworkDestination } from "../network-destination.js";
+import { captureResponseDestination, enrichNetworkDestination } from "../network-destination.js";
 import { normalizePublicIpAddress } from "../public-ip-address.js";
 import { maybeFulfillHeavyResource } from "../resource-stubbing.js";
 import { installWebBotAuthRoute } from "../web-bot-auth-routing.js";
@@ -88,6 +108,11 @@ import {
   MAX_COLLECTION_SURFACE_INSPECTED_FIELDS,
   type CollectionSurfaceCaptureSnapshot,
 } from "../collection-surface-inventory.js";
+import {
+  createPassiveEvidenceActivityTracker,
+  PASSIVE_EVIDENCE_INITIAL_QUIET_WINDOW_MS,
+  waitForPassiveEvidenceQuietWindow,
+} from "../passive-evidence-quiet-window.js";
 
 const SOURCE_SCANNER = "pre_consent_runtime";
 const SCENARIO = "fresh_pre_consent";
@@ -177,6 +202,17 @@ export interface PreConsentRuntimeScannerInput {
   artifactWriter: ArtifactWriter;
   /** Selects the evidence domain retained by a dedicated Lambda lane. */
   captureScope?: "combined" | "consent_proof" | "runtime_evidence";
+  executionProfile?: "inventory_only";
+  onInventoryPage?: (page: Page) => Promise<void>;
+  formSnapshotReviewer?: FormSnapshotReviewer;
+  navigationHosts?: string[];
+  navigationAllowed?: (url: string) => boolean;
+  runtimeGraph?: RuntimeGraphCaptureInput;
+  /** Enables the dedicated passive GPC condition without changing any other capture behavior. */
+  globalPrivacyControlEnabled?: boolean;
+  /** Local artifact-only evaluation. Not wired to any production dispatch. */
+  gpcOptOutPrototype?: { scanId: string };
+  gpcImpactScanId?: string;
   browser?: Browser;
   browserMode?: "headless" | "headed";
   stubHeavyResources?: boolean;
@@ -219,11 +255,32 @@ export interface PreConsentRuntimeScannerInput {
   softDeadlineSignal?: AbortSignal;
 }
 
+async function createPassiveBrowserContext(
+  browser: Browser,
+  globalPrivacyControlEnabled: boolean,
+): Promise<BrowserContext> {
+  const baseOptions = chromiumContextOptions();
+  const context = await browser.newContext({
+    ...baseOptions,
+    ...(globalPrivacyControlEnabled
+      ? {
+          extraHTTPHeaders: {
+            ...(baseOptions.extraHTTPHeaders ?? {}),
+            "Sec-GPC": "1",
+          },
+        }
+      : {}),
+  });
+  await installGpcNavigatorSignal(context, globalPrivacyControlEnabled);
+  return context;
+}
+
 export interface PreConsentRuntimeCheckpoint {
   completedAt: string;
   cookieEvents: CookieEvent[];
   cookieSnapshots: CookieSnapshot[];
   networkEvents: NetworkEvent[];
+  iframeEvents: IframeEvent[];
   observedAtMs: number;
   vendorResolverInputs: VendorResolverInput[];
 }
@@ -320,6 +377,29 @@ export function buildLateConsentGeometryShadowArtifact(input: {
     },
     ...(completed ? { geometry: input.geometry, access: input.access } : {}),
   };
+}
+
+export async function readDocumentSiteMetadata(page: Page) {
+  const url = page.url();
+  const identity = currentBrowserDocumentIdentity(page);
+  const metadata = await page.evaluate((assetPatterns) => ({
+    contractVersion: "certscore.site-metadata.v1" as const,
+    title: document.title.slice(0, 240),
+    language: (document.documentElement.lang.trim() || document.querySelector('meta[http-equiv="content-language" i]')?.getAttribute("content")?.split(",")[0]?.trim() || document.querySelector('meta[property="og:locale" i]')?.getAttribute("content")?.replaceAll("_", "-") || "").slice(0, 35),
+    generators: Array.from(document.querySelectorAll('meta[name="generator" i]')).slice(0, 8).map(el => (el.getAttribute("content") || "").trim().slice(0, 160)).filter(Boolean),
+    cmsAssets: Array.from(document.querySelectorAll('script[src],link[href]')).slice(0, 500).flatMap(el => {
+      try {
+        const asset = new URL(el.getAttribute("src") || el.getAttribute("href") || "", document.baseURI);
+        if (asset.origin !== location.origin || !assetPatterns.some(pattern => new RegExp(pattern, "i").test(asset.pathname))) return [];
+        asset.search = ""; asset.hash = "";
+        return asset.href.length <= 512 ? [asset.href] : [];
+      } catch { return []; }
+    }).filter((value, index, all) => all.indexOf(value) === index).slice(0, 6),
+    wordpressAssetObserved: Array.from(document.querySelectorAll('script[src],link[href]')).slice(0, 500).some(el => {
+      try { const url = new URL(el.getAttribute("src") || el.getAttribute("href") || "", document.baseURI); return url.origin === location.origin && /^\/(?:wp-content|wp-includes)\//.test(url.pathname); } catch { return false; }
+    }),
+  }), Object.values(CMS_ASSET_PATTERNS)).catch(() => null);
+  return page.url() === url && identity?.token === currentBrowserDocumentIdentity(page)?.token ? metadata : null;
 }
 
 export async function readDeclaredDocumentLanguage(page: Page): Promise<string | null> {
@@ -464,6 +544,12 @@ export function applyFinalDocumentPartyClassification(input: {
 }
 
 export interface PreConsentRuntimeScannerResult {
+  gpcSignalObservation?: GpcSignalObservation;
+  gpcOptOutObservation?: GpcOptOutObservation;
+  gpcObservationSession?: GpcObservationSession;
+  gpcImpactCapture?: GpcImpactCapture;
+  gpcImpactSemanticObservation?: GpcOptOutObservation;
+  runtimeEvidenceGraph?: RuntimeEvidenceGraph;
   moduleRun: ScanModuleRun;
   runtimeTimeline: RuntimeEvidenceEvent[];
   networkEvents: NetworkEvent[];
@@ -475,9 +561,12 @@ export interface PreConsentRuntimeScannerResult {
   scriptEvents: ScriptEvent[];
   iframeEvents: IframeEvent[];
   consentUiObservations: ConsentUiObservation[];
+  collectionSurfaceSnapshots?: import("@certscore/contracts").CollectionSurfaceSnapshot[];
+  formDestinationTrace?: import("@certscore/contracts").FormDestinationTrace;
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
   cmpRuntimeObservations: CmpRuntimeObservation[];
+  siteIntegrityObservation?: SiteIntegrityObservation;
   transportSecurityObservations: TransportSecurityObservation[];
   screenshots: ScreenshotArtifact[];
   visualCapture: VisualCaptureSummary;
@@ -532,6 +621,9 @@ export async function preConsentRuntimeScanner(
   const captureRuntimeEvidence = captureScope !== "consent_proof";
   const captureConsentEvidence = captureScope !== "runtime_evidence";
   const captureRenderedPolicyEvidence = captureScope === "combined";
+  const impactCapture = captureScope === "runtime_evidence" && input.executionProfile !== "inventory_only" ? createGpcImpactCapture({
+    expectedEnabled: input.globalPrivacyControlEnabled === true, now: () => elapsed(input.scanStartedAtMs),
+  }) : undefined;
   const screenshotMode = captureConsentEvidence
     ? input.screenshotMode ?? "always"
     : "never";
@@ -551,10 +643,12 @@ export async function preConsentRuntimeScanner(
   const runtimeErrors: string[] = [];
   const screenshotErrors: string[] = [];
   const navigationNotes: string[] = [];
+  const passiveEvidenceActivity = createPassiveEvidenceActivityTracker();
   const requestIds = new WeakMap<Request, string>();
   const requestEvents = new WeakMap<Request, NetworkEvent>();
+  const pendingResponseCaptures = new Set<Promise<void>>();
+  let responseCaptureFinalized = false;
   const cdpInitiatorsByUrl = new Map<string, string[][]>();
-  const cdpDestinationsByUrl = new Map<string, NetworkDestination[]>();
   const browserDocumentIdentityState: BrowserDocumentIdentityState = {};
   let networkMetadataSession: CDPSession | null = null;
   let visualCapture: VisualCaptureSummary = {
@@ -563,7 +657,7 @@ export async function preConsentRuntimeScanner(
     artifactRefs: [],
     notes: screenshotMode === "never" ? ["Pre-consent screenshot capture disabled by scan mode."] : [],
   };
-  const transportNetworkProbesPromise = captureRuntimeEvidence
+  const transportNetworkProbesPromise = captureRuntimeEvidence && input.executionProfile !== "inventory_only"
     ? startTransportNetworkProbes(
       input.normalizedUrl,
       input.signal,
@@ -575,30 +669,79 @@ export async function preConsentRuntimeScanner(
   const ownsBrowser = !input.browser;
   let retainOwnedBrowserForPolicyRecovery = false;
   lifecycleCheckpoint("browser_launch", "started");
+  const launchOptions = chromiumLaunchOptions({ headless: browserMode !== "headed" });
+  const proxyDestinations = ownsBrowser && captureRuntimeEvidence && !input.retainRenderedPolicyRecoverySession
+    ? await createProxyDestinationCapture(launchOptions) : undefined;
+  if (process.env.CERTSCORE_PROXY_DESTINATION_ENABLED === "1") console.info(JSON.stringify({event:"proxy_destination_setup",enabled:!!proxyDestinations,ownsBrowser,captureRuntimeEvidence,policyRecovery:!!input.retainRenderedPolicyRecoverySession,hasProxy:!!launchOptions.proxy}));
   const browser = input.browser ?? await recordTiming(timingBreakdown, "browser launch", `Playwright Chromium launch (${browserMode}).`, () =>
-    chromium.launch(chromiumLaunchOptions({ headless: browserMode !== "headed" }))
-  );
+    chromium.launch(proxyDestinations?.launch ?? launchOptions)
+  ).catch(async error => { await proxyDestinations?.close(); throw error; });
   lifecycleCheckpoint("browser_launch", "completed");
   lifecycleCheckpoint("browser_context", "started");
   const context = await recordTiming(timingBreakdown, "browser context", "New isolated browser context and page.", async () => {
-    const newContext = await browser.newContext(chromiumContextOptions());
+    const newContext = await createPassiveBrowserContext(
+      browser,
+      input.globalPrivacyControlEnabled === true,
+    );
     const newPage = await newContext.newPage();
     return { newContext, newPage };
+  }).catch(async error => {
+    if (ownsBrowser) await browser.close().catch(() => {});
+    await proxyDestinations?.close();
+    throw error;
   });
   lifecycleCheckpoint("browser_context", "completed");
   const page = context.newPage;
   const browserContext = context.newContext;
+  if (input.navigationHosts) {
+    const hosts = new Set(input.navigationHosts);
+    await browserContext.route("**/*", async route => {
+      const request = route.request();
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame() && (!hosts.has(new URL(request.url()).hostname) || input.navigationAllowed?.(request.url()) === false)) {
+        await route.abort("blockedbyclient");
+        return;
+      }
+      await route.fallback();
+    });
+  }
+  const prototypeBinding = input.gpcOptOutPrototype && captureRuntimeEvidence ? {
+    captureId: randomUUID(), documentIdentity: () => currentBrowserDocumentIdentity(page),
+  } : undefined;
+  const impactSemanticBinding = impactCapture && input.gpcImpactScanId && !prototypeBinding ? {
+    captureId: randomUUID(), documentIdentity: () => currentBrowserDocumentIdentity(page),
+  } : undefined;
+  const impactMonitorKey = impactSemanticBinding ? `__certscore_gpc_${impactSemanticBinding.captureId.replaceAll("-", "")}` : undefined;
+  if (impactMonitorKey) await installGpcSemanticMonitor(browserContext, impactMonitorKey);
+  let retainedImpactSemanticObservation: GpcOptOutObservation | undefined;
+  const gpcObservationSession = prototypeBinding ? await startGpcObservationSession({
+    page, scanId: input.gpcOptOutPrototype!.scanId, captureId: prototypeBinding.captureId, scanStartedAtMs: input.scanStartedAtMs,
+  }).catch(() => undefined) : undefined;
+  let gpcMonitorResult: { callbacks: number; dropped: number; registered: boolean } | undefined;
+  const gpcSignalCapture = captureRuntimeEvidence ? createGpcSignalCapture({
+    context: browserContext, page, enabled: input.globalPrivacyControlEnabled === true,
+    scanStartedAtMs: input.scanStartedAtMs, waitMode: input.waitMode, internalBudgetMs: input.internalBudgetMs,
+    prototypeBinding,
+    impactReadback: impactCapture ? { documentIdentity: () => currentBrowserDocumentIdentity(page), bind: impactCapture.bindReadback } : undefined,
+  }) : undefined;
+  const graphCapture = captureRuntimeEvidence && input.runtimeGraph
+    ? await installRuntimeGraphCapture(page, input.runtimeGraph)
+    : undefined;
+  const finishGraph = (reason?: string) => {
+    if (graphCapture) responseCaptureFinalized = true;
+    try { return graphCapture?.finish(reason ?? (pendingResponseCaptures.size ? "legacy_response_enrichment_incomplete" : undefined)); } catch { return undefined; }
+  };
   let pageCrashObserved = false;
   const recordPageCrash = () => {
+    impactCapture?.invalidate("renderer_crash");
     if (pageCrashObserved) return;
     pageCrashObserved = true;
     runtimeErrors.push("Chromium renderer crash event observed for the pre-consent page.");
   };
   page.on("crash", recordPageCrash);
   networkMetadataSession = await installCdpNetworkMetadataCapture(page, {
-    destinationsByUrl: cdpDestinationsByUrl,
     initiatorsByUrl: cdpInitiatorsByUrl,
     documentIdentityState: browserDocumentIdentityState,
+    impactCapture,
   }).catch((error) => {
     runtimeErrors.push(`CDP network metadata capture unavailable: ${errorMessageFromUnknown(error)}`);
     return null;
@@ -636,7 +779,7 @@ export async function preConsentRuntimeScanner(
     timingBreakdown,
     "cookie write probe install",
     "Install a bounded metadata-only document.cookie write probe; cookie values are not retained.",
-    () => installCookieWriteProbe(browserContext),
+    () => graphCapture ? Promise.resolve() : installCookieWriteProbe(browserContext),
   );
   lifecycleCheckpoint("probe_install", "completed");
 
@@ -661,11 +804,15 @@ export async function preConsentRuntimeScanner(
   const webBotAuthRoute = await installWebBotAuthRoute(browserContext);
   await installPublicNetworkGuardRoute(browserContext);
 
+  const formTracing = captureScope === "runtime_evidence" ? await installFormDestinationTracing(page, input.scanStartedAtMs, () => currentBrowserDocumentIdentity(page)).catch(() => null) : null;
+
   page.on("request", (request) => {
+    if (responseCaptureFinalized) return;
     const requestUrl = request.url();
     if (!isHttpUrl(requestUrl)) {
       return;
     }
+    passiveEvidenceActivity.markRequestStarted(request);
 
     const requestId = nextId("req");
     requestIds.set(request, requestId);
@@ -702,7 +849,6 @@ export async function preConsentRuntimeScanner(
     const responsibleScriptUrl = initiatorChain.find((value) =>
       classifyParty(value, topLevelForParty) === "third_party"
     );
-    const networkDestination = shiftQueuedValue(cdpDestinationsByUrl, requestUrl);
     const event: NetworkEvent = {
       eventId: nextId("net"),
       eventType: "network_request",
@@ -749,7 +895,6 @@ export async function preConsentRuntimeScanner(
       isSubFrame: !isMainFrame,
       isThirdParty: party === "third_party",
       idSyncEndpoint: isCanonicalIdSyncEndpoint(hostname),
-      networkDestination,
       parentRequestId: redirectedFromId,
       redirectChainRequestIds: redirectChainIds(request, requestIds),
       responsibleScriptUrl,
@@ -773,7 +918,10 @@ export async function preConsentRuntimeScanner(
       relatedEvidenceRefs: [],
       requestPayloadSignals: payloadSignals,
     };
+    formTracing?.request(requestId, requestUrl, request.method(), event.timestampMs, request.postData(), currentBrowserDocumentIdentity(page)?.token ?? "");
     networkEvents.push(event);
+    impactCapture?.recordRequest(event);
+    gpcObservationSession?.recordRequest(event, request);
     requestEvents.set(request, event);
     vendorResolverInputs.push({
       ...resolverInputForEvent(event),
@@ -793,13 +941,26 @@ export async function preConsentRuntimeScanner(
   });
 
   page.on("response", (response) => {
-    void captureResponse(response);
+    const formRequestId = requestIds.get(response.request());
+    if (formRequestId) formTracing?.status(formRequestId, "response_observed");
+    if (responseCaptureFinalized) return;
+    if (isHttpUrl(response.url())) passiveEvidenceActivity.noteActivity();
+    const capture = captureResponse(response).catch(() => {
+      if (!responseCaptureFinalized) runtimeErrors.push("Response metadata capture incomplete.");
+    }).finally(() => pendingResponseCaptures.delete(capture));
+    pendingResponseCaptures.add(capture);
+  });
+  page.on("requestfinished", (request) => {
+    if (isHttpUrl(request.url())) passiveEvidenceActivity.markRequestFinished(request);
   });
   page.on("requestfailed", (request) => {
+    const formRequestId = requestIds.get(request);
+    if (formRequestId) formTracing?.status(formRequestId, "failed");
     const requestUrl = request.url();
     if (!isHttpUrl(requestUrl)) {
       return;
     }
+    passiveEvidenceActivity.markRequestFinished(request);
     failedHttpRequests.push({
       failureText: request.failure()?.errorText,
       pageUrl: request.frame().url() === "about:blank" ? page.url() : request.frame().url(),
@@ -849,6 +1010,9 @@ export async function preConsentRuntimeScanner(
   const fallbackDomSnapshots: DomSnapshotArtifact[] = [];
   let retainedCookieSnapshot: CookieSnapshot | undefined;
   let retainedStorageSnapshot: StorageSnapshot | undefined;
+  let retainedGpcSignalObservation: GpcSignalObservation | undefined;
+  let retainedGpcOptOutObservation: GpcOptOutObservation | undefined;
+  let retainedGpcObservationSession: GpcObservationSession | undefined;
   let retainedConsentUiObservation: ConsentUiObservation | undefined;
   let consentUiInspectionAttempted = false;
   let retainedCollectionSurfaceInventory: CollectionSurfaceInventory | undefined;
@@ -872,6 +1036,7 @@ export async function preConsentRuntimeScanner(
         const observedAtMs = elapsed(input.scanStartedAtMs);
         const checkpointCookieEvents = cookieEvents.map((event) => ({ ...event }));
         const checkpointNetworkEvents = networkEvents.map((event) => ({ ...event }));
+        const checkpointIframeEvents = iframeEvents.map((event) => ({ ...event }));
         const checkpointVendorResolverInputs = vendorResolverInputs.map((resolverInput) => ({ ...resolverInput }));
         const checkpointCookies = await browserContext.cookies().catch(() => []);
         applyFinalDocumentPartyClassification({
@@ -880,7 +1045,7 @@ export async function preConsentRuntimeScanner(
           networkResponseEvents: [],
           cookieEvents: checkpointCookieEvents,
           scriptEvents: [],
-          iframeEvents: [],
+          iframeEvents: checkpointIframeEvents,
         });
         const checkpointCookieSnapshot: CookieSnapshot = {
           artifactId: "cookie_snapshot_pre_consent_preview_checkpoint",
@@ -890,6 +1055,7 @@ export async function preConsentRuntimeScanner(
             name: cookie.name,
             domain: cookie.domain,
             path: cookie.path,
+            ...(cookie.partitionKey !== undefined ? { partitionKey: cookie.partitionKey } : {}),
             expires: cookie.expires,
             httpOnly: cookie.httpOnly,
             secure: cookie.secure,
@@ -903,6 +1069,7 @@ export async function preConsentRuntimeScanner(
           cookieEvents: checkpointCookieEvents,
           cookieSnapshots: [checkpointCookieSnapshot],
           networkEvents: checkpointNetworkEvents,
+          iframeEvents: checkpointIframeEvents,
           observedAtMs,
           vendorResolverInputs: checkpointVendorResolverInputs,
         });
@@ -969,6 +1136,7 @@ export async function preConsentRuntimeScanner(
       retainedCmpRuntimeObservations.length > 0 ||
       retainedRenderedPolicyLinkEvidence.length > 0;
     return {
+      runtimeEvidenceGraph: finishGraph("runtime_capture_deadline"),
       moduleRun: {
         moduleName: "preConsentRuntimeScanner",
         status: retainedEvidence ? "partial" : "skipped_budget",
@@ -991,6 +1159,10 @@ export async function preConsentRuntimeScanner(
       cookieEvents: [...cookieEvents],
       cookieSnapshots: retainedCookieSnapshot ? [retainedCookieSnapshot] : [],
       storageSnapshots: retainedStorageSnapshot ? [retainedStorageSnapshot] : [],
+      gpcSignalObservation: retainedGpcSignalObservation,
+      ...(retainedGpcObservationSession ? { gpcObservationSession: retainedGpcObservationSession } : {}),
+      ...(retainedGpcOptOutObservation ? { gpcOptOutObservation: retainedGpcOptOutObservation } : {}),
+      ...(retainedImpactSemanticObservation ? { gpcImpactSemanticObservation: retainedImpactSemanticObservation } : {}),
       scriptEvents: [...scriptEvents],
       iframeEvents: [...iframeEvents],
       consentUiObservations: retainedConsentUiObservations,
@@ -999,7 +1171,7 @@ export async function preConsentRuntimeScanner(
         : {}),
       collectionSurfaceObservations: [...retainedCollectionSurfaceObservations],
       cmpRuntimeObservations: captureConsentEvidence ? [...retainedCmpRuntimeObservations] : [],
-      transportSecurityObservations: retainedTransportSecurityObservation
+      transportSecurityObservations: input.executionProfile !== "inventory_only" && retainedTransportSecurityObservation
         ? [retainedTransportSecurityObservation]
         : [],
       screenshots: [...screenshots],
@@ -1024,10 +1196,16 @@ export async function preConsentRuntimeScanner(
   try {
     const navigationStartedAtMs = Date.now();
     lifecycleCheckpoint("page_navigation", "started");
-    let navigationResponse = await recordTiming(timingBreakdown, "page navigation", "Initial navigation with bounded same-site transport recovery until DOMContentLoaded.", async () => {
-      const candidates = [input.normalizedUrl, ...navigationTransportRecoveryUrls(input.normalizedUrl)];
-      let lastError: unknown;
-      for (const [index, candidateUrl] of candidates.entries()) {
+    let navigationResponse = await recordTiming(
+      timingBreakdown,
+      "page navigation",
+      captureConsentEvidence
+        ? "Initial navigation with bounded same-site transport recovery until DOMContentLoaded."
+        : "Initial passive-runtime navigation with bounded same-site transport recovery until commit plus DOM readiness or substantive document evidence.",
+      async () => {
+        const candidates = input.executionProfile === "inventory_only" ? [input.normalizedUrl] : [input.normalizedUrl, ...navigationTransportRecoveryUrls(input.normalizedUrl)];
+        let lastError: unknown;
+        for (const [index, candidateUrl] of candidates.entries()) {
         const attemptStartedAtMs = Date.now();
         const attemptMode = index === 0
           ? "initial_https_navigation"
@@ -1036,32 +1214,56 @@ export async function preConsentRuntimeScanner(
             : "http_transport_fallback";
         if (index > 0) {
           if (!isNavigationTransportFailure(lastError)) throw lastError;
+          input.signal?.throwIfAborted();
+          if (recoveryNavigationTimeout(remainingModuleBudgetMs(), 7_500) <= 0) throw lastError;
           navigationNotes.push(
             `Entry navigation transport recovery attempt ${index}/${candidates.length - 1}: ${candidateUrl}`,
           );
           await measureRecovery("transport_alternate_reset", () =>
-            page.goto("about:blank", { waitUntil: "load", timeout: 1_000 }).catch(() => null),
-          );
-          await page.waitForTimeout(50);
+            // Await the reset commit before dispatching the next navigation.
+            // Swallowing a reset timeout let its late commit abort that request.
+            resetForNavigationRecovery(page, remainingModuleBudgetMs(), input.signal),
+          ).catch(error => {
+            runtimeErrors.push(`Target navigation failed before recovery reset: ${boundedVisualCaptureNote(errorMessageFromUnknown(lastError))}`);
+            throw error;
+          });
+          input.signal?.throwIfAborted();
         }
         try {
+          const navigationTimeoutMs = index === 0 ? Math.max(1, Math.min(15_000, remainingModuleBudgetMs())) : recoveryNavigationTimeout(remainingModuleBudgetMs(), 7_500);
+          if (navigationTimeoutMs <= 0) throw lastError ?? new Error("Navigation budget exhausted before recovery.");
+          const navigationDispatchAtMs = Date.now();
           const response = index === 0
             ? await page.goto(candidateUrl, {
-              waitUntil: "domcontentloaded",
-              timeout: Math.max(1_000, Math.min(15_000, input.internalBudgetMs - (Date.now() - navigationStartedAtMs))),
+              waitUntil: captureConsentEvidence ? "domcontentloaded" : "commit",
+              timeout: navigationTimeoutMs,
             })
             : await measureRecovery("transport_alternate_navigation", () => page.goto(candidateUrl, {
-              waitUntil: "domcontentloaded",
-              timeout: Math.max(1_000, Math.min(7_500, input.internalBudgetMs - (Date.now() - navigationStartedAtMs))),
+              waitUntil: captureConsentEvidence ? "domcontentloaded" : "commit",
+              timeout: navigationTimeoutMs,
             }));
           effectiveNavigationUrl = page.url() === "about:blank" ? candidateUrl : page.url();
+          const passiveDocumentReady = captureConsentEvidence || await waitForPassiveRuntimeDocumentReadiness(
+            page,
+            passiveReadinessTimeout(navigationTimeoutMs, Date.now() - navigationDispatchAtMs, remainingModuleBudgetMs()),
+          );
+          if (!passiveDocumentReady) {
+            noteRecovery("committed_navigation_timeout");
+            navigationNotes.push(
+              "Entry navigation committed but did not expose DOM readiness or substantive document evidence within the bounded wait; retained the current page and failed closed through ordinary runtime coverage checks.",
+            );
+          }
           if (index > 0) {
             navigationNotes.push(`Entry navigation recovered through ${candidateUrl}`);
           }
           navigationAttempts.push({
             url: candidateUrl,
             mode: attemptMode,
-            outcome: response && response.status() >= 400 ? "http_error" : "success",
+            outcome: !passiveDocumentReady
+              ? "committed_timeout"
+              : response && response.status() >= 400
+                ? "http_error"
+                : "success",
             ...(response ? { httpStatus: response.status() } : {}),
             durationMs: Date.now() - attemptStartedAtMs,
           });
@@ -1091,13 +1293,14 @@ export async function preConsentRuntimeScanner(
           });
           lastError = error;
         }
-      }
-      throw lastError;
-    });
+        }
+        throw lastError;
+      },
+    );
     lifecycleCheckpoint("page_navigation", "completed");
 
     let transientStatusRetried = false;
-    if (navigationResponse && isTransientMainDocumentStatus(navigationResponse.status()) && remainingModuleBudgetMs() >= 1_500) {
+    if (input.executionProfile !== "inventory_only" && navigationResponse && isTransientMainDocumentStatus(navigationResponse.status()) && remainingModuleBudgetMs() >= 1_500) {
       transientStatusRetried = true;
       const initialStatus = navigationResponse.status();
       const retryAfterMs = boundedRetryAfterMs(await navigationResponse.headerValue("retry-after").catch(() => null));
@@ -1115,6 +1318,7 @@ export async function preConsentRuntimeScanner(
     }
 
     if (
+      input.executionProfile !== "inventory_only" &&
       navigationResponse &&
       isPendingMainDocumentStatus(navigationResponse.status()) &&
       remainingModuleBudgetMs() >= 2_000
@@ -1155,6 +1359,7 @@ export async function preConsentRuntimeScanner(
     }
 
     if (
+      input.executionProfile !== "inventory_only" &&
       navigationResponse &&
       [403, 429, 503].includes(navigationResponse.status()) &&
       remainingModuleBudgetMs() >= 4_750 &&
@@ -1188,7 +1393,7 @@ export async function preConsentRuntimeScanner(
       );
     }
 
-    if (navigationResponse && [404, 410].includes(navigationResponse.status()) && remainingModuleBudgetMs() >= 1_500) {
+    if (input.executionProfile !== "inventory_only" && navigationResponse && [404, 410].includes(navigationResponse.status()) && remainingModuleBudgetMs() >= 1_500) {
       const alternateHostUrl = alternateWwwNavigationUrl(effectiveNavigationUrl);
       if (alternateHostUrl) {
         navigationNotes.push(`Main document returned HTTP ${navigationResponse.status()}; tried the bounded apex/www alternative: ${alternateHostUrl}`);
@@ -1219,7 +1424,6 @@ export async function preConsentRuntimeScanner(
     firstPartyDomain = finalDocumentParty.firstPartyDomain ?? firstPartyDomain;
     const fastWait = input.waitMode === "fast";
     const networkIdleTimeoutMs = fastWait ? 1_500 : 5_000;
-    const settleWaitMs = fastWait ? 350 : 1_000;
     const postSettleInventoryMaxMs = fastWait ? 1_000 : 1_500;
     const postSettleInventoryReserveMs = 500;
     const settledVisualCheckpointScreenshotMaxMs = fastWait ? 1_500 : 2_000;
@@ -1368,15 +1572,18 @@ export async function preConsentRuntimeScanner(
         "Dedicated consent-proof lane does not duplicate runtime transport capture.",
       );
     }
-    const networkIdlePromise = recordTiming(
+    const evidenceQuietPromise = recordTiming(
       timingBreakdown,
-      "network idle wait",
+      "passive evidence quiet wait",
       fastWait
-        ? "Fast planned-DAG post-navigation network quiet wait overlapped with early visual capture; timeout is non-fatal."
-        : "Post-navigation network-idle wait overlapped with early visual capture; timeout is non-fatal.",
-      () => page.waitForLoadState("networkidle", {
-        timeout: Math.min(networkIdleTimeoutMs, input.internalBudgetMs),
-      }).catch(() => undefined),
+        ? `Fast planned-DAG evidence-aware quiet gate starts at ${PASSIVE_EVIDENCE_INITIAL_QUIET_WINDOW_MS}ms, restarts on browser request activity, and preserves the existing ${networkIdleTimeoutMs}ms non-fatal cap.`
+        : `Evidence-aware quiet gate starts at ${PASSIVE_EVIDENCE_INITIAL_QUIET_WINDOW_MS}ms, restarts on browser request activity, and preserves the existing ${networkIdleTimeoutMs}ms non-fatal cap.`,
+      () => waitForPassiveEvidenceQuietWindow({
+        quietWindowMs: PASSIVE_EVIDENCE_INITIAL_QUIET_WINDOW_MS,
+        timeoutMs: Math.min(networkIdleTimeoutMs, input.internalBudgetMs),
+        tracker: passiveEvidenceActivity,
+      }),
+      (result) => result.status === "timed_out" ? "timed_out" : "completed",
     );
     let preScreenshotConsentObservation: ConsentUiObservation | undefined;
     if (screenshotMode === "always") {
@@ -1403,7 +1610,7 @@ export async function preConsentRuntimeScanner(
       // recovery work so neither visual nor structured evidence is discarded.
       [preScreenshotConsentObservation] = await Promise.all([
         consentUiObservationPromise,
-        networkIdlePromise,
+        evidenceQuietPromise,
       ]);
       const earlyConsentGeometry = await earlyConsentGeometryPromise;
       if (
@@ -1549,26 +1756,12 @@ export async function preConsentRuntimeScanner(
       }
     }
     if (screenshotMode !== "always") {
-      await networkIdlePromise;
+      await evidenceQuietPromise;
     }
-    await recordTiming(
-      timingBreakdown,
-      "observation settle wait",
-      fastWait
-        ? "Fast planned-DAG observation settle window after bounded network quiet."
-        : "Fixed pre-consent observation window after network quiet.",
-      () => page.waitForTimeout(settleWaitMs).catch((error) => {
-        if (isContextClosedError(error)) {
-          runtimeErrors.push(`Observation settle ended early because the page/context closed: ${errorMessage(error)}`);
-          return;
-        }
-        throw error;
-      })
-    );
     recordInstantTiming(
       timingBreakdown,
       "network capture",
-      `Captured ${networkEvents.length} request events and ${networkResponseEvents.length} response events during navigation, network-idle, and settle windows.`,
+      `Captured ${networkEvents.length} request events and ${networkResponseEvents.length} response events during navigation and the bounded evidence-aware quiet window.`,
     );
 
     // Retain one cheap, explicitly post-settle inventory before the atomic
@@ -1823,12 +2016,14 @@ export async function preConsentRuntimeScanner(
       })()
       : Promise.resolve(undefined);
 
-    const [pageEvidence, initialConsentObservation, lateAccessibilityObservation] = await recordTiming(
+    gpcObservationSession?.prepareFinalization();
+    const [pageEvidence, initialConsentObservation, lateAccessibilityObservation, gpcSignalObservation] = await recordTiming(
       timingBreakdown,
       "page evidence capture",
       "Atomic read-only storage, scripts, iframes, browser API, collection surface, and DOM text snapshot after the first structured consent inventory is retained.",
       () => Promise.all([captureRuntimeEvidence
         ? capturePostSettlePageEvidence({
+            captureSiteIntegrity: !input.globalPrivacyControlEnabled ? (input.executionProfile === "inventory_only" ? "additional_page_main_document" : "starting_page_main_document") : false,
             captureRenderedPolicyLinks: captureRenderedPolicyEvidence,
             firstPartyHostname,
             normalizedUrl: input.normalizedUrl,
@@ -1845,8 +2040,43 @@ export async function preConsentRuntimeScanner(
           }), preScreenshotConsentObservation
           ? Promise.resolve(preScreenshotConsentObservation)
           : consentUiObservationPromise,
-        lateAccessibilityObservationPromise]),
+        lateAccessibilityObservationPromise,
+        gpcSignalCapture ? recordBoundedTiming(timingBreakdown,
+          "GPC signal readback", "Read actual main/frame values alongside the existing bounded page snapshot; no extra settling.",
+          Math.min(2_500, Math.max(1, remainingModuleBudgetMs())), () => gpcSignalCapture.snapshot(), () => undefined)
+          : Promise.resolve(undefined),
+      ]),
     );
+    retainedGpcSignalObservation = gpcSignalObservation;
+    impactCapture?.finish(gpcSignalObservation);
+    // Sparse-page confirmation is already required later in this session. Keep
+    // its GPC listener alive through that work, then take the same single read.
+    // The overlapping document proof stays anchored here: navigation during the
+    // deferred interval invalidates it instead of being silently rebound.
+    const deferGpcFinalization = Boolean(gpcObservationSession && shouldConfirmSparsePageCandidate({
+      bodyText: pageEvidence.domText.replace(/\s+/g, " ").trim(),
+      hasSufficientFirstLayerControls: hasSufficientFirstLayerConsentControls(initialConsentObservation),
+    }));
+    let gpcFinalizationStarted = false;
+    const finalizeGpcEvidence = async () => {
+      if (gpcFinalizationStarted) return;
+      gpcFinalizationStarted = true;
+      const gpcOptOutObservation = !input.signal?.aborted && remainingModuleBudgetMs() > 0 &&
+        ((input.gpcOptOutPrototype && captureRuntimeEvidence) || impactSemanticBinding) ? await recordBoundedTiming(timingBreakdown,
+          "GPC opt-out prototype", "Single terminal semantic readback after existing page work, inside the unchanged module budget.",
+          Math.min(2_500, remainingModuleBudgetMs()),
+          () => captureGpcOptOutObservation(page, { scanId: (input.gpcOptOutPrototype?.scanId ?? input.gpcImpactScanId)!, scanStartedAtMs: input.scanStartedAtMs, binding: prototypeBinding ?? impactSemanticBinding, monitorKey: gpcObservationSession?.monitorKey ?? impactMonitorKey, semanticOnly: Boolean(impactSemanticBinding), onMonitorFinished: value => { gpcMonitorResult = value; } }),
+          () => undefined) : undefined;
+      retainedGpcOptOutObservation = prototypeBinding ? gpcOptOutObservation : undefined;
+      retainedImpactSemanticObservation = impactSemanticBinding ? gpcOptOutObservation : undefined;
+      if (gpcObservationSession) retainedGpcObservationSession = await recordTiming(timingBreakdown,
+        "GPC observation finalization", "Freeze retained evidence using overlapping terminal document proof; incomplete readback preserves a limited packet.",
+        () => gpcObservationSession.finish(gpcOptOutObservation, gpcMonitorResult, input.signal?.aborted === true));
+      if (retainedGpcObservationSession && retainedGpcSignalObservation) {
+        retainedGpcSignalObservation.prototypeSessionSha256 = createHash("sha256").update(JSON.stringify(retainedGpcObservationSession)).digest("hex");
+      }
+    };
+    if (!deferGpcFinalization) await finalizeGpcEvidence();
     const {
       apiAccesses,
       collectionSurfaceInventory,
@@ -2013,7 +2243,10 @@ export async function preConsentRuntimeScanner(
         throw error;
       })
     );
-    const documentCookieWrites = await readCookieWriteProbe(page);
+    const documentCookieWrites = graphCapture ? [] : await readCookieWriteProbe(page);
+    graphCapture?.cookies(cookies);
+    // Concurrent metadata-only work remains inside this lane's existing absolute deadline.
+    void graphCapture?.snapshotStorage();
     const cookieSnapshot: CookieSnapshot = {
       artifactId: "cookie_snapshot_pre_consent",
       capturedAtMs: elapsed(input.scanStartedAtMs),
@@ -2022,6 +2255,7 @@ export async function preConsentRuntimeScanner(
         name: cookie.name,
         domain: cookie.domain,
         path: cookie.path,
+        ...(cookie.partitionKey !== undefined ? { partitionKey: cookie.partitionKey } : {}),
         expires: cookie.expires,
         httpOnly: cookie.httpOnly,
         secure: cookie.secure,
@@ -2032,7 +2266,9 @@ export async function preConsentRuntimeScanner(
     };
     retainedCookieSnapshot = cookieSnapshot;
     for (const cookie of cookies) {
-      const documentWrite = [...documentCookieWrites].reverse().find((write) => write.name === cookie.name);
+      // A same-name JS call cannot establish the writer of a scoped stored cookie. The graph retains
+      // the call and snapshot separately; legacy name-only attribution is disabled for graph captures.
+      const documentWrite = graphCapture ? undefined : [...documentCookieWrites].reverse().find((write) => write.name === cookie.name);
       const cookieHostname = getHostname(cookie.domain) ?? undefined;
       const cookieRegistrableDomain = getRegistrableDomain(cookieHostname) ?? undefined;
       const cookieParty = classifyCookieParty(cookie.domain, firstPartyHostname);
@@ -2065,6 +2301,7 @@ export async function preConsentRuntimeScanner(
         cookieName: cookie.name,
         cookieDomain: cookie.domain,
         cookiePath: cookie.path,
+        ...(cookie.partitionKey !== undefined ? { partitionKey: cookie.partitionKey } : {}),
         expires: Number.isFinite(cookie.expires) && cookie.expires > 0
           ? new Date(cookie.expires * 1000).toISOString()
           : undefined,
@@ -2378,7 +2615,9 @@ export async function preConsentRuntimeScanner(
         page,
         scanStartedAtMs: input.scanStartedAtMs,
         timingBreakdown,
-        deadlineAtMs: moduleDeadlineAtMs,
+        deadlineAtMs: input.captureScope === "consent_proof"
+          ? Math.max(Date.now(), moduleDeadlineAtMs - 4_000)
+          : moduleDeadlineAtMs,
       });
       const recapturedConsentObservation = highConfidenceCmpRuntimeEvidence
         ? await recordParentTiming(
@@ -2586,7 +2825,6 @@ export async function preConsentRuntimeScanner(
       const lateGateReadReserveMs = 500;
       const lateGateRemainingBudgetMs = remainingModuleBudgetMs();
       if (lateGateRemainingBudgetMs >= waitToLateSurfaceGateMs + lateGateReadReserveMs) {
-        await installConsentGateMutationProbe(page);
         const lateGateCaptureBudgetMs = Math.min(
           waitToLateSurfaceGateMs + 1_250,
           lateGateRemainingBudgetMs,
@@ -2771,6 +3009,7 @@ export async function preConsentRuntimeScanner(
       earlyScreenshotCaptured &&
       !supplementalScreenshotAttempted &&
       !supplementalFullPageProofAlreadyComplete &&
+      (!structuredFirstLayerControlsConfirmed || consentGeometryDiagnosticWritten) &&
       (input.screenshotCaptureMode ?? "viewport_first") === "viewport_first" &&
       screenshots.some((screenshot) => screenshot.captureMethod === "primary_viewport_fallback") &&
       shouldCaptureSupplementalFullPageScreenshot({
@@ -3471,6 +3710,8 @@ export async function preConsentRuntimeScanner(
       }
     }
 
+    if (deferGpcFinalization) await finalizeGpcEvidence();
+
     const domPath = await recordTiming(
       timingBreakdown,
       "DOM artifact write",
@@ -3480,8 +3721,10 @@ export async function preConsentRuntimeScanner(
         domText.slice(0, 100_000),
       ),
     );
-    const documentLanguage = await readDeclaredDocumentLanguage(page);
+    const siteMetadata = captureRuntimeEvidence ? await readDocumentSiteMetadata(page) : null;
+    const documentLanguage = captureRuntimeEvidence ? siteMetadata?.language : await readDeclaredDocumentLanguage(page);
     const domSnapshot: DomSnapshotArtifact = {
+      ...(siteMetadata ? { siteMetadata } : {}),
       artifactId: "dom_text_pre_consent",
       capturedAtMs: elapsed(input.scanStartedAtMs),
       path: domPath,
@@ -3578,6 +3821,9 @@ export async function preConsentRuntimeScanner(
         notes: unique([...visualCapture.notes, ...navigationNotes]),
       };
     }
+    if (graphCapture && pendingResponseCaptures.size && remainingModuleBudgetMs() > 0) {
+      await boundedCleanup(Promise.allSettled([...pendingResponseCaptures]), Math.min(100, remainingModuleBudgetMs()));
+    }
     applyFinalDocumentPartyClassification({
       finalDocumentUrl: page.url() === "about:blank" ? effectiveNavigationUrl : page.url(),
       networkEvents,
@@ -3586,10 +3832,43 @@ export async function preConsentRuntimeScanner(
       scriptEvents,
       iframeEvents,
     });
+    await emitPassiveRuntimeCheckpoint();
+    const collectionSurfaceSnapshots = input.formSnapshotReviewer && retainedCollectionSurfaceInventory
+      ? await captureCollectionSurfaceSnapshots(page, retainedCollectionSurfaceInventory, input.formSnapshotReviewer, input.signal)
+      : undefined;
+    if (input.onInventoryPage) {
+      // Optional crawl metadata must never downgrade or delay the canonical homepage assessment.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try { await Promise.race([input.onInventoryPage(page),new Promise<void>(resolve=>{timer=setTimeout(resolve,250);})]); }
+      catch { /* The crawl fails closed if its comparable context is unavailable. */ }
+      finally { if(timer)clearTimeout(timer); }
+    }
     const retainPolicyRecoverySession = input.retainRenderedPolicyRecoverySession === true &&
       retainedRenderedPolicyLinkEvidence.length > 0;
     retainOwnedBrowserForPolicyRecovery = ownsBrowser && retainPolicyRecoverySession;
+    const finalizedProxyGraph = proxyDestinations ? finishGraph() : undefined;
+    if (proxyDestinations && !retainOwnedBrowserForPolicyRecovery) {
+      responseCaptureFinalized = true;
+      await boundedCleanup(browser.close(), Math.min(1000, remainingModuleBudgetMs()));
+      if (!browser.isConnected()) {
+        const destinations = await proxyDestinations.resolve(moduleDeadlineAtMs, input.signal);
+        for (const event of networkEvents) {
+          const destination = destinations.get(event.requestId ?? "");
+          if (destination && !event.networkDestination) {
+            event.networkDestination = destination;
+            if (event.networkConnection) event.networkConnection.status = "server_observed";
+          }
+        }
+        for (const event of networkResponseEvents) {
+          const destination = destinations.get(event.requestId ?? "");
+          if (destination && !event.networkDestination) event.networkDestination = destination;
+        }
+      }
+    }
+    if (proxyDestinations && browser.isConnected()) console.info(JSON.stringify({event:"proxy_destination_skipped",reason:"browser_still_connected"}));
     return {
+      collectionSurfaceSnapshots,
+      runtimeEvidenceGraph: finalizedProxyGraph ?? finishGraph(),
       moduleRun: {
         moduleName: "preConsentRuntimeScanner",
         status: runtimeErrors.length > 0 || screenshotErrors.length > 0 ? "partial" : "completed",
@@ -3612,13 +3891,22 @@ export async function preConsentRuntimeScanner(
       cookieEvents,
       cookieSnapshots: [cookieSnapshot],
       storageSnapshots: [storageSnapshot],
+      gpcSignalObservation: retainedGpcSignalObservation,
+      ...(impactCapture ? { gpcImpactCapture: impactCapture.finish(retainedGpcSignalObservation) } : {}),
+      ...(retainedImpactSemanticObservation ? { gpcImpactSemanticObservation: retainedImpactSemanticObservation } : {}),
       scriptEvents,
+      ...(retainedGpcOptOutObservation ? { gpcOptOutObservation: retainedGpcOptOutObservation } : {}),
+      ...(retainedGpcObservationSession ? { gpcObservationSession: retainedGpcObservationSession } : {}),
       iframeEvents,
       consentUiObservations: captureConsentEvidence ? [consentObservation] : [],
+      ...("siteIntegrityObservation" in pageEvidence && pageEvidence.siteIntegrityObservation &&
+        currentBrowserDocumentIdentity(page)?.token === pageEvidence.siteIntegrityObservation.documentToken &&
+        !input.signal?.aborted ? { siteIntegrityObservation: pageEvidence.siteIntegrityObservation } : {}),
+      ...(formTracing && !input.signal?.aborted ? { formDestinationTrace: formTracing.finish() } : {}),
       ...(collectionSurfaceInventory ? { collectionSurfaceInventory } : {}),
       collectionSurfaceObservations,
       cmpRuntimeObservations: captureConsentEvidence ? cmpRuntimeObservations : [],
-      transportSecurityObservations: transportSecurityObservation ? [transportSecurityObservation] : [],
+      transportSecurityObservations: input.executionProfile !== "inventory_only" && transportSecurityObservation ? [transportSecurityObservation] : [],
       screenshots,
       visualCapture,
       domSnapshots: [domSnapshot],
@@ -3633,6 +3921,13 @@ export async function preConsentRuntimeScanner(
   } catch (error) {
     const parentCancellation = abortReason(parentSignal);
     if (parentCancellation) throw parentCancellation;
+    // A failed later module stage must not erase already collected GPC facts.
+    // Synchronous finalization retains an explicitly incomplete packet if the
+    // terminal document/readback did not finish; no browser work is started here.
+    if (gpcObservationSession && !retainedGpcObservationSession) {
+      retainedGpcObservationSession = await gpcObservationSession.finish(retainedGpcOptOutObservation, gpcMonitorResult, input.signal?.aborted === true)
+        .catch(() => undefined);
+    }
     const softDeadlineCancellation = abortReason(softDeadlineSignal);
     const moduleBudgetEnded = softDeadlineCancellation !== null;
     const errorMessage = moduleBudgetEnded
@@ -3711,7 +4006,9 @@ export async function preConsentRuntimeScanner(
       scriptEvents,
       iframeEvents,
     });
+    await emitPassiveRuntimeCheckpoint();
     return {
+      runtimeEvidenceGraph: finishGraph("runtime_capture_incomplete"),
       moduleRun: {
         moduleName: "preConsentRuntimeScanner",
         status: moduleBudgetEnded
@@ -3736,15 +4033,20 @@ export async function preConsentRuntimeScanner(
       cookieEvents,
       cookieSnapshots: retainedCookieSnapshot ? [retainedCookieSnapshot] : [],
       storageSnapshots: retainedStorageSnapshot ? [retainedStorageSnapshot] : [],
+      gpcSignalObservation: retainedGpcSignalObservation,
+      ...(impactCapture ? { gpcImpactCapture: impactCapture.finish() } : {}),
+      ...(retainedImpactSemanticObservation ? { gpcImpactSemanticObservation: retainedImpactSemanticObservation } : {}),
       scriptEvents,
       iframeEvents,
+      ...(retainedGpcObservationSession ? { gpcObservationSession: retainedGpcObservationSession } : {}),
+      ...(retainedGpcOptOutObservation ? { gpcOptOutObservation: retainedGpcOptOutObservation } : {}),
       consentUiObservations: retainedConsentUiObservations,
       ...(retainedCollectionSurfaceInventory
         ? { collectionSurfaceInventory: retainedCollectionSurfaceInventory }
         : {}),
       collectionSurfaceObservations: retainedCollectionSurfaceObservations,
       cmpRuntimeObservations: captureConsentEvidence ? retainedCmpRuntimeObservations : [],
-      transportSecurityObservations: retainedTransportSecurityObservation
+      transportSecurityObservations: input.executionProfile !== "inventory_only" && retainedTransportSecurityObservation
         ? [retainedTransportSecurityObservation]
         : [],
       screenshots,
@@ -3757,6 +4059,8 @@ export async function preConsentRuntimeScanner(
       renderedPolicyLinks: captureRenderedPolicyEvidence ? retainedRenderedPolicyLinkEvidence : [],
     };
   } finally {
+    finishGraph("runtime_capture_closed");
+    if (gpcObservationSession) await boundedCleanup(gpcObservationSession.close(), 250);
     if (passiveRuntimeCheckpointTimer) clearTimeout(passiveRuntimeCheckpointTimer);
     if (passiveRuntimeCheckpointPromise) await passiveRuntimeCheckpointPromise;
     input.signal?.removeEventListener("abort", abortRuntime);
@@ -3767,6 +4071,7 @@ export async function preConsentRuntimeScanner(
     if (ownsBrowser && !retainOwnedBrowserForPolicyRecovery) {
       await boundedCleanup(browser.close(), 1_000);
     }
+    await proxyDestinations?.close();
   }
   })();
 
@@ -3804,19 +4109,31 @@ export async function preConsentRuntimeScanner(
       .filter((fulfiller) => fulfiller.urlPattern.test(responseUrl))
       .flatMap((fulfiller) => fulfiller.setCookieHeaders ?? []);
     const effectiveSetCookieHeaders = [...setCookieHeaders, ...fixtureSetCookieHeaders];
+    if (responseCaptureFinalized) return;
     const setCookieMetadata = setCookieHeaders
       .concat(fixtureSetCookieHeaders)
       .map((header) => parseSetCookieMetadata(header, hostname, firstPartyHostname))
       .filter((metadata): metadata is SetCookieMetadata => Boolean(metadata))
       .filter((metadata) => isValidSetCookieDomainForResponse(metadata.domain, hostname));
     const safeHeaders = safeResponseHeaders(headers);
-    const sizes = normalizeResponseSizes(
-      await response.request().sizes().catch(() => undefined),
-    );
+    const sizesPromise = response.request().sizes().then(normalizeResponseSizes).catch(() => undefined);
+    // Playwright binds serverAddr to this exact response/request, including redirects.
+    // Never correlate destinations by URL: concurrent requests can have the same URL.
+    const destinationPromise = captureResponseDestination(response).then(async result => {
+      if (responseCaptureFinalized) return undefined;
+      if (requestEvent && "connectionId" in result) proxyDestinations?.track(requestEvent.requestId, result.connectionId, responseUrl);
+      if (requestEvent) requestEvent.networkConnection = {
+        source: "response_request_binding", status: result.status,
+        requestId: requestEvent.requestId,
+        redirectedFromRequestId: request.redirectedFrom() ? requestIds.get(request.redirectedFrom()!) : undefined,
+        fromServiceWorker: result.fromServiceWorker,
+      };
+      return enrichNetworkDestination(result.destination);
+    });
+    const sizes = graphCapture ? undefined : await sizesPromise;
     const timing = responseTiming(response);
-    const networkDestination = await enrichNetworkDestination(
-      requestEvent?.networkDestination ?? shiftQueuedValue(cdpDestinationsByUrl, responseUrl),
-    );
+    const networkDestination = graphCapture ? requestEvent?.networkDestination : await destinationPromise;
+    if (responseCaptureFinalized) return;
     if (requestEvent && networkDestination) requestEvent.networkDestination = networkDestination;
     const responseEvent: NetworkResponseEvent = {
       eventId: nextId("resp"),
@@ -3833,7 +4150,7 @@ export async function preConsentRuntimeScanner(
       firstParty: party === "first_party",
       thirdParty: party === "third_party",
       topLevelUrl: page.url() === "about:blank" ? input.normalizedUrl : page.url(),
-      documentUrl: request.frame().url() === "about:blank" ? undefined : request.frame().url(),
+      documentUrl: requestEvent?.documentUrl,
       evidenceRefs: [],
       confidence: 0.95,
       directVsInferred: "direct",
@@ -3846,6 +4163,7 @@ export async function preConsentRuntimeScanner(
       setCookieMetadata,
       cookieNamesSet: setCookieMetadata.map((metadata) => metadata.name),
       networkDestination,
+      networkConnection: requestEvent?.networkConnection,
       responseHeaders: safeHeaders,
       cacheHeaders: pickHeaders(headers, ["cache-control", "expires"]),
       locationRedirectHeader: headers.location,
@@ -3864,7 +4182,7 @@ export async function preConsentRuntimeScanner(
         ...(requestEvent?.initiatorStack ?? []),
         requestEvent?.responsibleScriptUrl,
       ]);
-      const setterScriptUrl = boundedInitiatorUrl(requestEvent?.responsibleScriptUrl) ??
+      const setterScriptUrl = graphCapture ? undefined : boundedInitiatorUrl(requestEvent?.responsibleScriptUrl) ??
         initiatorChain.find((value) => /^https?:\/\//i.test(value));
       const knowledge = resolveCanonicalCookieKnowledge(cookieMetadata.name, {
         cookieDomain: cookieMetadata.domain,
@@ -3930,6 +4248,14 @@ export async function preConsentRuntimeScanner(
         matchSource: "set_cookie",
       });
     }
+    if (graphCapture) {
+      const [resolvedSizes, resolvedDestination] = await Promise.all([sizesPromise, destinationPromise]);
+      if (responseCaptureFinalized) return;
+      responseEvent.sizes = resolvedSizes;
+      responseEvent.networkDestination = resolvedDestination;
+      responseEvent.networkConnection = requestEvent?.networkConnection;
+      if (requestEvent && resolvedDestination) requestEvent.networkDestination = resolvedDestination;
+    }
   }
 }
 
@@ -3938,6 +4264,27 @@ async function hasStrongUnresolvedSecurityChallenge(page: import("playwright").P
   const normalized = text.replace(/\s+/g, " ").trim().slice(0, 4_000);
   if (normalized.length > 1_200 && normalized.split(/\s+/).length > 170) return false;
   return /checking (?:your )?browser|verify (?:you are|that you(?:'|’)re) human|performing security verification|cloudflare ray id|press and hold.{0,100}verif|security (?:check|challenge)|just a moment/i.test(normalized);
+}
+
+async function waitForPassiveRuntimeDocumentReadiness(
+  page: Page,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0) return false;
+  const handle = await page.waitForFunction(() => {
+    if (document.readyState === "interactive" || document.readyState === "complete") return true;
+    const body = document.body;
+    if (!body) return false;
+    const text = (body.innerText || body.textContent || "").replace(/\s+/g, " ").trim();
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    return text.length >= 120 || wordCount >= 24 || body.querySelectorAll("*").length >= 8;
+  }, undefined, {
+    polling: 50,
+    timeout: timeoutMs,
+  }).catch(() => null);
+  if (!handle) return false;
+  await handle.dispose().catch(() => undefined);
+  return true;
 }
 
 function boundedPreConsentTimingBreakdown(
@@ -3958,7 +4305,7 @@ function boundedPreConsentTimingBreakdown(
   const requiredIndexes = new Set<number>();
   compacted.forEach((entry, index) => {
     if (
-      /^(?:browser launch|browser context|page navigation|network idle wait|page evidence: consent UI|early screenshot capture|early consent control geometry|page evidence: consent UI CMP recapture|consent gate|bounded same-session consent packet recovery total|late consent control screenshot|DOM artifact write)/.test(entry.label)
+      /^(?:browser launch|browser context|page navigation|passive evidence quiet wait|network idle wait|page evidence: consent UI|early screenshot capture|early consent control geometry|page evidence: consent UI CMP recapture|consent gate|bounded same-session consent packet recovery total|late consent control screenshot|DOM artifact write)/.test(entry.label)
     ) {
       requiredIndexes.add(index);
     }
@@ -4584,11 +4931,17 @@ function signalTypeForMatchSource(
 }
 
 type ConsolidatedPageEvidenceSnapshot = {
+  siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: Array<{ apiName: string; category: string; timestampMs: number }>;
   collectionCapture: CollectionSurfaceCaptureSnapshot;
   domText: string;
   frames: Array<{ name?: string; src?: string }>;
   localStorageEntries: Record<string, string>;
+  localStorageKeys: string[];
+  sessionStorageKeys: string[];
+  storageOrigin: string;
+  localStorageReadComplete: boolean;
+  sessionStorageReadComplete: boolean;
   pageUrl: string;
   links: Array<{
     documentLanguage?: string;
@@ -4607,7 +4960,9 @@ async function captureConsentProofPageEvidence(input: {
   scanStartedAtMs: number;
   timingBreakdown: NonNullable<ScanModuleRun["timingBreakdown"]>;
 }): Promise<{
+  siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: RuntimeEvidenceEvent[];
+  formDestinationTrace?: import("@certscore/contracts").FormDestinationTrace;
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
   domText: string;
@@ -4644,13 +4999,16 @@ async function captureConsentProofPageEvidence(input: {
 async function capturePostSettlePageEvidence(input: {
   captureRenderedPolicyLinks: boolean;
   firstPartyHostname: string | undefined;
+  captureSiteIntegrity?: false | "starting_page_main_document" | "additional_page_main_document";
   normalizedUrl: string;
   page: Page;
   scanStartedAtMs: number;
   skipLegacyFallbackAfterAtomicTimeout?: boolean;
   timingBreakdown: NonNullable<ScanModuleRun["timingBreakdown"]>;
 }): Promise<{
+  siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: RuntimeEvidenceEvent[];
+  formDestinationTrace?: import("@certscore/contracts").FormDestinationTrace;
   collectionSurfaceInventory?: CollectionSurfaceInventory;
   collectionSurfaceObservations: CollectionSurfaceObservation[];
   domText: string;
@@ -4664,7 +5022,7 @@ async function capturePostSettlePageEvidence(input: {
     "page evidence: consolidated snapshot",
     "One read-only main-document snapshot for storage keys, scripts, iframes, API probes, public collection surfaces, and bounded visible text.",
     2_500,
-    () => captureConsolidatedPageEvidenceSnapshot(input.page),
+    () => captureConsolidatedPageEvidenceSnapshot(input.page, input.captureSiteIntegrity),
     () => undefined,
   );
   if (snapshot) {
@@ -4705,7 +5063,7 @@ async function capturePostSettlePageEvidence(input: {
       "page evidence: consolidated snapshot retry",
       "One short atomic retry preserves storage, script, iframe, browser-API, collection-surface, and text evidence without restoring the six-call legacy fallback.",
       1_000,
-      () => captureConsolidatedPageEvidenceSnapshot(input.page),
+      () => captureConsolidatedPageEvidenceSnapshot(input.page, input.captureSiteIntegrity),
       () => undefined,
     );
     const retryEvidence = retrySnapshot
@@ -4846,9 +5204,10 @@ async function capturePostSettlePageEvidence(input: {
   };
 }
 
-async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<ConsolidatedPageEvidenceSnapshot> {
+async function captureConsolidatedPageEvidenceSnapshot(page: Page, captureSiteIntegrity: false | "starting_page_main_document" | "additional_page_main_document" = false): Promise<ConsolidatedPageEvidenceSnapshot> {
+  const before = currentBrowserDocumentIdentity(page);
   const cmpSelectors = KNOWN_CMP_REGISTRY.flatMap((definition) => definition.domSelectors ?? []).slice(0, 100);
-  return page.evaluate(({ cmpSelectors, maxFieldCandidates }) => {
+  const snapshot = await page.evaluate(({ cmpSelectors, maxFieldCandidates, captureSiteIntegrity, integrityLimits }) => {
     // tsx/esbuild can preserve nested browser-callback names by emitting calls to
     // its module-scoped __name helper. Playwright serializes only this callback,
     // so provide the no-op helper in the page before any nested callback runs.
@@ -4856,21 +5215,25 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
     globalWithNameHelper.__name ??= function(target) {
       return target;
     };
-    const localStorageEntries: Record<string, string> = {};
-    const sessionStorageEntries: Record<string, string> = {};
+    const localStorageEntries: Record<string, string> = Object.create(null);
+    const sessionStorageEntries: Record<string, string> = Object.create(null);
+    let localStorageReadComplete = false;
+    let sessionStorageReadComplete = false;
     try {
       for (let index = 0; index < window.localStorage.length; index += 1) {
         const key = window.localStorage.key(index);
-        if (key) localStorageEntries[key] = "[redacted]";
+        if (key !== null) localStorageEntries[key] = "[redacted]";
       }
+      localStorageReadComplete = true;
     } catch {}
     try {
       for (let index = 0; index < window.sessionStorage.length; index += 1) {
         const key = window.sessionStorage.key(index);
-        if (key) sessionStorageEntries[key] = "[redacted]";
+        if (key !== null) sessionStorageEntries[key] = "[redacted]";
       }
+      sessionStorageReadComplete = true;
     } catch {}
-    const allFieldCandidates = document.querySelectorAll("input, textarea, select");
+    const allFieldCandidates = document.querySelectorAll('input, textarea, select, [role="checkbox"], [role="switch"]');
     const inspectedFieldCandidates = Array.from(
       { length: Math.min(allFieldCandidates.length, maxFieldCandidates) },
       (_, index) => allFieldCandidates.item(index),
@@ -4878,7 +5241,7 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
     const groupRefs = new WeakMap<Element, string>();
     let nextGroupRef = 0;
     const groupRefFor = (element: Element) => {
-      const nativeForm = element.closest("form");
+      const nativeForm = (element as HTMLInputElement).form ?? element.closest("form");
       const roleForm = nativeForm ? null : element.closest('[role="form"]');
       const group = nativeForm ?? roleForm;
       if (!group) return "unassociated_controls";
@@ -4889,6 +5252,7 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
       return value;
     };
     const isVisible = (element: Element) => {
+      if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || "1") > 0 && rect.width > 0 && rect.height > 0;
@@ -4937,32 +5301,42 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
     };
     const rows = inspectedFieldCandidates.flatMap((element, domOrder) => {
       const type = (element.getAttribute("type") || element.tagName.toLowerCase()).toLowerCase();
-      if (["hidden", "submit", "button", "reset", "image"].includes(type) || !isVisible(element) || isCmpOwned(element)) {
+      if ((["hidden", "submit", "button", "reset", "image"].includes(type) && !["checkbox", "switch"].includes(element.getAttribute("role") ?? "")) || !isVisible(element) || isCmpOwned(element)) {
         return [];
       }
-      const nativeForm = element.closest("form");
+      const nativeForm = (element as HTMLInputElement).form ?? element.closest("form");
       const roleForm = nativeForm ? null : element.closest('[role="form"]');
       const group = nativeForm ?? roleForm;
       const action = nativeForm?.getAttribute("action")?.trim();
       let actionHostname: string | undefined;
+      // Native omitted/empty actions resolve to the current document. A
+      // JavaScript action URL remains unresolved rather than implying no send.
+      if (nativeForm && !action && Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, "method")?.get?.call(nativeForm) !== "dialog") actionHostname = window.location.hostname || undefined;
       if (action) {
         try {
           actionHostname = new URL(action, window.location.href).hostname || undefined;
         } catch {}
       }
       const input = element as HTMLInputElement;
+      const role = element.getAttribute("role");
+      const controlKind = role === "switch" ? "switch" as const : type === "checkbox" || role === "checkbox" ? "checkbox" as const : type === "radio" ? "radio" as const : undefined;
+      const ariaChecked = element.getAttribute("aria-checked");
+      const checkedState = element instanceof HTMLInputElement && ["checkbox", "radio"].includes(type) ? input.indeterminate ? "mixed" as const : input.checked ? "checked" as const : "unchecked" as const : ariaChecked === "true" ? "checked" as const : ariaChecked === "false" ? "unchecked" as const : ariaChecked === "mixed" ? "mixed" as const : "unknown" as const;
       return [{
+        ...(controlKind ? { controlKind, checkedState } : {}),
         groupKey: groupRefFor(element),
         structure: nativeForm ? "native_form" as const : roleForm ? "role_form" as const : "unassociated_controls" as const,
         title: titleFor(group),
-        method: nativeForm?.getAttribute("method") ?? undefined,
+        // Read the native reflected method, including HTML's missing/invalid GET
+        // default. The prototype getter avoids named controls shadowing form.method.
+        method: nativeForm ? Object.getOwnPropertyDescriptor(HTMLFormElement.prototype, "method")?.get?.call(nativeForm) : undefined,
         actionHostname,
-        elementType: element.tagName.toLowerCase() as "input" | "textarea" | "select",
+        elementType: (["input", "textarea", "select"].includes(element.tagName.toLowerCase()) ? element.tagName.toLowerCase() : "custom_control") as "input" | "textarea" | "select" | "custom_control",
         inputType: type || element.tagName.toLowerCase(),
         label: labelFor(element),
         autocompleteToken: boundedText(element.getAttribute("autocomplete"), 80),
-        required: input.required === true,
-        disabled: input.disabled === true,
+        required: input.required === true || element.getAttribute("aria-required") === "true",
+        disabled: input.disabled === true || element.getAttribute("aria-disabled") === "true",
         readOnly: "readOnly" in input && input.readOnly === true,
         domOrder,
       }];
@@ -5014,10 +5388,47 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
         ...(id ? { selector: `#${id.replace(/[^a-zA-Z0-9_-]/g, "")}` } : {}),
       }];
     });
+    // Bounded passive main-document observation. Do not inspect or follow destinations.
+    const hiddenLinks: SiteIntegrityObservation["links"] = [];
+    let inspectedLinks = 0;
+    let integrityTruncated = anchorElements.length > integrityLimits.inspectedLinks;
+    if (captureSiteIntegrity) {
+      const stopAt = performance.now() + integrityLimits.captureBudgetMs;
+      for (const element of selectedAnchors) {
+        if (performance.now() >= stopAt || hiddenLinks.length >= integrityLimits.retainedLinks) { integrityTruncated = true; break; }
+        const index = inspectedLinks++;
+        if (element.ownerDocument !== document || !element.textContent?.trim() ||
+            element.childElementCount > 0 ||
+            element.closest('nav, [role="navigation"], [role="menu"], [role="menubar"], [hidden], [inert], [aria-hidden="true"], template')) continue;
+        let target: URL;
+        try { target = new URL(element.getAttribute("href") ?? "", location.href); } catch { continue; }
+        if (!/^https?:$/.test(target.protocol) || target.hostname === location.hostname || target.username || target.password) continue;
+        let concealment: SiteIntegrityObservation["links"][number]["concealment"] | undefined;
+        let excluded = false;
+        let positionedDescendant = false;
+        const linkRect = element.getBoundingClientRect();
+        let ancestor: Element | null = element;
+        for (let depth = 0; ancestor && ancestor !== document.body && depth < integrityLimits.ancestorDepth; depth++, ancestor = ancestor.parentElement) {
+          const style = getComputedStyle(ancestor);
+          // Hidden menus, collapsed widgets and conventional screen-reader-only content are not integrity evidence.
+          if (style.display === "none" || style.visibility !== "visible" || style.clip !== "auto" || style.clipPath !== "none" ||
+              /(?:^|\s)(?:sr-only|screen-reader-text|visually-hidden)(?:\s|$)/i.test(ancestor.className?.toString() ?? "") ||
+              ancestor.matches('[aria-expanded="false"], [role="dialog"], details:not([open])')) { excluded = true; break; }
+          const rect = ancestor.getBoundingClientRect();
+          if ((style.position === "absolute" || style.position === "fixed") && (rect.right < -1000 || rect.bottom < -1000) &&
+              (linkRect.right < -1000 || linkRect.bottom < -1000)) concealment ??= "offscreen_position";
+          if (!positionedDescendant && rect.width <= 0 && rect.height <= 0 && ["hidden", "clip"].includes(style.overflow)) concealment ??= "zero_size_container";
+          if (depth === 0 && parseFloat(style.fontSize) === 0) concealment ??= "zero_font_size";
+          positionedDescendant ||= style.position === "absolute" || style.position === "fixed";
+        }
+        if (!excluded && concealment) hiddenLinks.push({ evidenceRef: `site_integrity:link:${index}`, destinationDomain: target.hostname.toLowerCase(), concealment });
+      }
+    }
     const apiScope = window as typeof window & {
       __certscoreBrowserApiAccesses?: Array<{ apiName: string; category: string; timestampMs: number }>;
     };
     return {
+      integrityCapture: { links: hiddenLinks, inspectedLinks, truncated: integrityTruncated, capturedAt: new Date().toISOString() },
       apiAccesses: (apiScope.__certscoreBrowserApiAccesses ?? []).slice(0, 60),
       collectionCapture,
       domText: document.body?.innerText ?? "",
@@ -5026,6 +5437,10 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
         name: frame.name || undefined,
       })),
       localStorageEntries,
+      localStorageKeys: Object.keys(localStorageEntries),
+      sessionStorageKeys: Object.keys(sessionStorageEntries),
+      storageOrigin: window.location.origin,
+      localStorageReadComplete, sessionStorageReadComplete,
       pageUrl: window.location.href,
       links: renderedLinks,
       scripts: [...document.scripts].map((script) => ({
@@ -5035,7 +5450,17 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page): Promise<Cons
       })),
       sessionStorageEntries,
     };
-  }, { cmpSelectors, maxFieldCandidates: MAX_COLLECTION_SURFACE_INSPECTED_FIELDS });
+  }, { cmpSelectors, maxFieldCandidates: MAX_COLLECTION_SURFACE_INSPECTED_FIELDS, captureSiteIntegrity, integrityLimits: SITE_INTEGRITY_LIMITS });
+  const identity = stableBrowserDocumentIdentity(before, currentBrowserDocumentIdentity(page));
+  const { integrityCapture, ...evidence } = snapshot;
+  if (!captureSiteIntegrity || !identity || snapshot.pageUrl !== page.url()) return evidence;
+  const pageUrl = new URL(snapshot.pageUrl); pageUrl.search = ""; pageUrl.hash = ""; pageUrl.username = ""; pageUrl.password = "";
+  const observation = siteIntegrityObservationSchema.safeParse({
+    ...integrityCapture, links: integrityCapture.links.filter(link => classifyHostnameParty(link.destinationDomain, pageUrl.hostname) === "third_party"),
+    contractVersion: captureSiteIntegrity === "additional_page_main_document" ? "certscore.site-integrity-observation.v2" : "certscore.site-integrity-observation.v1", sourceLane: "runtime_evidence", scope: captureSiteIntegrity,
+    documentUrl: pageUrl.href, documentToken: identity.token,
+  });
+  return { ...evidence, ...(observation.success ? { siteIntegrityObservation: observation.data } : {}) };
 }
 
 function consolidatedPageEvidenceFromSnapshot(
@@ -5050,11 +5475,12 @@ function consolidatedPageEvidenceFromSnapshot(
     artifactId: "storage_snapshot_pre_consent",
     capturedAtMs: elapsed(input.scanStartedAtMs),
     consentStateAtTime: "pre_consent",
-    url: input.normalizedUrl,
+    url: snapshot.pageUrl,
+    captureContext: storageCaptureContextSchema.safeParse({ contractVersion: "storage-capture-context.v1", origin: snapshot.storageOrigin, localStorageReadComplete: snapshot.localStorageReadComplete, sessionStorageReadComplete: snapshot.sessionStorageReadComplete }).data,
     localStorage: snapshot.localStorageEntries,
     sessionStorage: snapshot.sessionStorageEntries,
-    localStorageKeys: Object.keys(snapshot.localStorageEntries),
-    sessionStorageKeys: Object.keys(snapshot.sessionStorageEntries),
+    localStorageKeys: snapshot.localStorageKeys,
+    sessionStorageKeys: snapshot.sessionStorageKeys,
     valuesRedacted: true,
     evidenceRefs: [],
   };
@@ -5063,6 +5489,7 @@ function consolidatedPageEvidenceFromSnapshot(
     input.scanStartedAtMs,
   );
   return {
+    siteIntegrityObservation: snapshot.siteIntegrityObservation,
     storageSnapshot,
     scripts: scriptEventsFromRows(snapshot.scripts, input.scanStartedAtMs, input.firstPartyHostname),
     frames: iframeEventsFromRows(snapshot.frames, input.scanStartedAtMs, input.firstPartyHostname),
@@ -5167,32 +5594,33 @@ async function captureStorageSnapshot(
   url: string,
 ): Promise<StorageSnapshot> {
   const storage = await page.evaluate(() => {
-    const localStorageEntries: Record<string, string> = {};
-    const sessionStorageEntries: Record<string, string> = {};
+    const localStorageEntries: Record<string, string> = Object.create(null);
+    const sessionStorageEntries: Record<string, string> = Object.create(null);
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
-      if (key) {
+      if (key !== null) {
         localStorageEntries[key] = "[redacted]";
       }
     }
     for (let index = 0; index < window.sessionStorage.length; index += 1) {
       const key = window.sessionStorage.key(index);
-      if (key) {
+      if (key !== null) {
         sessionStorageEntries[key] = "[redacted]";
       }
     }
-    return { localStorageEntries, sessionStorageEntries };
-  }).catch(() => ({ localStorageEntries: {}, sessionStorageEntries: {} }));
+    return { localStorageEntries, sessionStorageEntries, localStorageKeys: Object.keys(localStorageEntries), sessionStorageKeys: Object.keys(sessionStorageEntries), pageUrl: window.location.href, storageOrigin: window.location.origin };
+  }).catch(() => ({ localStorageEntries: {}, sessionStorageEntries: {}, localStorageKeys: [] as string[], sessionStorageKeys: [] as string[], pageUrl: url, storageOrigin: null }));
 
   return {
     artifactId: "storage_snapshot_pre_consent",
     capturedAtMs: elapsed(scanStartedAtMs),
     consentStateAtTime: "pre_consent",
-    url,
+    url: storage.pageUrl,
+    captureContext: storageCaptureContextSchema.safeParse({ contractVersion: "storage-capture-context.v1", origin: storage.storageOrigin, localStorageReadComplete: true, sessionStorageReadComplete: true }).data,
     localStorage: storage.localStorageEntries,
     sessionStorage: storage.sessionStorageEntries,
-    localStorageKeys: Object.keys(storage.localStorageEntries),
-    sessionStorageKeys: Object.keys(storage.sessionStorageEntries),
+    localStorageKeys: storage.localStorageKeys,
+    sessionStorageKeys: storage.sessionStorageKeys,
     valuesRedacted: true,
     evidenceRefs: [],
   };
@@ -5433,6 +5861,7 @@ type ConsentGateSnapshot = {
   cmpFrameKeys: string[];
   cmpScriptKeys: string[];
   mutationCount: number;
+  metadataComplete: boolean;
   observation: ConsentUiObservation;
   pageAgeMs: number;
 };
@@ -5559,7 +5988,6 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
   timingBreakdown: NonNullable<ScanModuleRun["timingBreakdown"]>;
   deadlineAtMs: number;
 }): Promise<ConsentUiObservation> {
-  await installConsentGateMutationProbe(input.page);
   let current = input.initialObservation;
   let previous = await captureConsentGateSnapshot(input, current);
   let shadowExitCandidate: ConsentGateShadowExitCandidate | undefined;
@@ -5697,7 +6125,12 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
     ) && input.deadlineAtMs - Date.now() >= 250;
     if (shouldRunSemanticCheckpoint) {
       const semanticBudgetMs = Math.min(750, Math.max(250, input.deadlineAtMs - Date.now()));
-      const semanticObservation = await detectConsentUi(
+      const semanticObservation = await recordBoundedTiming(
+        input.timingBreakdown,
+        "consent gate semantic checkpoint",
+        "Bounded semantic read leaves time for retained geometry and finalization.",
+        semanticBudgetMs,
+        () => detectConsentUi(
         input.page,
         input.scanStartedAtMs,
         0,
@@ -5706,6 +6139,8 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
           rapidInventoryTimeoutMs: Math.min(200, semanticBudgetMs),
           returnAfterRapidSnapshot: false,
         },
+        ),
+        () => current,
       );
       current = mergeConsentUiObservations(
         current,
@@ -5732,8 +6167,8 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
       return finish(snapshot, gate, "hard_cap_exit", progress);
     }
 
-    const proofStable = input.resolveStablePartialProofPacket?.(current) ??
-      input.stablePartialProofPacket;
+    const proofStable = snapshot.metadataComplete && previous.metadataComplete &&
+      (input.resolveStablePartialProofPacket?.(current) ?? input.stablePartialProofPacket);
     const stableForMs = lastTypedControlProgressAtMs === undefined
       ? 0
       : Math.max(0, snapshot.pageAgeMs - lastTypedControlProgressAtMs);
@@ -5824,32 +6259,7 @@ async function detectConsentUiWithAdaptiveCmpGates(input: {
   return finish(finalSnapshot, "24s", "hard_cap_exit", undefined);
 }
 
-async function installConsentGateMutationProbe(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const scope = window as typeof window & {
-      __certscoreConsentGateMutations?: { count: number; lastMutationAtMs: number };
-    };
-    if (scope.__certscoreConsentGateMutations) {
-      return;
-    }
-    scope.__certscoreConsentGateMutations = { count: 0, lastMutationAtMs: Date.now() };
-    const observer = new MutationObserver((mutations) => {
-      const state = scope.__certscoreConsentGateMutations;
-      if (!state) {
-        return;
-      }
-      state.count += mutations.length;
-      state.lastMutationAtMs = Date.now();
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      childList: true,
-      subtree: true,
-    });
-  }).catch(() => undefined);
-}
-
-async function captureConsentGateSnapshot(
+export async function captureConsentGateSnapshot(
   input: {
     cmpRuntimeObservations: CmpRuntimeObservation[];
     navigationStartedAtMs: number;
@@ -5862,21 +6272,37 @@ async function captureConsentGateSnapshot(
     .map((frame) => frame.url())
     .filter((url) => matchesConsentGateCmpHostname(url, cmpHostnames))
     .sort();
-  const scriptUrls = await input.page.locator("script[src]").evaluateAll((elements) =>
-    elements.slice(0, 200).map((element) => (element as HTMLScriptElement).src).filter(Boolean)
-  ).catch(() => [] as string[]);
-  const mutationCount = await input.page.evaluate(() => {
-    const scope = window as typeof window & {
-      __certscoreConsentGateMutations?: { count: number };
-    };
-    return scope.__certscoreConsentGateMutations?.count ?? 0;
-  }).catch(() => 0);
+  // Scheduling metadata must not consume the control-proof capture window.
+  // One bounded browser call replaces an unbounded install + locator + read.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const metadata = await Promise.race([
+    input.page.evaluate(() => {
+      const scope = window as typeof window & {
+        __certscoreConsentGateMutations?: { count: number; lastMutationAtMs: number };
+      };
+      if (!scope.__certscoreConsentGateMutations) {
+        scope.__certscoreConsentGateMutations = { count: 0, lastMutationAtMs: Date.now() };
+        new MutationObserver(mutations => {
+          const state = scope.__certscoreConsentGateMutations;
+          if (state) { state.count += mutations.length; state.lastMutationAtMs = Date.now(); }
+        }).observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+      }
+      return {
+        scriptUrls: Array.from(document.scripts).slice(0, 200).map(script => script.src).filter(Boolean),
+        mutationCount: scope.__certscoreConsentGateMutations.count,
+      };
+    }).catch(() => null),
+    new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 300); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+  const scriptUrls = metadata?.scriptUrls ?? [];
+  const mutationCount = metadata?.mutationCount ?? 0;
   return {
     cmpFrameKeys: unique(frameKeys),
     cmpScriptKeys: unique(
       scriptUrls.filter((url) => matchesConsentGateCmpHostname(url, cmpHostnames)),
     ),
     mutationCount,
+    metadataComplete: metadata !== null,
     observation,
     pageAgeMs: Math.max(0, Date.now() - input.navigationStartedAtMs),
   };
@@ -6260,7 +6686,8 @@ export async function detectConsentUi(
     };
     const isFirstLayerPosition = (element) => {
       const rect = element.getBoundingClientRect();
-      return rect.top <= window.innerHeight + 200 && rect.bottom >= -200;
+      return rect.width > 0 && rect.height > 0 && rect.top < window.innerHeight &&
+          rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
     };
     const hasConsentContext = (element) => {
       let current = element;
@@ -6398,6 +6825,7 @@ async function readDirectCmpSemanticConsentUiObservation(
   type DirectCmpSemanticInventory = {
     controls: Array<{
       label: string;
+      linkHref?: string;
       contextText: string;
       cmpScoped: boolean;
       role?: string;
@@ -6452,7 +6880,8 @@ async function readDirectCmpSemanticConsentUiObservation(
       const style = window.getComputedStyle(element);
       if (
         rect.width <= 0 || rect.height <= 0 ||
-        rect.top > window.innerHeight + 200 || rect.bottom < -200 ||
+        rect.top >= window.innerHeight || rect.bottom <= 0 ||
+        rect.left >= window.innerWidth || rect.right <= 0 ||
         style.visibility === "hidden" || style.display === "none" ||
         element.getAttribute("aria-hidden") === "true" ||
         Number.parseFloat(style.opacity || "1") <= 0.05
@@ -6465,15 +6894,23 @@ async function readDirectCmpSemanticConsentUiObservation(
       const id = element.getAttribute("id");
       const dataTestId = element.getAttribute("data-testid");
       const cmpContainer = closestCmpContainer(element);
-      const localContext = normalize(
-        cmpContainer?.innerText ??
-        element.closest<HTMLElement>("[role='dialog'],dialog,[aria-modal='true']")?.innerText ??
-        element.parentElement?.innerText ??
-        "",
-      ).slice(0, 2_000);
+      const contextContainer = cmpContainer ??
+        element.closest<HTMLElement>("[role='dialog'],dialog,[aria-modal='true']") ?? element.parentElement;
+      const contextParts: string[] = [];
+      if (contextContainer && contextContainer !== document.body && contextContainer !== document.documentElement &&
+        !contextContainer.closest("footer,header,nav,aside,[role='navigation'],[role='contentinfo']")) {
+        const walker = document.createTreeWalker(contextContainer, NodeFilter.SHOW_TEXT);
+        for (let inspected = 0, node = walker.nextNode(); node && inspected < 160; inspected += 1, node = walker.nextNode()) {
+          if (!element.contains(node) && !node.parentElement?.closest("button, [role='button'], a, input[type='button'], input[type='submit']")) {
+            contextParts.push(node.textContent || "");
+          }
+        }
+      }
+      const localContext = normalize(contextParts.join(" ")).slice(0, 2_000);
       controls.push({
         label,
         contextText: localContext,
+        linkHref: element.tagName.toLowerCase() === "a" ? element.getAttribute("href") ?? "" : undefined,
         cmpScoped: Boolean(cmpContainer),
         role: element.getAttribute("role") || undefined,
         selectorHint: id
@@ -6492,13 +6929,16 @@ async function readDirectCmpSemanticConsentUiObservation(
     canonicalConsentInventoryLabels: CANONICAL_CONSENT_INVENTORY_LABELS,
   }).catch((): DirectCmpSemanticInventory => ({ controls: [] }));
 
-  const controls = snapshot.controls.flatMap((control) => {
+  let navigationLimited = false;
+  const controls = snapshot.controls.map(control => normalizeConsentControlLink(control, page.url())).flatMap((control) => {
     if (hasMultipleCanonicalConsentIntents(control.label)) return [];
     const classification = classifyConsentControlLabel({
       label: control.label,
+      linkDestination: control.linkDestination,
       contextText: control.contextText,
       hasConsentContext: control.cmpScoped,
     });
+    navigationLimited ||= classification.reasonCodes.includes("unverified_preferences_navigation");
     const actionType = consentUiControlActionTypeFromClassification(classification);
     if (!actionType || (actionType === "other" && !isPaidDeclineClassification(classification))) return [];
     // A directly observed CMP script does not make every generic page
@@ -6513,6 +6953,7 @@ async function readDirectCmpSemanticConsentUiObservation(
       matchedTerm: classification.matchedTerm,
       matchedLocale: classification.matchedLocale,
       matchStrength: classification.matchStrength,
+      classifierRegistryVersion: classification.registryVersion,
       classifierReasonCodes: classification.reasonCodes,
       classifierVariant: classification.variant,
     }];
@@ -6523,7 +6964,7 @@ async function readDirectCmpSemanticConsentUiObservation(
     documentIdentity: currentBrowserDocumentIdentity(page),
     text: snapshot.controls.map((control) => `${control.contextText} ${control.label}`).join(" ").slice(0, 12_000),
     controls,
-    fallbackBasis: controls.length > 0 ? ["inventory:direct_cmp_semantic_controls"] : [],
+    fallbackBasis: [...(controls.length > 0 ? ["inventory:direct_cmp_semantic_controls"] : []), ...(navigationLimited ? [UNRESOLVED_CONSENT_DECISION] : [])],
     inventoryDiagnostics: {
       candidateContainerCount: controls.length > 0 ? 1 : 0,
       candidateControlCount: snapshot.controls.length,
@@ -6547,9 +6988,10 @@ export async function readRapidFirstLayerConsentUiObservation(
 ): Promise<ConsentUiObservation> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const boundedTimeoutMs = Math.max(100, Math.min(timeoutMs, 1_500));
+  let captureStage = "probe_presence";
   try {
     return await Promise.race([
-      readRapidFirstLayerConsentUiObservationUnbounded(page, scanStartedAtMs, phase),
+      readRapidFirstLayerConsentUiObservationUnbounded(page, scanStartedAtMs, phase, Date.now() + boundedTimeoutMs - 25, (stage) => { captureStage = stage; }),
       new Promise<ConsentUiObservation>((resolve) => {
         timer = setTimeout(() => {
           resolve({
@@ -6559,7 +7001,7 @@ export async function readRapidFirstLayerConsentUiObservation(
               timedOutChannels: ["dom_inventory"],
               failedChannels: [],
             },
-            basis: ["inventory:rapid_dom_timed_out"],
+            basis: ["inventory:rapid_dom_timed_out", `inventory:rapid_timeout_stage:${captureStage}`],
             inventoryDiagnostics: {
               candidateContainerCount: 0,
               candidateControlCount: 0,
@@ -6603,11 +7045,15 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
   page: Page,
   scanStartedAtMs: number,
   phase: "initial" | "post_accessibility" | "post_settle" | "retry",
+  deadlineAtMs: number,
+  onStage: (stage: string) => void,
 ): Promise<ConsentUiObservation> {
   type RapidConsentInventory = {
+    documentReadyState: DocumentReadyState;
     controls: Array<{
       cmpScoped: boolean;
       label: string;
+      linkHref?: string;
       role?: string;
       selectorHint: string;
       tagName: string;
@@ -6631,12 +7077,9 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
     canonicalNecessaryPreferenceLabels: string[];
     canonicalOptionalPreferenceLabels: string[];
   };
-  const alreadyInstalled = await page.evaluate(() =>
-    typeof (window as typeof window & { __certscoreRapidConsentInventory?: unknown })
-      .__certscoreRapidConsentInventory === "function"
-  ).catch(() => false);
-  const installed = alreadyInstalled || await page.evaluate(String.raw`(() => {
-    window.__certscoreRapidConsentInventory = (input) => {
+  onStage("main_inventory");
+  // One self-contained browser call avoids installation/probe round trips and stale page globals.
+  const inventorySource = String.raw`(input) => {
     const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
     const canonicalLabels = new Set(input.canonicalConsentInventoryLabels.map((value) => normalize(value).toLowerCase().replace(/\u0307/g, "")));
     const embeddedLabels = [...canonicalLabels].filter((value) => value.length >= 8);
@@ -6662,7 +7105,8 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
         style.pointerEvents !== "none" &&
         Boolean(centerHit && (centerHit === element || element.contains(centerHit)));
       return rect.width > 0 && rect.height > 0 &&
-        rect.top <= window.innerHeight + 200 && rect.bottom >= -200 &&
+        rect.top < window.innerHeight && rect.bottom > 0 &&
+        rect.left < window.innerWidth && rect.right > 0 &&
         style.visibility !== "hidden" && style.display !== "none" &&
         style.pointerEvents !== "none" &&
         element.getAttribute("aria-hidden") !== "true" &&
@@ -6670,9 +7114,12 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
         (!centerHit || centerHit === element || element.contains(centerHit));
     };
     const consentContextFor = (element) => {
-      let current = element;
-      for (let depth = 0; current && depth < 24; depth += 1) {
-        if (current !== document.body && current !== document.documentElement) {
+      let current = element.parentElement;
+      for (let depth = 0; current && depth < 8; depth += 1) {
+        if (current === document.body || current === document.documentElement ||
+          /^(?:nav|footer|header|aside)$/i.test(current.tagName) ||
+          /^(?:navigation|contentinfo|menu|menubar)$/i.test(current.getAttribute("role") || "")) return "";
+        {
           const attrs = normalize([
             current.getAttribute("id"),
             current.getAttribute("class"),
@@ -6680,13 +7127,21 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
             current.getAttribute("aria-label"),
             current.getAttribute("data-testid"),
           ].filter(Boolean).join(" "));
-          const text = normalize(current.textContent).slice(0, 8_000);
-          const normalizedContext = (attrs + " " + text).toLowerCase();
+          const contextParts = [];
+          const walker = current.ownerDocument.createTreeWalker(current, NodeFilter.SHOW_TEXT);
+          for (let inspected = 0, node = walker.nextNode(); node && inspected < 160; inspected += 1, node = walker.nextNode()) {
+            if (!element.contains(node) && !node.parentElement?.closest("button, [role='button'], a, input[type='button'], input[type='submit']")) {
+              contextParts.push(node.textContent || "");
+            }
+          }
+          const text = normalize(contextParts.join(" ")).slice(0, 4_000);
+          const normalizedContext = text.toLowerCase();
           if (
             contextPattern.test(normalizedContext) ||
-            contextHints.some((hint) => normalizedContext.includes(hint))
+            contextHints.some((hint) => normalizedContext.includes(hint)) ||
+            combinedCmpContainers.some((container) => container === current && container.contains(element))
           ) {
-            return text;
+            return normalize(current.textContent).slice(0, 4_000);
           }
         }
         current = current.parentElement;
@@ -6803,6 +7258,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
       }
       controls.push({
         cmpScoped: scopedSeen.has(element) || sameSurfaceCanonicalControlCount >= 2,
+        linkHref: element.tagName.toLowerCase() === "a" ? element.getAttribute("href") ?? "" : undefined,
         label,
         role: element.getAttribute("role") || undefined,
         selectorHint: selectorHintFor(element),
@@ -6863,6 +7319,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
     const precheckedOptionalPreferenceRows = optionalPreferenceRows.filter((row) => row.checked);
     return {
       controls,
+      documentReadyState: document.readyState,
       contextText: [...new Set(contexts)].join(" ").slice(0, 12_000),
       defaultTogglePurposeLabels: [...new Set(optionalPreferenceRows.map((row) => row.label))].slice(0, 12),
       defaultToggleStatesObserved: optionalPreferenceRows.length > 0 ? true : null,
@@ -6878,45 +7335,22 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
       precheckedOptionalPurposeLabels: [...new Set(precheckedOptionalPreferenceRows.map((row) => row.label))].slice(0, 10),
       rejectedNoContextLabels: [...new Set(rejectedNoContextLabels)],
     };
-    };
-  })()`).then(() => true).catch(() => false);
-  if (!installed) {
-    return {
-      ...emptyConsentUiObservation(scanStartedAtMs, page.url()),
-      captureDiagnostics: {
-        completedChannels: [],
-        timedOutChannels: [],
-        failedChannels: ["dom_inventory"],
-      },
-      basis: ["inventory:rapid_dom_failed"],
-      inventoryDiagnostics: {
-        candidateContainerCount: 0,
-        candidateControlCount: 0,
-        retainedControlCount: 0,
-        inventorySources: [],
-        candidateLabels: [],
-        rejectionReasons: ["inventory_probe_failed"],
-        timingMarkers: [`rapid_inventory_${phase}_failed`],
-      },
-    };
-  }
-  const snapshot = await page.evaluate<RapidConsentInventory, RapidConsentInventoryInput>((input) => {
-    const scope = window as typeof window & {
-      __certscoreRapidConsentInventory: (input: RapidConsentInventoryInput) => RapidConsentInventory;
-    };
-    return scope.__certscoreRapidConsentInventory(input);
-  }, {
+  }`;
+  const inventoryInput: RapidConsentInventoryInput = {
     canonicalCmpContainerSelectors: CANONICAL_CMP_CONTAINER_SELECTORS,
     canonicalConsentInventoryLabels: CANONICAL_CONSENT_INVENTORY_LABELS,
     canonicalConsentContextHints: CANONICAL_CONSENT_CONTEXT_HINTS,
     canonicalNecessaryPreferenceLabels: CANONICAL_NECESSARY_PREFERENCE_CATEGORY_LABELS,
     canonicalOptionalPreferenceLabels: CANONICAL_OPTIONAL_PREFERENCE_CATEGORY_LABELS,
-  });
+  };
+  const snapshot = await page.evaluate<RapidConsentInventory>(`(${inventorySource})(${JSON.stringify(inventoryInput)})`);
 
-  const classifiedControls = snapshot.controls.map((control) => ({
+  onStage("control_classification");
+  const classifiedControls = snapshot.controls.map(control => normalizeConsentControlLink(control, page.url())).map((control) => ({
     control,
     classification: classifyConsentControlLabel({
       label: control.label,
+      linkDestination: control.linkDestination,
       contextText: snapshot.contextText,
       hasConsentContext: true,
     }),
@@ -6947,6 +7381,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
       matchedTerm: classification.matchedTerm,
       matchedLocale: classification.matchedLocale,
       matchStrength: classification.matchStrength,
+      classifierRegistryVersion: classification.registryVersion,
       classifierReasonCodes: classification.reasonCodes,
       classifierVariant: classification.variant,
     }];
@@ -6966,7 +7401,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
       precheckedOptionalPurposeCount: snapshot.precheckedOptionalPurposeCount,
       precheckedOptionalPurposeLabels: snapshot.precheckedOptionalPurposeLabels,
     },
-    fallbackBasis: controls.length > 0 ? ["inventory:rapid_first_layer_controls"] : [],
+    fallbackBasis: [...(controls.length > 0 ? ["inventory:rapid_first_layer_controls"] : []), ...(classifiedControls.some(({ classification }) => classification.reasonCodes.includes("unverified_preferences_navigation")) ? [UNRESOLVED_CONSENT_DECISION] : [])],
     inventoryDiagnostics: {
       candidateContainerCount: snapshot.contextText ? 1 : 0,
       candidateControlCount: snapshot.controls.length,
@@ -6986,7 +7421,11 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
   });
   const mainFrameObservation: ConsentUiObservation = {
     ...observation,
-    inventoryOutcome: controls.length > 0 ? "complete_with_controls" : "complete_empty",
+    documentReadyState: snapshot.documentReadyState,
+    inventoryOutcome: observation.basis.includes(UNRESOLVED_CONSENT_DECISION) ? "partial" : controls.length > 0 ? "complete_with_controls"
+      : snapshot.documentReadyState === "loading" ? "partial" : "complete_empty",
+    captureStatus: observation.basis.includes(UNRESOLVED_CONSENT_DECISION) || controls.length === 0 && snapshot.documentReadyState === "loading"
+      ? "incomplete" : observation.captureStatus,
     captureDiagnostics: {
       completedChannels: ["dom_inventory"],
       timedOutChannels: [],
@@ -7001,15 +7440,19 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
   // screenshot while remaining absent from the top-level document. Keep this
   // recovery structured and passive: inspect a bounded set of child frames and
   // classify only their visible DOM controls through the canonical registry.
-  const frameInventory = await readRapidChildFrameConsentInventory(page);
+  onStage("child_inventory");
+  const frameInventory = await readRapidChildFrameConsentInventory(page, deadlineAtMs);
   const frameContextText = frameInventory.textExcerpts.join(" ").slice(0, 12_000);
-  const frameControls = frameInventory.controls.flatMap((control) => {
+  let frameNavigationLimited = false;
+  const frameControls = frameInventory.controls.map(control => normalizeConsentControlLink(control, control.frameUrl ?? page.url())).flatMap((control) => {
     if (hasMultipleCanonicalConsentIntents(control.label)) return [];
     const classification = classifyConsentControlLabel({
       label: control.label,
+      linkDestination: control.linkDestination,
       contextText: frameContextText,
       hasConsentContext: true,
     });
+    frameNavigationLimited ||= classification.reasonCodes.includes("unverified_preferences_navigation");
     const actionType = consentUiControlActionTypeFromClassification(classification);
     if (!actionType || (actionType === "other" && !isPaidDeclineClassification(classification))) return [];
     return [{
@@ -7018,6 +7461,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
       matchedTerm: classification.matchedTerm,
       matchedLocale: classification.matchedLocale,
       matchStrength: classification.matchStrength,
+      classifierRegistryVersion: classification.registryVersion,
       classifierReasonCodes: classification.reasonCodes,
       classifierVariant: classification.variant,
     }];
@@ -7028,9 +7472,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
     documentIdentity: currentBrowserDocumentIdentity(page),
     text: frameContextText,
     controls: frameControls,
-    fallbackBasis: frameControls.length > 0
-      ? ["inventory:same_origin_frame_controls", "inventory:rapid_child_frame_controls"]
-      : [],
+    fallbackBasis: [...(frameControls.length > 0 ? ["inventory:same_origin_frame_controls", "inventory:rapid_child_frame_controls"] : []), ...(frameNavigationLimited ? [UNRESOLVED_CONSENT_DECISION] : [])],
     inventoryDiagnostics: {
       candidateContainerCount: frameControls.length > 0 ? 1 : 0,
       candidateControlCount: frameInventory.controls.length,
@@ -7073,6 +7515,7 @@ async function readRapidFirstLayerConsentUiObservationUnbounded(
 
 async function readRapidChildFrameConsentInventory(
   page: Page,
+  deadlineAtMs: number,
 ): Promise<{
   controls: ConsentUiInventoryControl[];
   frameInaccessibleCount: number;
@@ -7085,10 +7528,17 @@ async function readRapidChildFrameConsentInventory(
     .filter((frame) => frame !== page.mainFrame())
     .slice(0, 8);
   const rows = await Promise.all(frames.map(async (frame) => {
+    // An unrelated stalled frame must not erase the completed main-document
+    // inventory. Preserve explicit inaccessible-frame coverage in its place.
+    const remainingMs = Math.min(200, deadlineAtMs - Date.now());
+    if (remainingMs <= 0) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let expired = false;
+    try { return await Promise.race([(async () => {
     const installed = await frame.evaluate(CONSENT_INVENTORY_PROBE_SCRIPT)
       .then(() => true)
       .catch(() => false);
-    if (!installed) return null;
+    if (!installed || expired) return null;
     const row = await frame.evaluate<{
       controls: ConsentUiInventoryControl[];
       textExcerpt: string;
@@ -7130,6 +7580,8 @@ async function readRapidChildFrameConsentInventory(
         inventorySource: "same_origin_frame" as const,
       })),
     };
+    })(), new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), remainingMs); })]);
+    } finally { expired = true; if (timer) clearTimeout(timer); }
   }));
   const completed = rows.filter((row): row is NonNullable<typeof row> => row !== null);
   const failedFrames = frames.filter((_, index) => rows[index] === null);
@@ -7172,6 +7624,7 @@ async function readConsentUiObservation(
     .then(() => true)
     .catch(() => false);
   const inventory = await page.evaluate<{
+    documentReadyState?: DocumentReadyState;
     controls: ConsentUiInventoryControl[];
     diagnostics?: ConsentInventoryProbeDiagnostics;
     frameInaccessibleCount: number;
@@ -7202,6 +7655,7 @@ async function readConsentUiObservation(
       ),
       frameInaccessibleCount: 0,
       probeSucceeded: true,
+      documentReadyState: document.readyState,
     };
   }, {
     allowFullDocumentCmpControls,
@@ -7209,6 +7663,7 @@ async function readConsentUiObservation(
     canonicalConsentContextHints: CANONICAL_CONSENT_CONTEXT_HINTS,
     canonicalCmpControlSelectors: CANONICAL_CMP_CONTAINER_SELECTORS,
   }).catch((): {
+    documentReadyState?: DocumentReadyState;
     controls: ConsentUiInventoryControl[];
     diagnostics?: ConsentInventoryProbeDiagnostics;
     frameInaccessibleCount: number;
@@ -7240,11 +7695,12 @@ async function readConsentUiObservation(
   const defaultToggleEvidence = await readConsentDefaultToggleEvidence(page);
   const frameInaccessibleCount = inventory.frameInaccessibleCount + frameInventory.frameInaccessibleCount;
   const probeDiagnostics = inventory.diagnostics;
-  const classifiedControls = combinedControls.map((control) => {
+  const classifiedControls = combinedControls.map(control => normalizeConsentControlLink(control, control.frameUrl ?? page.url())).map((control) => {
     const classification = classifyConsentControlLabel({
       label: control.label,
-      contextText: combinedText,
-      hasConsentContext: true,
+      linkDestination: control.linkDestination,
+      contextText: control.nearbyConsentText,
+      hasConsentContext: control.consentContextEvidence === "local_surface",
     });
     const actionType = consentUiControlActionTypeFromClassification(classification);
     return {
@@ -7255,6 +7711,7 @@ async function readConsentUiObservation(
       matchedTerm: classification.matchedTerm,
       matchedLocale: classification.matchedLocale,
       matchStrength: classification.matchStrength,
+      classifierRegistryVersion: classification.registryVersion,
       classifierReasonCodes: classification.reasonCodes,
       classifierVariant: classification.variant,
     };
@@ -7431,6 +7888,7 @@ async function readConsentUiObservation(
     controls: enrichedControls,
     defaultToggleEvidence,
     fallbackBasis: [
+      ...(classifiedControls.some(control => control.classifierReasonCodes.includes("unverified_preferences_navigation")) ? [UNRESOLVED_CONSENT_DECISION] : []),
       ...(retainedInventorySources.has("full_document_cmp") ? ["inventory:full_document_cmp_controls"] : []),
       ...(retainedInventorySources.has("full_document_consent_surface") ? ["inventory:full_document_consent_surface_controls"] : []),
       ...(retainedInventorySources.has("same_origin_frame") ? ["inventory:same_origin_frame_controls"] : []),
@@ -7449,18 +7907,19 @@ async function readConsentUiObservation(
   ];
   return {
     ...observation,
+    documentReadyState: inventory.documentReadyState,
     inventoryOutcome:
-      frameInaccessibleCount > 0
+      observation.basis.includes(UNRESOLVED_CONSENT_DECISION) ? "partial" : frameInaccessibleCount > 0
         ? "frame_inaccessible"
         : enrichedControls.length > 0
           ? "complete_with_controls"
-          : domInventoryCompleted
+          : domInventoryCompleted && inventory.documentReadyState !== "loading"
             ? "complete_empty"
             : accessibilityInventory.captureStatus === "timed_out"
               ? "timed_out"
               : "partial",
     captureStatus:
-      enrichedControls.length > 0
+      observation.basis.includes(UNRESOLVED_CONSENT_DECISION) ? "incomplete" : enrichedControls.length > 0
         ? "observed"
         : domInventoryCompleted || accessibilityInventory.captureStatus === "completed"
           ? observation.captureStatus
@@ -7478,7 +7937,13 @@ async function readConsentUiObservation(
   };
 }
 
+function normalizeConsentControlLink<T extends { linkHref?: string; linkDestination?: ConsentUiObservation["controls"][number]["linkDestination"] }>(control: T, documentUrl: string) {
+  const { linkHref, ...retained } = control;
+  return { ...retained, ...(linkHref !== undefined ? { linkDestination: classifyConsentControlLinkDestination(linkHref, documentUrl) } : {}) };
+}
+
 type ConsentUiInventoryControl = ConsentUiObservation["controls"][number] & {
+  linkHref?: string;
   frameUrl?: string;
   inventorySource?: "first_layer" | "full_document_cmp" | "full_document_consent_surface" | "same_origin_frame" | "accessibility_tree";
   inventoryContainerKey?: string;
@@ -7617,7 +8082,8 @@ const CONSENT_DEFAULT_TOGGLE_PROBE_SCRIPT = String.raw`(() => {
   const isFirstLayerPosition = (element) => {
     if (!element) return false;
     const rect = element.getBoundingClientRect();
-    return rect.top <= window.innerHeight + 200 && rect.bottom >= -200;
+    return rect.width > 0 && rect.height > 0 && rect.top < window.innerHeight &&
+          rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
   };
   const isWithinVisibleScrollableConsentSurface = (element) => {
     let current = element?.parentElement ?? null;
@@ -7928,38 +8394,46 @@ function boundedFrameInventoryRead(frame: Frame): Promise<{
         return (
           rect.width > 0 &&
           rect.height > 0 &&
+          rect.top < window.innerHeight && rect.bottom > 0 &&
+          rect.left < window.innerWidth && rect.right > 0 &&
           style.visibility !== "hidden" &&
           style.display !== "none" &&
           element.getAttribute("aria-hidden") !== "true" &&
           Number.parseFloat(style.opacity || "1") > 0.05
         );
       };
-      const hasConsentContext = (element: Element) => {
-        let current: Element | null = element;
+      const localConsentContext = (element: Element) => {
+        let current: Element | null = element.parentElement;
         for (let depth = 0; current && depth < 6; depth += 1) {
-          if (current === document.body || current === document.documentElement) {
-            current = current.parentElement;
-            continue;
+          if (current === document.body || current === document.documentElement ||
+            /^(?:nav|footer|header|aside)$/i.test(current.tagName) ||
+            /^(?:navigation|contentinfo|menu|menubar)$/i.test(current.getAttribute("role") || "")) return "";
+          const contextParts: string[] = [];
+          const walker = current.ownerDocument.createTreeWalker(current, NodeFilter.SHOW_TEXT);
+          for (let inspected = 0, node = walker.nextNode(); node && inspected < 160; inspected += 1, node = walker.nextNode()) {
+            if (!element.contains(node) && !node.parentElement?.closest(controlSelector)) {
+              contextParts.push(node.textContent || "");
+            }
           }
-          const contextText = (current.textContent || "").replace(/\s+/g, " ").trim();
+          const contextText = contextParts.join(" ").replace(/\s+/g, " ").trim();
           const contextAttrs = [
             current.getAttribute("aria-label"),
             current.getAttribute("role"),
             current.getAttribute("id"),
             current.getAttribute("class"),
           ].filter(Boolean).join(" ");
-          if (consentContextPattern.test(`${contextText} ${contextAttrs}`)) {
-            return true;
+          if (contextText.length <= 4_000 && consentContextPattern.test(contextText)) {
+            return `${current.textContent || ""} ${contextAttrs}`.replace(/\s+/g, " ").trim().slice(0, 500);
           }
           current = current.parentElement;
         }
-        return false;
+        return "";
       };
       const controls = Array.from(document.querySelectorAll(controlSelector))
         .slice(0, 80)
         .flatMap((element) => {
           const label = labelFor(element).slice(0, 120);
-          if (!label || label.length > 120 || !isVisible(element) || !hasConsentContext(element)) {
+          if (!label || label.length > 120 || !isVisible(element) || !localConsentContext(element)) {
             return [];
           }
           return [{
@@ -7968,7 +8442,10 @@ function boundedFrameInventoryRead(frame: Frame): Promise<{
             role: element.getAttribute("role") || undefined,
             selectorHint: selectorHintFor(element),
             tagName: element.tagName.toLowerCase(),
+            linkHref: element.tagName.toLowerCase() === "a" ? element.getAttribute("href") ?? "" : undefined,
             visible: true,
+            consentContextEvidence: "local_surface" as const,
+            nearbyConsentText: localConsentContext(element),
             frameUrl: window.location.href,
             inventoryContainerKey: `same_origin_frame:${window.location.href}`,
             inventoryRootSource: "document" as const,
@@ -7996,7 +8473,9 @@ type AccessibilityNodeValue = {
 };
 
 export type ConsentAccessibilityTreeNode = {
+  visibilityEvidence?: "box_model_verified" | "unverified";
   backendDOMNodeId?: number;
+  properties?: Array<{ name: string; value?: AccessibilityNodeValue }>;
   childIds?: string[];
   ignored?: boolean;
   name?: AccessibilityNodeValue;
@@ -8034,7 +8513,7 @@ async function readAccessibilityConsentInventory(page: Page, timeoutMs = 6_000):
         page.viewportSize(),
       );
       return {
-        ...consentControlsFromAccessibilityTree(firstLayerNodes),
+        ...consentControlsFromAccessibilityTree(firstLayerNodes, page.url()),
         captureStatus: "completed" as const,
       };
     })(),
@@ -8068,12 +8547,12 @@ async function readAccessibilityConsentInventory(page: Page, timeoutMs = 6_000):
   }
 }
 
-async function filterAccessibilityTreeToFirstLayer(
+export async function filterAccessibilityTreeToFirstLayer(
   client: CDPSession,
   nodes: ConsentAccessibilityTreeNode[],
   viewport: { width: number; height: number } | null,
 ): Promise<ConsentAccessibilityTreeNode[]> {
-  if (!viewport) return nodes;
+  if (!viewport) return nodes.map((node) => ({ ...node, visibilityEvidence: "unverified" }));
   const canonicalLabels = CANONICAL_CONSENT_INVENTORY_LABELS.map((label) => label.toLowerCase());
   const candidates = nodes.filter((node) => {
     if (!node.backendDOMNodeId || node.ignored === true) return false;
@@ -8084,7 +8563,7 @@ async function filterAccessibilityTreeToFirstLayer(
       (canonicalLabel) => label === canonicalLabel || (canonicalLabel.length >= 6 && label.includes(canonicalLabel)),
     );
   }).slice(0, 40);
-  if (candidates.length === 0) return nodes;
+  if (candidates.length === 0) return nodes.map((node) => ({ ...node, visibilityEvidence: "unverified" }));
   const firstLayerByNodeId = new Map(await Promise.all(candidates.map(async (node) => {
     const box = await client.send("DOM.getBoxModel", {
       backendNodeId: node.backendDOMNodeId,
@@ -8092,17 +8571,22 @@ async function filterAccessibilityTreeToFirstLayer(
     const quad = box?.model?.border ?? [];
     const xs = quad.filter((_, index) => index % 2 === 0);
     const ys = quad.filter((_, index) => index % 2 === 1);
-    const hasBox = xs.length >= 4 && ys.length >= 4;
+    const hasBox = xs.length >= 4 && ys.length >= 4 && quad.every(Number.isFinite);
+    if (!hasBox) return [node.nodeId, undefined] as const;
     const inFirstLayer = hasBox &&
+      Math.max(...xs) > Math.min(...xs) &&
+      Math.max(...ys) > Math.min(...ys) &&
       Math.max(...xs) > 0 &&
       Math.min(...xs) < viewport.width &&
-      Math.max(...ys) >= -200 &&
-      Math.min(...ys) <= viewport.height + 200;
+      Math.max(...ys) > 0 &&
+      Math.min(...ys) < viewport.height;
     return [node.nodeId, inFirstLayer] as const;
   })));
-  return nodes.map((node) => firstLayerByNodeId.get(node.nodeId) === false
-    ? { ...node, ignored: true }
-    : node);
+  return nodes.map((node) => ({
+    ...node,
+    visibilityEvidence: firstLayerByNodeId.get(node.nodeId) === true ? "box_model_verified" : "unverified",
+    ...(firstLayerByNodeId.get(node.nodeId) === false ? { ignored: true } : {}),
+  }));
 }
 
 function consentUiObservationFromAccessibilityInventory(
@@ -8115,8 +8599,9 @@ function consentUiObservationFromAccessibilityInventory(
   const classifiedControls = inventory.controls.flatMap((control) => {
     const classification = classifyConsentControlLabel({
       label: control.label,
-      contextText,
-      hasConsentContext: true,
+      linkDestination: control.linkDestination,
+      contextText: control.nearbyConsentText,
+      hasConsentContext: control.consentContextEvidence === "local_surface",
     });
     const actionType = consentUiControlActionTypeFromClassification(classification);
     if (!actionType || (actionType === "other" && !isPaidDeclineClassification(classification))) return [];
@@ -8133,6 +8618,7 @@ function consentUiObservationFromAccessibilityInventory(
       matchedTerm: classification.matchedTerm,
       matchedLocale: classification.matchedLocale,
       matchStrength: classification.matchStrength,
+      classifierRegistryVersion: classification.registryVersion,
       classifierReasonCodes: classification.reasonCodes,
       classifierVariant: classification.variant,
       _matchStrength: classification.matchStrength,
@@ -8160,6 +8646,7 @@ function consentUiObservationFromAccessibilityInventory(
     text: contextText,
     controls,
     fallbackBasis: [
+      ...(inventory.controls.some(control => control.visible && control.classifierReasonCodes?.includes("unverified_preferences_navigation")) ? [UNRESOLVED_CONSENT_DECISION] : []),
       ...(controls.length > 0 ? ["inventory:accessibility_tree"] : []),
       ...(inventory.captureStatus === "timed_out" ? ["inventory:accessibility_tree_timed_out"] : []),
       ...(inventory.captureStatus === "failed" ? ["inventory:accessibility_tree_failed"] : []),
@@ -8186,8 +8673,9 @@ function consentUiObservationFromAccessibilityInventory(
   });
   return {
     ...observation,
+    inventoryOutcome: observation.basis.includes(UNRESOLVED_CONSENT_DECISION) ? "partial" : observation.inventoryOutcome,
     captureStatus:
-      inventory.captureStatus === "completed"
+      observation.basis.includes(UNRESOLVED_CONSENT_DECISION) ? "incomplete" : inventory.captureStatus === "completed"
         ? observation.captureStatus
         : controls.length > 0
           ? "observed"
@@ -8202,6 +8690,7 @@ function consentUiObservationFromAccessibilityInventory(
 
 export function consentControlsFromAccessibilityTree(
   nodes: ConsentAccessibilityTreeNode[],
+  documentUrl?: string,
 ): {
   controls: ConsentUiInventoryControl[];
   hasPotentialToggle: boolean;
@@ -8251,12 +8740,16 @@ export function consentControlsFromAccessibilityTree(
     if (!AX_CONSENT_CONTEXT_PATTERN.test(contextText)) {
       continue;
     }
+    const href = node.properties?.find(property => property.name === "url")?.value?.value;
+    const linkDestination = role === "link"
+      ? classifyConsentControlLinkDestination(typeof href === "string" ? href : undefined, documentUrl) : undefined;
     const classification = classifyConsentControlLabel({
       label,
+      linkDestination,
       contextText,
       hasConsentContext: true,
     });
-    if (classification.intent === "unknown") {
+    if (classification.intent === "unknown" && !classification.reasonCodes.includes("unverified_preferences_navigation")) {
       continue;
     }
     const containerIntents = accessibilitySubtreeConsentIntents(container, nodesById);
@@ -8277,11 +8770,16 @@ export function consentControlsFromAccessibilityTree(
     }
     controls.push({
       actionType: "other",
+      linkDestination,
+      classifierReasonCodes: classification.reasonCodes,
       label,
       role,
       selectorHint: `ax:${node.nodeId}`,
       tagName: "ax-node",
-      visible: true,
+      visible: node.visibilityEvidence === "box_model_verified",
+      visibilityEvidence: node.visibilityEvidence ?? "unverified",
+      consentContextEvidence: "local_surface",
+      nearbyConsentText: contextText.slice(0, 500),
       inventoryContainerKey: `accessibility_tree:${container.nodeId}`,
       inventoryRootSource: "document",
       inventorySource: "accessibility_tree",
@@ -8312,6 +8810,7 @@ function nearestAccessibilityConsentContainer(
     const role = axStringValue(current.role);
     const name = axStringValue(current.name);
     const subtreeText = collectAccessibilitySubtreeText(current, nodesById, 60);
+    if (/^(?:RootWebArea|WebArea|navigation|contentinfo|menubar|menu)$/i.test(role)) return null;
     const isLikelyConsentContainer = (
       AX_CONSENT_CONTAINER_ROLE_PATTERN.test(role) ||
       AX_CONSENT_CONTEXT_PATTERN.test(`${name} ${role}`)
@@ -8574,7 +9073,8 @@ const CONSENT_INVENTORY_PROBE_SCRIPT = String.raw`(() => {
       };
       const isFirstLayerPosition = (element) => {
         const rect = element.getBoundingClientRect();
-        return rect.top <= window.innerHeight + 200 && rect.bottom >= -200;
+        return rect.width > 0 && rect.height > 0 && rect.top < window.innerHeight &&
+          rect.bottom > 0 && rect.left < window.innerWidth && rect.right > 0;
       };
       const containerKindFor = (element) => {
         if (isFirstLayerPosition(element)) {
@@ -8667,14 +9167,20 @@ const CONSENT_INVENTORY_PROBE_SCRIPT = String.raw`(() => {
         }
         return { key: "ineligible", source: "ineligible" };
       };
-      const hasConsentContext = (element) => {
-        let current = element;
+      const localConsentContext = (element) => {
+        let current = parentFor(element);
         for (let depth = 0; current && depth < 8; depth += 1) {
-          if (current === document.body || current === document.documentElement) {
-            current = parentFor(current);
-            continue;
+          if (current === document.body || current === document.documentElement ||
+            /^(?:nav|footer|header|aside)$/i.test(current.tagName) ||
+            /^(?:navigation|contentinfo|menu|menubar)$/i.test(current.getAttribute("role") || "")) return "";
+          const contextParts = [];
+          const walker = current.ownerDocument.createTreeWalker(current, NodeFilter.SHOW_TEXT);
+          for (let inspected = 0, node = walker.nextNode(); node && inspected < 160; inspected += 1, node = walker.nextNode()) {
+            if (!element.contains(node) && !node.parentElement?.closest(controlSelector)) {
+              contextParts.push(node.textContent || "");
+            }
           }
-          const contextText = (current.textContent || "").replace(/\s+/g, " ").trim();
+          const contextText = contextParts.join(" ").replace(/\s+/g, " ").trim();
           const contextAttrs = [
             current.getAttribute("aria-label"),
             current.getAttribute("role"),
@@ -8682,15 +9188,16 @@ const CONSENT_INVENTORY_PROBE_SCRIPT = String.raw`(() => {
             current.getAttribute("class"),
           ].filter(Boolean).join(" ");
           if (
-            consentContextPattern.test(contextText + " " + contextAttrs) ||
-            hasCanonicalContextHint(contextText + " " + contextAttrs)
+            contextText.length <= 4_000 && (consentContextPattern.test(contextText) ||
+            hasCanonicalContextHint(contextText))
           ) {
-            return true;
+            return ((current.textContent || "") + " " + contextAttrs).replace(/\s+/g, " ").trim().slice(0, 500);
           }
           current = parentFor(current);
         }
-        return false;
+        return "";
       };
+      const hasConsentContext = (element) => Boolean(localConsentContext(element));
       const isPotentialCustomControl = (element) => {
         const role = (element.getAttribute("role") || "").toLowerCase();
         const tabIndex = element.getAttribute("tabindex");
@@ -8788,7 +9295,7 @@ const CONSENT_INVENTORY_PROBE_SCRIPT = String.raw`(() => {
           }
           const label = labelFor(element);
           if (!label || label.length > 140 || !hasConsentContext(element)) {
-            rememberCandidate(element, label, "no_consent_context");
+            rememberCandidate(element, label, element.closest?.("footer,header,nav,aside,[role='navigation'],[role='contentinfo']") ? "footer_nav_page_chrome" : "no_consent_context");
             return false;
           }
           return !Array.from(element.children).slice(0, 20).some((child) => {
@@ -8820,7 +9327,7 @@ const CONSENT_INVENTORY_PROBE_SCRIPT = String.raw`(() => {
         }
         const label = labelFor(element).slice(0, 120);
         if (!label || label.length > 120 || !hasConsentContext(element)) {
-          rememberCandidate(element, label, "no_consent_context");
+          rememberCandidate(element, label, element.closest?.("footer,header,nav,aside,[role='navigation'],[role='contentinfo']") ? "footer_nav_page_chrome" : "no_consent_context");
           return [];
         }
         const container = containerKindFor(element);
@@ -8843,7 +9350,10 @@ const CONSENT_INVENTORY_PROBE_SCRIPT = String.raw`(() => {
           role: element.getAttribute("role") || undefined,
           selectorHint: selectorHintFor(element),
           tagName: element.tagName.toLowerCase(),
+          linkHref: element.tagName.toLowerCase() === "a" ? element.getAttribute("href") ?? "" : undefined,
           visible: true,
+          consentContextEvidence: "local_surface",
+          nearbyConsentText: localConsentContext(element),
           frameUrl: sameOriginFrameControl ? element.ownerDocument.location?.href : undefined,
           inventoryContainerKey: sameOriginFrameControl ? "same_origin_frame:" + (element.ownerDocument.location?.href || "about:blank") : container.key,
           inventoryRootSource: rootSourceFor(element),
@@ -8946,11 +9456,11 @@ function buildConsentUiObservationFromEvidence(input: {
 }): ConsentUiObservation {
   const { controls, defaultToggleEvidence, documentIdentity, documentUrl, fallbackBasis = [], inventoryDiagnostics, scanStartedAtMs, text } = input;
   const canonicalSurfaceText = classifyConsentSurfaceText({ text });
-  const visibleChoiceLabels = controls.map((control) => control.label);
-  const acceptControlObserved = controls.some((control) => control.actionType === "accept_all");
-  const rejectControlObserved = controls.some((control) => control.actionType === "reject_all");
+  const visibleChoiceLabels = controls.filter((control) => control.visible !== false).map((control) => control.label);
+  const acceptControlObserved = controls.some((control) => control.visible !== false && control.actionType === "accept_all");
+  const rejectControlObserved = controls.some((control) => control.visible !== false && control.actionType === "reject_all");
   const managePreferencesControlObserved = controls.some((control) =>
-    control.actionType === "manage_preferences" || control.actionType === "save_preferences"
+    control.visible !== false && (control.actionType === "manage_preferences" || control.actionType === "save_preferences")
   );
   const controlBasis = controls.map((control) => `control:${control.actionType}:${control.label}`);
   const surfaceTextBasis = canonicalSurfaceText.matches.map((match) =>
@@ -9137,10 +9647,10 @@ function hasActionableConsentChoiceControl(observation: ConsentUiObservation): b
 }
 
 function hasSufficientFirstLayerConsentControls(observation: ConsentUiObservation): boolean {
-  const hasAccept = observation.controls.some((control) => control.actionType === "accept_all");
-  const hasReject = observation.controls.some((control) => control.actionType === "reject_all");
+  const hasAccept = observation.controls.some((control) => control.visible !== false && control.actionType === "accept_all");
+  const hasReject = observation.controls.some((control) => control.visible !== false && control.actionType === "reject_all");
   const hasManage = observation.controls.some((control) =>
-    control.actionType === "manage_preferences" || control.actionType === "save_preferences"
+    control.visible !== false && (control.actionType === "manage_preferences" || control.actionType === "save_preferences")
   );
   return hasReject && (hasAccept || hasManage);
 }
@@ -9329,10 +9839,13 @@ export function mergeConsentUiObservations(
           : completedTypedInventoryRetained
             ? controls.length > 0
               ? "complete_with_controls"
-              : "complete_empty"
+              : (candidate.documentReadyState ?? current.documentReadyState) === "loading"
+                ? "partial" : "complete_empty"
             : candidate.inventoryOutcome ?? current.inventoryOutcome;
   return {
     ...candidate,
+    observedAtMs: Math.max(current.observedAtMs, candidate.observedAtMs),
+    documentReadyState: candidate.documentReadyState ?? current.documentReadyState,
     boundedSameSessionRecoveryOutcome:
       candidate.boundedSameSessionRecoveryOutcome ?? current.boundedSameSessionRecoveryOutcome,
     inventoryOutcome,
@@ -9350,7 +9863,7 @@ export function mergeConsentUiObservations(
       failedChannels: activeFailedChannels,
     },
     acceptControlObserved: current.acceptControlObserved || candidate.acceptControlObserved ||
-      controls.some((control) => control.actionType === "accept_all"),
+      controls.some((control) => control.visible !== false && control.actionType === "accept_all"),
     basis: unique([
       ...current.basis,
       ...candidate.basis,
@@ -9393,7 +9906,7 @@ export function mergeConsentUiObservations(
       ...(candidate.precheckedOptionalPurposeLabels ?? []),
     ]).slice(0, 10),
     rejectControlObserved: current.rejectControlObserved || candidate.rejectControlObserved ||
-      controls.some((control) => control.actionType === "reject_all"),
+      controls.some((control) => control.visible !== false && control.actionType === "reject_all"),
     visibleChoiceLabels,
   };
 }
@@ -9621,6 +10134,7 @@ async function captureTransportSecurityObservation(input: {
       scannedPagesUseHttps: schemeOf(pageUrl) === "https",
       validTlsCertificate: tlsProbe.validCertificate,
       httpRedirectsToHttps: httpProbe.redirectedToHttps,
+      httpProbeOutcome: httpProbe.outcome,
       mixedContentObserved: loadedHttpSubresources.length + blockedHttpSubresources.length > 0,
       insecureFormTransportObserved: formTransports.some((form) => form.insecureTransportObserved),
     },
@@ -9687,6 +10201,7 @@ function availableTransportSecurityObservation(input: {
       scannedPagesUseHttps: pageScheme === "https",
       validTlsCertificate: input.networkProbes.tlsProbe.validCertificate,
       httpRedirectsToHttps: input.networkProbes.httpProbe.redirectedToHttps,
+      httpProbeOutcome: input.networkProbes.httpProbe.outcome,
       mixedContentObserved: false,
       insecureFormTransportObserved: false,
     },
@@ -9741,6 +10256,7 @@ function emptyTransportSecurityObservation(input: {
       attempted: false,
       errorCategory: "unknown",
       errorMessage: input.reason,
+      outcome: "probe_failed",
       redirectChain: [],
     },
     tlsProbe: {
@@ -9756,6 +10272,7 @@ function emptyTransportSecurityObservation(input: {
     },
     formTransports: [],
     summary: {
+      httpProbeOutcome: "probe_failed",
       mixedContentObserved: false,
       insecureFormTransportObserved: false,
     },
@@ -9772,7 +10289,12 @@ async function probeHttpRedirect(
 ): Promise<TransportSecurityObservation["httpProbe"]> {
   const inputUrl = originProbeUrl(normalizedUrl, "http");
   if (!inputUrl) {
-    return { attempted: false, errorCategory: "unsupported_url", redirectChain: [] };
+    return {
+      attempted: false,
+      errorCategory: "unsupported_url",
+      outcome: "probe_failed",
+      redirectChain: [],
+    };
   }
 
   const redirectChain = [inputUrl];
@@ -9786,14 +10308,22 @@ async function probeHttpRedirect(
       const location = response.headers.get("location");
       const isRedirect = response.status >= 300 && response.status < 400 && Boolean(location);
       if (!isRedirect || !location) {
+        const finalScheme = schemeOf(currentUrl);
+        const redirectedToHttps = redirectChain.some((url) => schemeOf(url) === "https") && redirectChain.length > 1;
         return {
           attempted: true,
           inputUrl: sanitizeTransportUrl(inputUrl),
           status: response.status,
           finalUrl: sanitizeTransportUrl(currentUrl),
-          finalScheme: schemeOf(currentUrl),
+          finalScheme,
           redirectChain: redirectChain.map((url) => sanitizeTransportUrl(url)).slice(0, 12),
-          redirectedToHttps: redirectChain.some((url) => schemeOf(url) === "https") && redirectChain.length > 1,
+          redirectedToHttps,
+          outcome: classifyTransportHttpProbeOutcome({
+            attempted: true,
+            finalScheme,
+            redirectedToHttps,
+            status: response.status,
+          }),
         };
       }
 
@@ -9811,6 +10341,7 @@ async function probeHttpRedirect(
       redirectedToHttps: redirectChain.some((url) => schemeOf(url) === "https") && redirectChain.length > 1,
       errorCategory: "http_error",
       errorMessage: "redirect_chain_limit_reached",
+      outcome: "probe_failed",
     };
   } catch (error) {
     return {
@@ -9820,6 +10351,7 @@ async function probeHttpRedirect(
       errorMessage: boundedProbeError(error),
       finalUrl: sanitizeTransportUrl(currentUrl),
       finalScheme: schemeOf(currentUrl),
+      outcome: "probe_failed",
       redirectChain: redirectChain.map((url) => sanitizeTransportUrl(url)).slice(0, 12),
     };
   }
@@ -10363,6 +10895,7 @@ export function safeResponseHeaders(headers: Record<string, string>): NonNullabl
   return {
     contentType: headers["content-type"],
     cacheControl: headers["cache-control"],
+    retryAfter: headers["retry-after"]?.slice(0,120),
     expires: headers.expires,
     etagPresent: Boolean(headers.etag),
     location: headers.location,
@@ -10481,9 +11014,9 @@ async function readCookieWriteProbe(page: Page): Promise<RetainedCookieWriteProb
 async function installCdpNetworkMetadataCapture(
   page: Page,
   stores: {
-    destinationsByUrl: Map<string, NetworkDestination[]>;
     initiatorsByUrl: Map<string, string[][]>;
     documentIdentityState: BrowserDocumentIdentityState;
+    impactCapture?: ReturnType<typeof createGpcImpactCapture>;
   },
 ): Promise<CDPSession> {
   const session = await page.context().newCDPSession(page);
@@ -10504,37 +11037,32 @@ async function installCdpNetworkMetadataCapture(
     browserDocumentIdentityByPage.set(page, stores.documentIdentityState.current);
   };
   session.on("Page.frameNavigated", (raw: unknown) => {
-    retainMainFrameDocumentIdentity((raw as { frame?: { id?: string; loaderId?: string; parentId?: string } }).frame);
+    const frame = (raw as { frame?: { id?: string; loaderId?: string; parentId?: string; url?: string } }).frame;
+    retainMainFrameDocumentIdentity(frame);
+    if (frame) stores.impactCapture?.documentCommitted(frame);
   });
   const initialFrameTree = await session.send("Page.getFrameTree").catch(() => null) as {
     frameTree?: { frame?: { id?: string; loaderId?: string; parentId?: string } };
   } | null;
   retainMainFrameDocumentIdentity(initialFrameTree?.frameTree?.frame);
+  const mainFrameId = initialFrameTree?.frameTree?.frame?.id;
+  session.on("Page.navigatedWithinDocument", (p: { frameId?: string; url?: string; navigationType?: string }) => {
+    if (p.frameId === mainFrameId) stores.impactCapture?.navigatedWithinDocument(p, stores.documentIdentityState.current?.token);
+  });
   session.on("Network.requestWillBeSent", (raw: unknown) => {
     const params = raw as {
-      request?: { url?: string };
+      type?: string; frameId?: string; loaderId?: string;
+      request?: { url?: string; headers?: Record<string, unknown> };
       initiator?: { url?: string; stack?: { callFrames?: Array<{ url?: string }>; parent?: unknown } };
     };
     const url = params.request?.url;
+    if (mainFrameId) stores.impactCapture?.documentRequested(params, mainFrameId);
     if (!url) return;
     const chain = boundedInitiatorChain([
       params.initiator?.url,
       ...flattenCdpInitiatorStack(params.initiator?.stack),
     ]).filter((value) => /^https?:\/\//i.test(value));
     if (chain.length > 0) pushQueuedValue(stores.initiatorsByUrl, url, chain);
-  });
-  session.on("Network.responseReceived", (raw: unknown) => {
-    const params = raw as {
-      response?: { remoteIPAddress?: string; url?: string };
-    };
-    const ip = normalizePublicIpAddress(params.response?.remoteIPAddress);
-    const url = params.response?.url;
-    if (!ip || !url) return;
-    pushQueuedValue(stores.destinationsByUrl, url, {
-      ip,
-      locationLabel: "server location (may be CDN edge)",
-      source: "cdp_remote_ip",
-    });
   });
   return session;
 }
@@ -11959,8 +12487,8 @@ export function reconcileConsentUiObservationWithCompletedGeometry(input: {
     ]);
     return annotateConsentUiObservation({
       ...input.current,
-      acceptControlObserved: controls.some((control) => control.actionType === "accept_all"),
-      rejectControlObserved: controls.some((control) => control.actionType === "reject_all"),
+      acceptControlObserved: controls.some((control) => control.visible !== false && control.actionType === "accept_all"),
+      rejectControlObserved: controls.some((control) => control.visible !== false && control.actionType === "reject_all"),
       managePreferencesControlObserved: controls.some((control) => control.actionType === "manage_preferences"),
       captureStatus: "incomplete",
       inventoryOutcome: "partial",
@@ -11975,6 +12503,106 @@ export function reconcileConsentUiObservationWithCompletedGeometry(input: {
         failedChannels: input.current.captureDiagnostics?.failedChannels ?? [],
       },
     }, "geometry:visible_accessible_intent_conflict");
+  }
+
+  const confirmedGeometryControlKeys = new Set(
+    input.geometry.candidates
+      .filter((candidate) =>
+        isAroGeometryAction(candidate.actionType) &&
+        candidate.layer === "first_layer" &&
+        candidate.decisionStatus === "confirmed_visible"
+      )
+      .flatMap((candidate) => [candidate.label, candidate.ariaLabel]
+        .filter((label): label is string => Boolean(label))
+        .map((label) =>
+          `${candidate.actionType}:${normalizeConsentControlIdentityLabel(label)}`
+        )),
+  );
+  const explicitlyHiddenStructuredControlKeys = new Set(
+    input.geometry.candidates
+      .filter((candidate) =>
+        isAroGeometryAction(candidate.actionType) &&
+        candidate.layer === "first_layer" &&
+        candidate.decisionStatus === "hidden" &&
+        (
+          candidate.boundingBox.width <= 0 ||
+          candidate.boundingBox.height <= 0 ||
+          !candidate.intersectsViewport ||
+          candidate.computedStyle.display === "none" ||
+          candidate.computedStyle.visibility === "hidden" ||
+          candidate.computedStyle.visibility === "collapse" ||
+          candidate.computedStyle.pointerEvents === "none"
+        )
+      )
+      .flatMap((candidate) => [candidate.label, candidate.ariaLabel]
+        .filter((label): label is string => Boolean(label))
+        .map((label) =>
+          `${candidate.actionType}:${normalizeConsentControlIdentityLabel(label)}`
+        ))
+      .filter((key) => !confirmedGeometryControlKeys.has(key)),
+  );
+  const explicitlyHiddenStructuredControls = input.current.controls.filter((control) =>
+    explicitlyHiddenStructuredControlKeys.has(
+      `${control.actionType}:${normalizeConsentControlIdentityLabel(control.label)}`,
+    )
+  );
+  if (explicitlyHiddenStructuredControls.length > 0) {
+    const retainedControls = input.current.controls.filter((control) =>
+      !explicitlyHiddenStructuredControlKeys.has(
+        `${control.actionType}:${normalizeConsentControlIdentityLabel(control.label)}`,
+      )
+    );
+    const geometryObservation = consentUiObservationFromConfirmedGeometryControls({
+      artifactPath: input.artifactPath,
+      geometry: input.geometry,
+      scanStartedAtMs: input.scanStartedAtMs,
+      text: input.text,
+    });
+    const reconciled = geometryObservation
+      ? mergeConsentUiObservations(
+          { ...input.current, controls: retainedControls },
+          geometryObservation,
+          "geometry:confirmed_first_layer_controls",
+        )
+      : { ...input.current, controls: retainedControls };
+    const controls = reconciled.controls;
+    return annotateConsentUiObservation({
+      ...reconciled,
+      acceptControlObserved: controls.some((control) => control.visible !== false && control.actionType === "accept_all"),
+      rejectControlObserved: controls.some((control) => control.visible !== false && control.actionType === "reject_all"),
+      managePreferencesControlObserved: controls.some((control) => control.actionType === "manage_preferences"),
+      captureStatus: "incomplete",
+      inventoryOutcome: "partial",
+      controls,
+      visibleChoiceLabels: unique(controls.map((control) => control.label)).slice(0, 24),
+      captureDiagnostics: {
+        completedChannels: unique([
+          ...(reconciled.captureDiagnostics?.completedChannels ?? []),
+          "geometry",
+        ]) as NonNullable<ConsentUiObservation["captureDiagnostics"]>["completedChannels"],
+        timedOutChannels: reconciled.captureDiagnostics?.timedOutChannels ?? [],
+        failedChannels: reconciled.captureDiagnostics?.failedChannels ?? [],
+      },
+      inventoryDiagnostics: {
+        candidateContainerCount: input.current.inventoryDiagnostics?.candidateContainerCount ?? 0,
+        candidateControlCount: input.current.inventoryDiagnostics?.candidateControlCount ?? 0,
+        retainedControlCount: controls.length,
+        inventorySources: input.current.inventoryDiagnostics?.inventorySources ?? [],
+        candidateLabels: input.current.inventoryDiagnostics?.candidateLabels ?? [],
+        rejectionReasons: [
+          ...(input.current.inventoryDiagnostics?.rejectionReasons ?? []),
+          ...((input.current.inventoryDiagnostics?.rejectionReasons ?? []).includes("hidden")
+            ? []
+            : ["hidden" as const]),
+        ].slice(0, 24),
+        timingMarkers: unique([
+          ...(input.current.inventoryDiagnostics?.timingMarkers ?? []),
+          ...explicitlyHiddenStructuredControls.map((control) =>
+            `geometry_explicitly_hidden:${control.actionType}:${control.label}`
+          ),
+        ]).slice(0, 24),
+      },
+    }, "geometry:structured_control_explicitly_hidden");
   }
 
   const geometryObservation = consentUiObservationFromConfirmedGeometryControls({
@@ -11995,7 +12623,9 @@ export function reconcileConsentUiObservationWithCompletedGeometry(input: {
     ...(input.current.captureDiagnostics?.completedChannels ?? []),
     "geometry",
   ]) as NonNullable<ConsentUiObservation["captureDiagnostics"]>["completedChannels"];
+  const unresolvedDecision = hasUnresolvedConsentDecision(input.geometry);
   const completedSettledEmptyInventory =
+    !unresolvedDecision && input.current.documentReadyState !== "loading" &&
     input.current.controls.length === 0 &&
     input.current.inventoryOutcome === "complete_empty" &&
     (input.current.captureDiagnostics?.completedChannels ?? []).some((channel) =>
@@ -12023,14 +12653,15 @@ export function reconcileConsentUiObservationWithCompletedGeometry(input: {
       likelyPresent: completedSettledEmptyInventory
         ? false
         : input.current.likelyPresent,
+      basis: unique([...input.current.basis, ...(unresolvedDecision ? [UNRESOLVED_CONSENT_DECISION] : [])]),
       inventoryOutcome:
-        input.current.inventoryOutcome === "frame_inaccessible"
+        unresolvedDecision ? "partial" : input.current.inventoryOutcome === "frame_inaccessible"
           ? "frame_inaccessible"
           : input.current.controls.length > 0
             ? "complete_with_controls"
-            : completedChannels.includes("dom_inventory")
+            : completedChannels.includes("dom_inventory") && input.current.documentReadyState !== "loading"
               ? "complete_empty"
-              : input.current.inventoryOutcome,
+              : input.current.documentReadyState === "loading" ? "partial" : input.current.inventoryOutcome,
       captureDiagnostics: {
         completedChannels,
         timedOutChannels: (input.current.captureDiagnostics?.timedOutChannels ?? [])
@@ -12142,6 +12773,10 @@ export function consentUiObservationFromConfirmedGeometryControls(input: {
       const actionType = candidate.actionType;
       if (
         !isAroGeometryAction(actionType) ||
+        // The bundle's simple control row cannot retain category-state proof.
+        // Composite selected-only observations stay in the verified geometry
+        // packet and are assessed there, never copied as an unqualified Reject.
+        candidate.classifierReasonCodes.includes("initial_necessary_only_selection_observed") ||
         candidate.layer !== "first_layer" ||
         candidate.decisionStatus !== "confirmed_visible" ||
         isCompositeConfirmedGeometryControl(candidate, input.geometry.candidates)
@@ -12150,6 +12785,8 @@ export function consentUiObservationFromConfirmedGeometryControls(input: {
       }
       return [{
         actionType,
+        classifierRegistryVersion: candidate.classifierRegistryVersion,
+        linkDestination: candidate.linkDestination,
         classifierReasonCodes: candidate.classifierReasonCodes,
         label: candidate.label.slice(0, 120),
         matchStrength: candidate.matchStrength as ConsentUiObservation["controls"][number]["matchStrength"],
@@ -12180,7 +12817,13 @@ export function consentUiObservationFromConfirmedGeometryControls(input: {
       ...controls.map((control) => control.label),
     ].filter(Boolean).join(" ").slice(0, 12_000),
   });
-  observation.inventoryOutcome = "complete_with_controls";
+  const geometryCapturedAtMs = Date.parse(input.geometry.capturedAt);
+  if (Number.isFinite(geometryCapturedAtMs) && geometryCapturedAtMs >= input.scanStartedAtMs) {
+    // Materializing retained geometry is not a new browser observation.
+    observation.observedAtMs = geometryCapturedAtMs - input.scanStartedAtMs;
+  }
+  observation.inventoryOutcome = hasUnresolvedConsentDecision(input.geometry) ? "partial" : "complete_with_controls";
+  if (hasUnresolvedConsentDecision(input.geometry)) observation.basis.push(UNRESOLVED_CONSENT_DECISION);
   observation.captureDiagnostics = {
     completedChannels: ["geometry"],
     timedOutChannels: [],
@@ -12364,6 +13007,10 @@ function mergeConsentGeometryCaptures(
   const cmp = after.cmp.confidence >= before.cmp.confidence ? after.cmp : before.cmp;
   return {
     ...after,
+    // A union of captures is not the exact inventory inspected by either
+    // packet. Preserve the existing whole-inventory assessment path without
+    // attaching one capture's per-control proof to a different candidate set.
+    controlInspection: undefined,
     cmp,
     containers: [...before.containers, ...after.containers]
       .filter((container, index, all) =>
@@ -12411,7 +13058,7 @@ async function captureConsentGeometryProofScreenshot(
   const deadlineAtMs = Date.now() + Math.max(2, options.timeoutMs);
   // Reserve time for both capture mechanisms. This preserves the CDP and
   // Playwright attempts while preventing their timeouts from stacking.
-  const cdpTimeoutMs = Math.max(1, Math.min(1_750, options.timeoutMs - 750));
+  const cdpTimeoutMs = consentGeometryProofCdpBudget(options.timeoutMs);
   const cdpDocumentIdentityBeforeCapture = currentBrowserDocumentIdentity(page);
   try {
     await captureViewportScreenshotWithCdp(page, screenshotPath, cdpTimeoutMs);
@@ -12526,7 +13173,10 @@ async function retryPreConsentScreenshotInFreshContext(input: {
     "fresh-context screenshot retry",
     "One bounded screenshot-only retry in a fresh browser context after the primary page/context closed.",
     async () => {
-      const retryContext = await input.browser.newContext(chromiumContextOptions());
+      const retryContext = await createPassiveBrowserContext(
+        input.browser,
+        input.input.globalPrivacyControlEnabled === true,
+      );
       try {
         await installConsentInventoryProbe(retryContext);
         for (const fulfiller of input.input.routeFulfillers ?? []) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import sharedPolicy from "@website-signal-risk-scanner/shared";
 import { McpReadThrottle, mcpReadCallsFromJsonRpc, mcpReadRateLimitGuidance } from "./read-throttle.js";
 
 function toolCall(name: string, args: Record<string, unknown>) {
@@ -16,6 +17,13 @@ test("classifies composite and direct MCP scan reads", () => {
   }]);
   assert.deepEqual(mcpReadCallsFromJsonRpc(toolCall("certscore_scan_site", { url: "https://example.com" })), []);
   assert.equal(mcpReadCallsFromJsonRpc(toolCall("certscore_get_scan_status", { scanId: "scan_1" }))[0]?.profile, "status");
+});
+
+test("cookie/tracker graph reads use the canonical evidence weight on scan and domain paths", () => {
+  for (const [name, args] of [
+    ["certscore_get_pre_consent_cookies_trackers", { scanId: "scan_1" }],
+    ["certscore_get_latest_domain_pre_consent_cookies_trackers", { domain: "example.com" }],
+  ] as const) assert.equal(mcpReadCallsFromJsonRpc(toolCall(name, args))[0]?.units, sharedPolicy.apiReadRateUnits("evidence"));
 });
 
 test("allows thirty composite reads for one caller and scan, then cools down", () => {
@@ -118,4 +126,17 @@ test("hosted MCP returns a bot-readable 429 and emits a structured safe denial l
   const logBlock = source.slice(source.indexOf('event: "mcp_http.scan_read_rate_limited"'), source.indexOf("const rpcRequest"));
   assert.doesNotMatch(logBlock, /target: readCall\.target/);
   assert.doesNotMatch(logBlock, /tokenHash/);
+});
+
+test("bounded report pages allow a large export without bypassing caller or replay limits", () => {
+  const throttle = new McpReadThrottle();
+  for (let index = 0; index < 120; index++) {
+    const call = mcpReadCallsFromJsonRpc(toolCall("certscore_get_report_evidence_page", { scanId: "large_scan", ...(index ? { cursor: "same-cursor-replay" } : {}) }))[0]!;
+    assert.equal(call.units, 1);
+    assert.equal(throttle.claim("export_caller", call, 1000).allowed, true);
+  }
+  const call = mcpReadCallsFromJsonRpc(toolCall("certscore_get_report_evidence_page", { scanId: "large_scan" }))[0]!;
+  const denial = throttle.claim("export_caller", call, 1001);
+  assert.equal(denial.allowed, false);
+  if (!denial.allowed) assert.equal(denial.requestedUnits, 1);
 });

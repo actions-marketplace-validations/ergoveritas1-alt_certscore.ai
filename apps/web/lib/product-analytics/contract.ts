@@ -1,4 +1,6 @@
+import { retainedActivityPagePath } from "./activity-page-context";
 export const PRODUCT_ANALYTICS_EVENT_NAMES = [
+  "page_requested",
   "page_viewed",
   "navigation_clicked",
   "action_clicked",
@@ -29,6 +31,11 @@ export type ProductAnalyticsCategory = "navigation" | "interaction" | "form" | "
 export type ProductAnalyticsOutcome = "observed" | "started" | "submitted" | "success" | "failure" | "opted_in" | "opted_out";
 
 export type ProductAnalyticsPayload = {
+  pageRequestToken?: string;
+  authenticatedPageToken?: string;
+  pagePath?: string;
+  targetPath?: string;
+  eventId?: string;
   actorId?: string;
   campaignMedium?: string;
   campaignName?: string;
@@ -84,7 +91,7 @@ export function analyticsRouteIdentifier(prefix: string, value: string, maxLengt
 }
 
 export function extractScanIdFromPath(value: string) {
-  const match = value.match(/\/scans\/([0-9a-f-]{36})(?:[/?#]|$)/i);
+  const match = value.match(/\/(?:scans|scanso|scanso2)\/([0-9a-f-]{36})(?:[/?#]|$)/i);
   const candidate = match?.[1];
   return candidate && UUID_PATTERN.test(candidate) ? candidate : undefined;
 }
@@ -116,6 +123,11 @@ export function parseProductAnalyticsPayload(value: unknown): ProductAnalyticsPa
   const uuid = (candidate: unknown) => typeof candidate === "string" && UUID_PATTERN.test(candidate) ? candidate : undefined;
   const boundedNumber = (candidate: unknown, max: number) => typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0 && candidate <= max ? candidate : undefined;
   return {
+    authenticatedPageToken: typeof input.authenticatedPageToken === "string" && input.authenticatedPageToken.length <= 160 ? input.authenticatedPageToken : undefined,
+    pagePath: retainedActivityPagePath(input.route) ?? undefined,
+    targetPath: input.eventName === "navigation_clicked" ? retainedActivityPagePath(input.targetPath) ?? undefined : undefined,
+    pageRequestToken: typeof input.pageRequestToken === "string" && input.pageRequestToken.length <= 160 ? input.pageRequestToken : undefined,
+    eventId: uuid(input.eventId),
     eventName: input.eventName as ProductAnalyticsEventName,
     category: input.category as ProductAnalyticsCategory,
     outcome: input.outcome as ProductAnalyticsOutcome,

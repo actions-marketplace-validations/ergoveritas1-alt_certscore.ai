@@ -1,3 +1,5 @@
+import { canonicalEvidenceVendorName as normalizeEvidenceVendorName } from "./canonical-evidence-vendor-name";
+import { projectPreconsentTrackingTiming, readPreconsentTrackingTiming } from "./preconsent-tracking-timing";
 import type { UnifiedFindingDisplayPacket } from "./unified-findings";
 import type { CertScoreFindingEvidenceDetails } from "./finding-registry";
 import type {
@@ -376,7 +378,7 @@ const CHECKLIST_ROWS: ChecklistRowDefinition[] = [
   {
     id: "post_reject_tracking_reduction",
     label: "Post-choice tracking reduction",
-    explanation: "Whether a confirmed reject action was followed by retained non-essential activity, a contradictory consent signal, or the exact same classified non-essential storage value.",
+    explanation: "What tracking activity was observed after Reject, including the services contacted and when requests began. Consent-state confirmation is recorded separately.",
     findingIds: [
       "reject_did_not_reduce_tracking",
       "reject_did_not_reduce_third_party_cookies",
@@ -401,7 +403,7 @@ const CHECKLIST_ROWS: ChecklistRowDefinition[] = [
   {
     id: "public_collection_surfaces",
     label: "Public data collection surfaces",
-    explanation: "Whether bounded visible form and field metadata was retained from the tested main document. Form presence alone is contextual and non-scoring.",
+    explanation: "Whether bounded visible form and field metadata was retained from the tested main document. Form presence alone is contextual.",
     findingIds: [],
     defaultFindingStatus: "Observed",
     notObservedText: "No visible data-entry forms were observed in the tested main document.",
@@ -495,12 +497,21 @@ const CHECKLIST_ROWS: ChecklistRowDefinition[] = [
     requiresPublicWebCoverage: true
   },
   {
+    id: "outdated_transfer_framework_reference",
+    label: "Outdated transfer framework referenced",
+    explanation: "Whether a retained transfer-framework reference was invalidated, superseded or not yet effective at the scan date. Separate from transfer disclosure presence.",
+    findingIds: [],
+    defaultFindingStatus: "Review signal",
+    notObservedText: "No outdated transfer-framework reference was retained.",
+    requiresPublicWebCoverage: true
+  },
+  {
     id: "dpo_contact_point_disclosure",
-    label: "Privacy contact point",
-    explanation: "Whether retained privacy-policy evidence identified a privacy officer, privacy office, privacy contact, DPO, or data-protection contact point.",
+    label: "DPO contact point (where applicable)",
+    explanation: "Whether retained privacy-policy evidence identified a designated data protection officer or equivalent statutory DPO contact. A generic privacy mailbox is credited under controller/contact disclosure and does not by itself establish a DPO designation.",
     findingIds: ["privacy_contact_path_present"],
     defaultFindingStatus: "Observed",
-    notObservedText: "No canonical privacy or data-protection contact point evidence was retained for this scan context.",
+    notObservedText: "No canonical designated-DPO contact evidence was retained for this scan context.",
     requiresPublicWebCoverage: true
   },
   {
@@ -990,6 +1001,8 @@ function getCoverageOutcomePreconsentTimingRetainedEvidence(
   }
 
   return {
+    ...(readPreconsentTrackingTiming(retained.trackingRequestTiming).length > 0
+      ? { trackingRequestTiming: retained.trackingRequestTiming } : {}),
     firstPreconsentThirdPartyTrackingObservedMs: retained.firstPreconsentThirdPartyTrackingObservedMs,
     firstPreconsentThirdPartyTrackingObservationBasis: retained.firstPreconsentThirdPartyTrackingObservationBasis,
     preconsentThirdPartyTrackingObservedMs: retained.preconsentThirdPartyTrackingObservedMs,
@@ -1307,10 +1320,7 @@ function synthesizePreconsentThirdPartyTrackingOutcome(
       `${row.purpose} ${(row.regulatoryRelevance ?? []).join(" ")}`
     )
   );
-  const classifiedConcernInventory =
-    !serviceConnectionOnly &&
-    !contextualInfrastructureOnly &&
-    (selectedPriority === "high" || selectedPriority === "medium");
+
 
   return {
     criticalEvidence: {
@@ -1344,9 +1354,10 @@ function synthesizePreconsentThirdPartyTrackingOutcome(
         contextualInfrastructureOnly,
         serviceConnectionOnly,
         tagManagerOnly: serviceConnectionOnly && thirdPartyRows.every((row) => /tag management|tag_manager/i.test(row.purpose)),
+        scoreEffect: "none",
         trackingEvidenceAssessment: {
           result: "not_confirmed_from_grouped_inventory",
-          scoreEffect: classifiedConcernInventory ? "review" : "none"
+          scoreEffect: "none"
         },
         trackerPriority: selectedPriority,
         trackerPriorityLabel: priorityLabel
@@ -1679,33 +1690,6 @@ function formatVendorPhrase(vendors: string[]) {
   return `${vendors.slice(0, -1).join(", ")}, and ${vendors.at(-1)}`;
 }
 
-function normalizeEvidenceVendorName(value: string) {
-  if (/cloudflare/i.test(value)) {
-    return null;
-  }
-  if (/linkedin insight|linkedin ads|px\.ads\.linkedin|snap\.licdn/i.test(value)) {
-    return "LinkedIn Insight Tag";
-  }
-  if (/meta pixel|facebook pixel|connect\.facebook|facebook\.com\/tr/i.test(value)) {
-    return "Meta Pixel";
-  }
-  if (/google tag manager|googletagmanager|\bgtm\b/i.test(value)) {
-    return "Google Tag Manager";
-  }
-  if (/google analytics|google-analytics|analytics\.google|google\.com\/g\/collect|^_ga/i.test(value)) {
-    return "Google Analytics";
-  }
-  if (/reddit/i.test(value)) {
-    return "Reddit Pixel";
-  }
-  if (/heap/i.test(value)) {
-    return "Heap";
-  }
-  if (/zoominfo|zi-scripts/i.test(value)) {
-    return "ZoomInfo";
-  }
-  return value.trim();
-}
 
 function getCanonicalVendors(values: Array<string | null | undefined>) {
   return uniqueEntityStrings(values.flatMap((value) => {
@@ -1761,7 +1745,7 @@ function getProjectedFindingEntityRows(findings: ProjectedGdprFinding[], keys: s
     const evidenceDetails = finding.evidenceDetails && typeof finding.evidenceDetails === "object"
       ? finding.evidenceDetails as Record<string, unknown>
       : null;
-    return getRecordRows(evidenceDetails, keys);
+    return [...getRecordRows(evidenceDetails, keys), ...getRecordRows(getRecordValue(evidenceDetails?.trackingEvidence), keys)];
   });
 }
 
@@ -1771,8 +1755,11 @@ function getPreconsentTrackingRows(input: {
 }) {
   const keys = [
     "preconsent_tracker_vendor_evidence",
+    "requestPurposeClassificationConfidence",
+    "request_purpose_classification_confidence",
     "representativeRequests",
     "runtimeVendorEvidence",
+    "runtimeVendors",
     "vendors"
   ];
   return [
@@ -2308,6 +2295,23 @@ function specializeChecklistRow(input: {
     };
   }
 
+  if (input.definition.id === "pre_consent_cookies_storage" && input.status === "Review signal") {
+    const assessmentStatus = input.coverageOutcome?.criticalEvidence.retainedEvidence.preConsentStorageAssessmentStatus;
+    const snapshotOnly = assessmentStatus === "snapshot_presence_only";
+    return {
+      evidenceRefs: input.evidenceRefs,
+      explanation:
+        input.coverageOutcome?.limitation ??
+        (snapshotOnly
+          ? "Classified non-essential storage was present in a pre-consent snapshot, but write-level timing was not retained."
+          : "Pre-consent storage was retained, but the evidence did not classify every item as essential or non-essential. This is a classification review, not a confirmed non-essential-storage finding."),
+      label: snapshotOnly
+        ? "Non-essential storage timing review"
+        : "Pre-consent storage classification review",
+      status: "Review signal" as const
+    };
+  }
+
   if (input.definition.id === "pre_consent_cookies_storage" && input.status === "Gap observed") {
     const storage = getPreconsentStorageSummary(input.findings);
     const vendorPhrase = formatVendorPhrase(storage.vendors.slice(0, 4));
@@ -2316,7 +2320,7 @@ function specializeChecklistRow(input: {
       evidenceRefs: input.evidenceRefs,
       explanation:
         `Storage or cookie evidence was observed before a recorded consent choice${vendorPhrase ? ` for ${vendorPhrase}` : ""}${domainPhrase ? ` on ${domainPhrase}` : ""}. This row is limited to concrete storage/cookie evidence and does not imply every observed runtime vendor wrote storage.`,
-      label: input.definition.label,
+      label: "Classified non-essential pre-consent storage",
       status: "Gap observed" as const
     };
   }
@@ -2391,6 +2395,12 @@ function specializeChecklistRow(input: {
     };
   }
 
+  if (input.definition.id === "post_reject_tracking_reduction" && input.status === "Not testable" &&
+      input.coverageOutcome?.criticalEvidence.retainedEvidence.productionPosture === "limited_independent_reject_action") {
+    return { evidenceRefs: input.evidenceRefs, explanation: input.coverageOutcome.limitation,
+      label: input.definition.label, status: "Not testable" as const };
+  }
+
   if (input.definition.id === "post_reject_tracking_reduction" && input.status === "Gap observed") {
     const retained = input.coverageOutcome?.criticalEvidence.retainedEvidence;
     const contradictionObserved = retained?.refusalSignalContradictsAction === true;
@@ -2427,7 +2437,7 @@ function specializeChecklistRow(input: {
   ) {
     return {
       evidenceRefs: input.evidenceRefs,
-      explanation: "The exact same classified non-essential storage identity and value were present before the reject action and in the settled snapshot after confirmed refusal. Stored presence alone does not establish active post-refusal use, so this review signal does not affect score.",
+      explanation: "The exact same classified non-essential storage identity and value were present before the reject action and in the settled snapshot after confirmed refusal. Stored presence alone does not establish active post-refusal use.",
       label: "Same non-essential identifier remained stored after refusal",
       status: "Review signal" as const
     };
@@ -2782,6 +2792,7 @@ function getUnifiedFindingCriticalEvidence(
       severity: finding.severity
     })),
     retainedEvidence: {
+      ...(rowId === "pre_consent_third_party_tracking" ? { trackingRequestTiming: projectPreconsentTrackingTiming(getPreconsentTrackingRows({ findings, projectedFindings })) } : {}),
       evidenceHighlights: getRowEvidenceHighlights({ findings, projectedFindings, rowId }),
       evidenceRefs: getEvidenceRefs(findings),
       findingEntities: findings.map((finding) => ({
@@ -2824,6 +2835,9 @@ function getProjectedFindingCriticalEvidence(
       label: finding.label
     })),
     retainedEvidence: {
+      ...(rowId === "pre_consent_third_party_tracking"
+        ? { trackingRequestTiming: projectPreconsentTrackingTiming(getPreconsentTrackingRows({ findings: [], projectedFindings: findings })) }
+        : {}),
       evidenceHighlights: findings.flatMap(buildRegulatoryChecklistEvidenceHighlights).slice(0, 3),
       evidenceRefs: getProjectedEvidenceRefs(findings),
       projectedFindingPreview: findings.map((finding) => ({
@@ -3466,7 +3480,7 @@ export function deriveGdprEprivacyCoverageChecklist(
   const publicCoverageIsTestable = input.scanCompleted && !input.coverageLimited;
   const visualNoGoObserved = scanQualityVisualNoGoObserved(input);
 
-  const rows = CHECKLIST_ROWS.map((definition) => {
+  const rows = CHECKLIST_ROWS.filter((definition) => definition.id !== "outdated_transfer_framework_reference" || Boolean(input.coverageOutcomes?.[definition.id])).map((definition) => {
     const directCoverageOutcome = input.coverageOutcomes?.[definition.id];
     const canonicalPreconsentStorageOutcome =
       definition.id === "pre_consent_cookies_storage" &&
@@ -3506,6 +3520,7 @@ export function deriveGdprEprivacyCoverageChecklist(
     if (
       coverageOutcome &&
       (
+        Boolean(canonicalPreconsentStorageOutcome) ||
         shouldPreferCoverageOutcomeForMissingReject(definition.id, coverageOutcome) ||
         shouldPreferCoverageOutcomeForConsentChoiceQuality(definition.id, coverageOutcome) ||
         shouldPreferCoverageOutcomeForContextualInfrastructure(definition.id, coverageOutcome) ||

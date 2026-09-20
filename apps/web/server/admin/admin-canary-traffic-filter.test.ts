@@ -42,10 +42,11 @@ test("Admin Scans filters traffic before detailed row enrichment and in overview
   assert.ok(
     scansRepository.indexOf("if (canUseDefaultActivityPath)") < scansRepository.indexOf("const baseSql = adminScanActivityBaseSql()")
   );
-  assert.match(scansRepository, /with canary_scan_ids as materialized/);
+  assert.match(scansRepository, /await loadScanTrafficClassification/);
+  assert.match(scansRepository, /unnest\(\$11::uuid\[\]\)/);
   assert.match(scansRepository, /internalQaFilter: "exists \(select 1 from canary_scan_ids canary where canary\.scan_id = s\.id\)"/);
-  assert.match(scansRepository, /internalQaLinkedRequestSql\("s\.id"/);
-  assert.match(scansRepository, /internalQaLinkedRequestSql\("ss\.scan_id"/);
+  assert.match(scansRepository, /snapshotScanInternalQaFilter = "coalesce\(s\.id = any\(\$8::uuid\[\]\)/);
+  assert.match(scansRepository, /ss\.scan_id = any\(\$3::uuid\[\]\)/);
   assert.match(scansRepository, /macMiniFilter: "exists \(select 1 from mac_mini_scan_bot_scan_ids bot where bot\.scan_id = s\.id\)"/);
 });
 

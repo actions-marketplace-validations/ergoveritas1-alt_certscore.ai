@@ -1,3 +1,7 @@
+import { FORM_DESTINATION_FINDING_ID, formDestinationProjectionSchema, type FormDestinationProjection } from "@certscore/contracts";
+import { CMS_SECURITY_FINDING_ID, cmsSecurityProjectionSchema, type CmsSecurityProjection } from "@certscore/contracts";
+import { SITE_INTEGRITY_FINDING_ID, siteIntegrityProjectionSchema, type SiteIntegrityProjection } from "@certscore/contracts";
+import { REJECT_CLICK_TRACKING_COPY } from "./consent-action-copy";
 import {
   type MergedSignalRecord,
   getReportUnifiedFinding,
@@ -8,6 +12,10 @@ import {
   type ReportUnifiedFindingId,
   type ReportUnifiedFindingCategoryAlignment
 } from "@website-signal-risk-scanner/shared";
+import {
+  gpcResponseAssessmentSchema,
+  type GpcResponseAssessment,
+} from "@certscore/contracts";
 import {
   buildCanonicalReviewFindingPresentation,
   normalizeFindingName,
@@ -26,7 +34,8 @@ import {
   type NormalizedConcernExternalSurfacingEligibility,
   type NormalizedConcernNegativeEvidenceFlag,
   type NormalizedConcernOriginType,
-  type NormalizedConcernPromotionEligibility
+  type NormalizedConcernPromotionEligibility,
+  type NormalizedConcernScoreEffect
 } from "./normalized-concerns";
 import {
   findValidationFindingForKeys,
@@ -95,6 +104,9 @@ import { REJECT_TRACKING_CONFIRMATION_MIN_MS } from "./reject-tracking-policy";
 import { buildPromotionGradePreconsentRequests } from "./preconsent-public-evidence";
 
 export type UnifiedFindingDetails =
+  | { family: "form_destinations"; projection: FormDestinationProjection }
+  | { family: "cms_security"; projection: CmsSecurityProjection }
+  | { family: "site_integrity"; projection: SiteIntegrityProjection }
   | {
       family: "coverage_gap";
       gapKind: "surface_missing" | "fetch_failed" | "bounded_discovery_unresolved";
@@ -143,6 +155,14 @@ export type UnifiedFindingDetails =
       policySourceUrl?: string | null;
       runtimeEvidenceArtifacts?: string[];
       vendors?: string[];
+    }
+  | {
+      family: "privacy_signal";
+      kind: "gpc_response";
+      assessment: Pick<
+        GpcResponseAssessment,
+        "contractVersion" | "generatedAt" | "status" | "findingTitle" | "scoreEffect" | "legalInterpretation" | "comparison"
+      >;
     }
   | {
       family: "consent_tracking";
@@ -229,6 +249,7 @@ export type UnifiedFindingPacket = {
     snippets?: string[];
     sourceUrls?: string[];
   };
+  scoreEffects?: NormalizedConcernScoreEffect[];
   details?: UnifiedFindingDetails;
   concernContext?: {
     assertionLevels: NormalizedConcernAssertionLevel[];
@@ -1033,7 +1054,7 @@ const CONSENT_TRACKING_FINDING_IDS = new Set([
   "rtb_cookie_sync_observed",
   "cross_border_vendor_disclosure_gap",
   "cross_border_endpoint_transfer_review_signal",
-  "gpc_signal_not_honored",
+  "gpc_response",
   "weak_cookie_security_attributes",
   "consent_surface_required_deeper_sweep",
   "accept_flow_unavailable_after_reject",
@@ -1703,6 +1724,9 @@ function getBestObservedValue(values: Array<string | null | undefined>) {
 }
 
 function getFindingFamily(id: string): UnifiedFindingDetails["family"] {
+  if (id === "gpc_response") {
+    return "privacy_signal";
+  }
   if (COVERAGE_FINDING_IDS.has(id)) {
     return "coverage_gap";
   }
@@ -1765,6 +1789,18 @@ function buildUnifiedFindingDetails(input: {
   observedValue: string | null;
   summary: string;
 }) {
+  if (input.findingId === FORM_DESTINATION_FINDING_ID) {
+    const projection = formDestinationProjectionSchema.safeParse(input.fallbackEvidence?.formDestinations);
+    return projection.success ? { family: "form_destinations", projection: projection.data } satisfies UnifiedFindingDetails : undefined;
+  }
+  if (input.findingId === CMS_SECURITY_FINDING_ID) {
+    const projection = cmsSecurityProjectionSchema.safeParse(input.fallbackEvidence?.cmsSecurity);
+    return projection.success ? { family: "cms_security", projection: projection.data } satisfies UnifiedFindingDetails : undefined;
+  }
+  if (input.findingId === SITE_INTEGRITY_FINDING_ID) {
+    const projection = siteIntegrityProjectionSchema.safeParse(input.fallbackEvidence?.siteIntegrity);
+    return projection.success ? { family: "site_integrity", projection: projection.data } satisfies UnifiedFindingDetails : undefined;
+  }
   const family = getFindingFamily(input.findingId);
 
   if (family === "coverage_gap") {
@@ -1828,6 +1864,20 @@ function buildUnifiedFindingDetails(input: {
             ? input.fallbackEvidence.signalValue
             : null,
       unmatchedItems: unmatchedCookieNames.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    } satisfies UnifiedFindingDetails;
+  }
+
+  if (family === "privacy_signal") {
+    const parsedAssessment = gpcResponseAssessmentSchema.safeParse(
+      input.fallbackEvidence?.gpcResponseAssessment ?? input.fallbackEvidence?.gpc_response_assessment,
+    );
+    if (!parsedAssessment.success) {
+      return undefined;
+    }
+    return {
+      family,
+      kind: "gpc_response",
+      assessment: parsedAssessment.data,
     } satisfies UnifiedFindingDetails;
   }
 
@@ -5112,15 +5162,15 @@ const PACKETIZED_FINDING_SUPPORT_RULES: PacketizedFindingSupportRule[] = [
       )
   },
   {
-    findingId: "gpc_signal_not_honored",
+    findingId: "gpc_response",
     policyPageType: null,
-    rationale: "Surfaced because runtime privacy verification retained evidence that the browser-level GPC signal was ignored.",
+    rationale: "Surfaced because a paired passive baseline and GPC observation retained a jurisdiction-neutral response assessment.",
     matchesLegacySource: (packet) =>
       packet.sourceRefs.some(
         (sourceRef) =>
           sourceRef.kind === "signal" &&
           sourceRef.source === "runtime_artifact_signal" &&
-          sourceRef.key === "privacy.gpc_signal_not_honored"
+          sourceRef.key === "privacy.gpc_response"
       )
   },
   {
@@ -5719,9 +5769,29 @@ const UNIFIED_FINDING_PRESENTATION_COPY_OVERRIDES: Record<
     suggestedFix: "Verify the reject path actually suppresses the non-essential vendors that were present at baseline, and re-test the post-reject runtime path with concrete request-level evidence.",
     whyThisMatters: "If non-essential tracking persists after reject, the site may be signaling a meaningful choice that is not actually enforced."
   },
+  post_reject_click_tracking: {
+    suggestedFix: "Verify that the Reject control records the visitor's choice and suppresses the retained tracking requests. Re-test both the saved decision and subsequent activity.",
+    whyThisMatters: REJECT_CLICK_TRACKING_COPY.whyItMatters
+  },
   post_refusal_non_essential_activity: {
     suggestedFix: "Update the reject path so confirmed refusal suppresses non-essential network requests and storage writes, then re-test the same post-refusal window.",
     whyThisMatters: "Non-essential activity after a confirmed refusal can show that the consent control is not enforcing the visitor's recorded choice."
+  },
+  post_accept_consent_dependent_activity: {
+    suggestedFix: "Use this informational baseline to verify that consent-dependent vendors activate only after a confirmed Accept action and remain suppressed before consent or after Reject.",
+    whyThisMatters: "The post-Accept baseline helps distinguish expected consent-dependent activity from behavior that appears regardless of the visitor's choice. It does not affect score."
+  },
+  accept_reject_outcomes_indistinguishable: {
+    suggestedFix: "Compare the matched retained requests and storage writes, then correct the Reject path if the same consent-dependent activity runs after both choices.",
+    whyThisMatters: "Some retained activity identities overlap after Accept and Reject. This supports review of the existing post-refusal result, not a conclusion that the overall outcomes were identical, and adds no duplicate score effect."
+  },
+  acceptance_signal_contradicts_action: {
+    suggestedFix: "Correct the consent-platform state transition so the saved consent record matches the visitor’s confirmed Accept choice.",
+    whyThisMatters: "The visitor clicked Accept, but the saved consent record still showed optional purposes as denied. That mismatch can cause the site and its vendors to act on the wrong choice."
+  },
+  paid_alternative_required_to_decline_tracking: {
+    suggestedFix: "Offer a clear free Reject or necessary-only choice on the first layer, or review and document whether the paid alternative is genuinely equivalent, accessible, and appropriately priced.",
+    whyThisMatters: "The first consent layer offered acceptance, but avoiding optional tracking required payment or a subscription. That can affect whether the visitor had a genuinely free choice and warrants a case-specific review."
   },
   pre_consent_storage_not_cleared: {
     suggestedFix: "Review the retained identifier and either clear it after confirmed refusal or document and verify that it remains inactive and is not transmitted or used.",
@@ -5743,9 +5813,9 @@ const UNIFIED_FINDING_PRESENTATION_COPY_OVERRIDES: Record<
     suggestedFix: "Review third-party cookie controls so reject meaningfully reduces non-essential cookie activity after the interaction completes.",
     whyThisMatters: "Persistent third-party cookies after reject can signal that consent controls are not enforcing the promised outcome."
   },
-  gpc_signal_not_honored: {
-    suggestedFix: "Honor browser-level opt-out preference signals by suppressing the non-essential tracking or cookie activity that still fired under GPC.",
-    whyThisMatters: "If the site ignores a browser-level privacy preference signal, users may not get the choice outcome they expected."
+  gpc_response: {
+    suggestedFix: "Review the retained baseline and GPC-condition deltas, then verify the intended browser-preference behavior separately for each applicable legal framework.",
+    whyThisMatters: "A paired GPC observation records whether relevant public-site behavior changed under the signal while leaving statutory interpretation to separate CCPA, GDPR, or other assessments."
   },
   rtb_cookie_sync_observed: {
     suggestedFix: "Inventory the advertising exchange, identity-sync, and cookie-sync endpoints that load during initial render, then gate non-essential programmatic adtech behind the consent state.",
@@ -6871,6 +6941,24 @@ function mergeConcernContext(
   };
 }
 
+function mergeScoreEffects(
+  existing: NormalizedConcernScoreEffect[] | undefined,
+  candidate: ConcernBackedUnifiedFindingCandidate,
+) {
+  const effects = [...(existing ?? []), ...(candidate.normalizedConcern.scoreEffects ?? [])];
+  const byPolicy = new Map<string, NormalizedConcernScoreEffect>();
+  for (const effect of effects) {
+    const key = [effect.appliesTo, effect.framework, effect.policyKey, effect.policyVersion].join("|");
+    const current = byPolicy.get(key);
+    if (!current || effect.deductionPoints > current.deductionPoints) {
+      byPolicy.set(key, effect);
+    }
+  }
+  return [...byPolicy.values()].sort((left, right) =>
+    `${left.framework}|${left.policyKey}`.localeCompare(`${right.framework}|${right.policyKey}`)
+  );
+}
+
 function mergeUnifiedFindingDetails(
   existing: UnifiedFindingDetails | undefined,
   next: UnifiedFindingDetails | undefined
@@ -7270,6 +7358,12 @@ export function buildUnifiedFindingPackets(input: {
     if (findingId === "scan_quality_visual_no_go" && noGoCustomerTitle.length > 0) {
       nextPacket.title = noGoCustomerTitle;
     }
+    if (
+      findingId === "gpc_response" &&
+      (candidate.title === "GPC response" || candidate.title === "No observable GPC response")
+    ) {
+      nextPacket.title = candidate.title;
+    }
 
     nextPacket.severity = maxSeverity(nextPacket.severity, candidate.severity);
     if (!existing || nextPacket.summary.trim().length === 0) {
@@ -7294,6 +7388,10 @@ export function buildUnifiedFindingPackets(input: {
     fallbackEvidenceRows.push(candidate.fallbackEvidence);
     fallbackEvidenceByPacket.set(findingId, fallbackEvidenceRows);
     nextPacket.concernContext = mergeConcernContext(existing?.concernContext, candidate);
+    const scoreEffects = mergeScoreEffects(existing?.scoreEffects, candidate);
+    if (scoreEffects.length > 0) {
+      nextPacket.scoreEffects = scoreEffects;
+    }
     mergeUnifiedFindingCandidateEvidence({
       candidate,
       fallbackEvidence,

@@ -1,0 +1,33 @@
+# Seven agent-adoption improvements
+
+Implemented locally, September 12, 2026. Deployment explicitly held by the owner after the production baseline test; no new deployment or marketplace publication in this iteration.
+
+1. Optional project instructions are available in developer docs and certscore://project-instructions; certscore_launch_review is a reusable MCP prompt. They do not install project rules or run scans automatically.
+2. certscore_compare_scans accepts two UUID scan IDs and guides an agent to compare retained bundles and canonical finding IDs without creating a scan. This is a guided comparison workflow, not a new deterministic diff API. It requires matching targets, regions, chronology and coverage, and never treats a missing finding as verified resolution.
+3. Responses with retained finding IDs offer optional finding explanations and the certscore_remediation_checklist prompt. Checklist instructions preserve canonical evidence, uncertainty and manual verification; no site edits or findings are synthesized by the server.
+4. Existing credential signup/login success already retains next. Google sign-in failure/unavailable callbacks now preserve a validated next path, including the OAuth request, through retry. The helper rejects external URLs, backslashes and controls. No account was created or terms accepted during verification.
+5. certscore://connection makes one authenticated SDK call to GET /api/v2/auth/check?diagnostics=1. The optional diagnostic response checks active membership, create scope and the existing rolling creation quota. It exposes mode, expiry, scopes, remaining quota, snapshot time and recovery guidance, without credentials, account email or workspace identifiers. Normal auth checks retain their old behavior. Snapshot permission is not a capacity reservation; target/concurrency guards remain authoritative.
+6. certscore://reconnect and developer docs explain reconnecting the existing installation. A Claude connector-settings link is provided, with Cursor instructions; no fabricated authorization URL, client identity or PKCE state is generated. Quota errors do not ask for reauthorization.
+7. certscore://example-report reads the fixed retained public scan 9ba99a8c-b1ad-44c1-985f-92cef760ab40 and its canonical metadata on demand. It labels the example, keeps original timestamps and coverage, bounds the embedded report and fails closed if unavailable. The public API returned HTTP 200; original completion was 2026-09-12T20:26:38.586Z with partial coverage. No replacement scan is launched.
+
+## Compatibility and verification
+
+The existing 12 tools are preserved. The full profile now also exposes certscore_get_connection_status, for 13 tools total, so tool-only hosts can read connection, scopes, quota and recovery guidance. Three prompts and four resources are added only to the full profile. Hosts that expose only tools use the documented pasteable prompts; native Claude prompt/resource support is not claimed.
+
+135 MCP tests, 28 SDK tests, 39 HTTP transport tests and 5 focused auth/provisioning tests pass. MCP/SDK builds and web typecheck pass. Browser verification confirmed all new developer sections on localhost. Authenticated localhost verification reads connection diagnostics and discovers the comparison prompt, then exercises all 12 tools and same-session refresh using the retained local canary, not a new scan. The extended gate also reads all four resources and gets all three prompts.
+
+Changes copied to the isolated OAuth release checkout. The extended localhost gate passed all 13 tools, resources/prompts, expired-token rejection, read-only-scope diagnostics, missing-membership diagnostics and same-session refresh followed by status/bundle. Exhausted and unavailable quota recovery are covered by focused tests. Full preflight passed on rerun after a timing-sensitive, unrelated scanner test observed an extra transient document_loading event; that test also passed independently without changing scanner code or weakening the assertion. The final two response-text clarifications then passed all 135 MCP tests and the MCP TypeScript build.
+
+## Real Claude production baseline and final checks
+
+The owner explicitly approved Connect with scan:read, scan:create and mcp, plus up to $5 total for two Claude acceptance runs and owned-canary scans. The existing Claude connector successfully completed OAuth consent. One fresh owned-canary scan was created (3c7db7ee-aff1-4a11-b5c5-0ca03a66265e), then all 12 existing tools succeeded in the actual Claude UI against the current production baseline fd5bab5bd4d17789a4c188ee700c931f085dbd57. Create returned queued with retryAfterSeconds=15; the first subsequent status poll completed. Bundle, report, evidence, findings export/list/explanation, inventory and both latest-domain reads returned successfully. No auth, scope, schema-validation or timeout failure was observed. The final Claude summary mislabeled its count as 11; the expanded trace contains all 12 distinct tools. Claude's per-call Allow once prompts were accepted; no persistent Always allow setting was changed.
+
+The trace identified two clarity issues, addressed locally: tiny reports now retain finding IDs in TextContent and point to list/explain for descriptions omitted by that tier; inventory removed by bundle byte limits is explicitly labeled as omitted, with a dedicated read-tool recovery path. No evidence, findings or score effects were synthesized.
+
+Compact appended guidance across the original 12 local tool calls measured 4,610 bytes, compared with 13,896 bytes for full guidance metadata (approximately 67% less duplication). Complete guidance remains in metadata. Diagnostic TextContent explicitly includes the diagnostic JSON for tool-only hosts.
+
+No new deployment occurred. The latest owner instruction is to hold deployment. The post-deployment Claude run, discovery of the new 13th tool in production and production verification of these local changes remain pending. Same-session refresh is verified locally; a forced production Claude refresh is not claimed. Only one of the two approved Claude runs and one owned-canary scan have been used; exact host model spend was not visible.
+
+## Cost
+
+No background work, new capacity, retention, model calls or new scans. Added diagnostics perform two bounded reads only on explicit request; the example performs two retained-resource reads. Estimated incremental server read cost below $1/month at 50,000 uses, disclosed before implementation. Optional prompts can cause user-requested host model/tool usage; no recurring automation was installed. Existing quotas remain unchanged.

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { reportEvidencePageSchema } from "./report-page.js";
+import { mcpTaskContextSchema } from "@website-signal-risk-scanner/shared/dist/mcp-product-context.js";
 import {
   apiV2DomainLatestScanSchema,
   apiV2FindingDetailSchema,
@@ -30,6 +32,7 @@ export const mcpCreateScanInputSchema = {
 } as const;
 
 export const mcpScanSiteInputSchema = {
+  taskContext: mcpTaskContextSchema.optional().describe("Optional caller-declared purpose and integration ID/version for usage research. Only include questionSummary when the user knowingly agrees to share a brief non-sensitive question for product improvement; label user_wording or agent_paraphrase. Never include chat history, personal/account details, secrets or URLs. Omission does not affect scanning."),
   url: mcpCreateScanInputSchema.url,
   freshness: mcpCreateScanInputSchema.freshness,
   scanFrom: mcpCreateScanInputSchema.scanFrom,
@@ -238,6 +241,11 @@ export const mcpActionableErrorSchema = z.object({
   recommendedNextAction: z.string(),
   field: z.string().optional(),
   mcpCode: z.number().int().optional(),
+  issues: z.array(z.object({
+    field: z.string().max(80),
+    code: z.string().max(80),
+    required: z.boolean().optional(),
+  }).strict()).max(8).optional(),
   name: z.string().optional(),
   status: z.number().int().optional(),
   responseBody: z.unknown().optional()
@@ -274,6 +282,9 @@ export const mcpScanSiteOutputSchema = z
     scoreVersion: z.string().nullable().optional(),
     scoreUpdatedAt: z.string().nullable().optional(),
     riskLevel: z.string().nullable().optional(),
+    gpcResponse: apiV2ScanResourceSchema.shape.gpcResponse.nullable(),
+    postAcceptObservation: apiV2ScanResourceSchema.shape.postAcceptObservation.nullable(),
+    postRefusalObservation: apiV2ScanResourceSchema.shape.postRefusalObservation.nullable(),
     coverage: apiV2ScanResourceSchema.shape.coverage.nullable().optional(),
     preConsentPreview: apiV2PreConsentRuntimePreviewSchema.optional(),
     error: mcpActionableErrorSchema.nullable(),
@@ -315,6 +326,9 @@ export const mcpScanStatusOutputSchema = z
     scoreVersion: z.string().nullable().optional(),
     scoreUpdatedAt: z.string().nullable().optional(),
     riskLevel: z.string().nullable().optional(),
+    gpcResponse: apiV2ScanResourceSchema.shape.gpcResponse.nullable(),
+    postAcceptObservation: apiV2ScanResourceSchema.shape.postAcceptObservation.nullable(),
+    postRefusalObservation: apiV2ScanResourceSchema.shape.postRefusalObservation.nullable(),
     coverage: apiV2ScanResourceSchema.shape.coverage.nullable().optional(),
     preConsentPreview: apiV2PreConsentRuntimePreviewSchema.optional(),
     phase: z.string().optional(),
@@ -364,7 +378,10 @@ export const mcpEvidenceOutputSchema = z
   })
   .passthrough();
 
-export const mcpScanBundleOutputSchema = z
+// Keep the exported declaration bounded. This schema composes the full API v2
+// scan resource plus MCP-specific evidence shapes, and inferring every nested
+// generic exceeds TypeScript's declaration-serialization limit.
+export const mcpScanBundleOutputSchema: z.ZodType<Record<string, unknown>> = z
   .object({
     type: z.literal("certscore_scan_bundle"),
     detail: z.enum(["summary", "findings", "evidence", "full"]),
@@ -379,6 +396,8 @@ export const mcpScanBundleOutputSchema = z
     scoreVersion: z.string().nullable(),
     scoreUpdatedAt: z.string().nullable(),
     riskLevel: z.string().nullable(),
+    gpcResponse: apiV2ScanResourceSchema.shape.gpcResponse.nullable().optional(),
+    postAcceptObservation: apiV2ScanResourceSchema.shape.postAcceptObservation.nullable(),
     postRefusalObservation: apiV2ScanResourceSchema.shape.postRefusalObservation.nullable(),
     provenance: mcpScanProvenanceSchema,
     interpretationGuidance: mcpInterpretationGuidanceSchema,
@@ -501,6 +520,14 @@ export const mcpPreConsentCookiesTrackersOutputSchema = apiV2PreConsentCookiesTr
 
 export const certScoreMcpToolContracts = [
   {
+    name: "certscore_get_connection_status",
+    title: "Check CertScore connection",
+    description: "Read current authenticated connection mode, granted scopes, workspace access, rolling scan quota and recovery action. No scan ID is needed and no scan is created. Use this to diagnose read-only access or quota limits; reconnect only for expired, revoked or expanded access.",
+    inputSchema: {},
+    outputSchema: z.object({ type: z.literal("certscore_auth_check"), authenticated: z.literal(true), scopes: z.array(z.string()), expiresAt: z.string().nullable(), diagnostics: z.object({mode:z.string(), workspaceAccess:z.enum(["active","unavailable"]), createAllowedByScope:z.boolean(), canRequestScanNow:z.boolean(), quota:z.unknown().nullable(),nextAction:z.string()}).passthrough() }).passthrough(),
+    annotations: { title: "Check CertScore connection", ...readOnlyOpenWorldAnnotations }
+  },
+  {
     name: "certscore_scan_site",
     title: "Scan site",
     description: "Creates a public-website privacy scan or reuses an eligible recent completed scan. Coverage includes pre-consent storage, trackers, consent and CMP signals, privacy-policy disclosures, transport security, and GDPR/ePrivacy or CCPA/CPRA review signals. The response contains a stable scanId, lifecycle status, retry timing, and sometimes a bounded preliminary preConsentPreview; preliminary data contains no final findings or score. Results are automated public-web observations, not legal advice, certification, or a compliance determination. Tool and workflow documentation: https://certscore.ai/developers/mcp.",
@@ -541,9 +568,17 @@ export const certScoreMcpToolContracts = [
     annotations: { title: "Get CertScore Pulse evidence", ...readOnlyOpenWorldAnnotations }
   },
   {
+    name: "certscore_get_report_evidence_page",
+    title: "Get report evidence page",
+    description: "Retrieve scan report display content as paginated JSON, without internal diagnostic JSON downloads. The response also offers a single-file full JSON download; private JSON download links expire after five minutes and need no OAuth header; use pagination if your host blocks file downloads. Repeated display records use reportContentRef JSON Pointers. Includes including evidence tables, full-site page and resource inventories, all retained additional-page form fields, form snapshot download references, and retained limitations. Snapshot images are downloaded separately from the returned URLs, with OAuth bearer authentication for workspace scans. Available on OAuth and Light. Start with scanId; follow pagination.nextCursor until complete. Pages share a snapshot; restart if it changes. Each entry has a JSON Pointer path and value; oversized strings use numbered parts. Export completion is not complete observation coverage. Use the concise scan bundle for summaries; use this tool for exhaustive report evidence. No new scan is created.",
+    inputSchema: { scanId: z.string().uuid(), cursor: z.string().max(100).optional() },
+    outputSchema: reportEvidencePageSchema,
+    annotations: { title: "Get report evidence page", ...accountedInternalReadAnnotations }
+  },
+  {
     name: "certscore_get_scan_bundle",
     title: "Get scan bundle",
-    description: "Returns the completed or completed-limited CertScore evidence bundle for a stable scanId as concise TextContent and matching structuredContent. Available sections include the canonical report overview, bounded projected findings, pre-consent cookie and tracker evidence, coverage limitations, persisted execution provenance, and retrieval URLs. Detail tiers and byte budgets control the bounded response, with explicit returned, total, truncated, and omitted-section metadata. Reject Path content is present only for confirmed, evidence-qualified post-refusal observations; unsupported or inconclusive outcomes remain neutral coverage limitations. Results are automated public-web observations, not legal advice, certification, or a compliance determination.",
+    description: "Returns the completed or completed-limited CertScore evidence bundle for a stable scanId as concise TextContent and matching structuredContent. Available sections include the canonical report overview, bounded projected findings, pre-consent cookie and tracker evidence, coverage limitations, persisted execution provenance, and retrieval URLs. Detail tiers and byte budgets control the bounded response, with explicit returned, total, truncated, and omitted-section metadata. Accept and Reject results distinguish registered decisions from retained after-click facts. Their execution reports succeeded for a completed click and bounded observation, and succeeded_with_confirmation when the consent decision is also verified. Optional afterAction summaries remain useful when registration is unconfirmed; absent or failed capture remains explicitly limited. Consume canonical findings for any scoring effect. Results are automated public-web observations, not legal advice, certification, or a compliance determination.",
     inputSchema: mcpGetScanBundleInputSchema,
     outputSchema: mcpScanBundleOutputSchema,
     annotations: { title: "Get scan bundle", ...accountedInternalReadAnnotations }

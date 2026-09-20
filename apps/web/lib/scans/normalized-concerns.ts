@@ -1,11 +1,21 @@
+import { formDestinationProjectionSchema, formDestinationCopy, qualifiesFormDestinationReview, FORM_DESTINATION_FINDING_ID, FORM_DESTINATION_SIGNAL } from "@certscore/contracts";
+import { cmsSecurityProjectionSchema, cmsSecurityCopy, CMS_SECURITY_FINDING_ID, CMS_SECURITY_SIGNAL } from "@certscore/contracts";
+import { projectConsentControlBehavior } from "./consent-control-behavior";
+import { siteIntegrityProjectionSchema, SITE_INTEGRITY_FINDING_ID, SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY, SITE_INTEGRITY_POLICY_VERSION, SITE_INTEGRITY_SEVERITY } from "@certscore/contracts";
+import { describeGpcBoundedObservation } from "@certscore/contracts";
+import { REJECT_CLICK_TRACKING_COPY } from "./consent-action-copy";
+import { assessRejectClickTracking, readRejectClickTrackingAssessment, REJECT_CLICK_TRACKING_SIGNAL } from "./reject-click-tracking-policy";
 import {
   classifyGdprTransparencyTopics,
   collectionSurfaceAssessmentSchema,
   consentControlAssessmentSchema,
+  hasVerifiedConsentControlAbsence,
   evaluateLegalFrameworkValidity,
   hasStaleLegalFrameworkReference,
   hasSubstantiveProcessingPurposesEvidence,
+  hasUnsupportedGenericPrivacyContact,
   policyModelReviewArtifactSchema,
+  gpcResponseAssessmentSchema,
 } from "@certscore/contracts";
 import {
   getReportUnifiedFinding,
@@ -153,6 +163,17 @@ export type NormalizedConcernRegulatoryChecklistEligibility =
   | "review_signal"
   | "none";
 
+export type NormalizedConcernScoreEffect = {
+  appliesTo: "certscore_overall";
+  deductionPoints: number;
+  evidenceRefs: string[];
+  framework: "california" | "site_integrity";
+  observedActivity: string[];
+  policyKey: string;
+  policyVersion: string;
+  reasonCode: string;
+};
+
 export type ConsentOptionsControlProminenceState =
   | "dedicated_button"
   | "first_layer_control"
@@ -216,6 +237,7 @@ export type NormalizedConcernNegativeEvidenceFlag =
   | "tag_manager_only_without_consent_context"
   | "consent_revisit_control_observed"
   | "incomplete_consent_control_lifecycle_coverage"
+  | "canonical_consent_control_evidence_insufficient"
   | "missing_consent_tracking_context"
   | "prior_consent_state_may_hide_control"
   | "shallow_consent_control_search_scope"
@@ -274,6 +296,7 @@ export type NormalizedConcern = {
   policyPageType: NormalizedConcernPolicyPageType;
   promotionEligibility: NormalizedConcernPromotionEligibility;
   regulatoryChecklistEligibility?: NormalizedConcernRegulatoryChecklistEligibility;
+  scoreEffects?: NormalizedConcernScoreEffect[];
   severity: ReviewFindingSeverity;
   signalKey?: string;
   signalLabel?: string;
@@ -1835,6 +1858,7 @@ function deriveEvidenceStrengthFlags(input: {
 import type { ScanDomainContext } from "./scan-domain-context";
 
 function buildConcernFromSharedInput(input: {
+  consentControlAssessment?: unknown;
   categoryId?: string;
   description: string;
   domainContext?: ScanDomainContext;
@@ -1878,6 +1902,18 @@ function buildConcernFromSharedInput(input: {
     signalSource: input.signalSource,
     title: input.title
   });
+  // Carry only bounded provenance into the concern; policy receives the original
+  // typed assessment so compatibility evidence cannot upgrade an unknown control.
+  if (input.consentControlAssessment !== undefined &&
+      (suggestedUnifiedFindingId === "reject_button_missing" || suggestedUnifiedFindingId === "accept_more_prominent_than_reject")) {
+    const parsed = consentControlAssessmentSchema.safeParse(input.consentControlAssessment);
+    Object.assign(policyRawEvidence, {
+      consentControlAssessmentContractVersion: parsed.success ? parsed.data.artifactVersion : null,
+      consentControlAssessmentSourceHash: parsed.success ? parsed.data.provenance.sourceHash : null,
+      consentControlAssessmentStatus: parsed.success ? parsed.data.assessmentStatus : "invalid",
+      firstLayerRejectState: parsed.success ? parsed.data.controls.reject.state : "unknown",
+    });
+  }
   const canonicalConcernKey = deriveCanonicalConcernKey({
     originKey: input.originKey,
     originType: input.originType,
@@ -1891,6 +1927,7 @@ function buildConcernFromSharedInput(input: {
     rawEvidence: policyRawEvidence
   });
   const eligibility = deriveConcernPolicy({
+    consentControlAssessment: input.consentControlAssessment,
     concern: {
       canonicalConcernKey,
       originKey: input.originKey,
@@ -1922,6 +1959,9 @@ function buildConcernFromSharedInput(input: {
     policyPageType: evidenceBundle.policyPageType,
     promotionEligibility: eligibility.promotionEligibility,
     regulatoryChecklistEligibility: eligibility.regulatoryChecklistEligibility,
+    ...(eligibility.scoreEffects && eligibility.scoreEffects.length > 0
+      ? { scoreEffects: eligibility.scoreEffects }
+      : {}),
     severity: input.severity,
     signalKey: input.signalKey,
     signalLabel: input.signalLabel,
@@ -1934,7 +1974,8 @@ function buildConcernFromSharedInput(input: {
 
 export function normalizeConcernFromReviewFindingCandidate(
   candidate: ReviewFindingCandidateInput,
-  domainContext?: ScanDomainContext
+  domainContext?: ScanDomainContext,
+  consentControlAssessment?: unknown
 ): NormalizedConcern {
   const originType = deriveOriginTypeFromCandidate(candidate);
   const linkedValidationFinding = candidate.linkedValidationFinding
@@ -1946,6 +1987,7 @@ export function normalizeConcernFromReviewFindingCandidate(
       : linkedValidationFinding?.ruleKey ?? normalizeTitleKey(candidate.title);
 
   return buildConcernFromSharedInput({
+    consentControlAssessment,
     categoryId: candidate.categoryId,
     description: candidate.description,
     domainContext,
@@ -1966,7 +2008,8 @@ export function normalizeConcernFromReviewFindingCandidate(
 
 export function normalizeConcernFromValidationFinding(
   finding: ScanValidationFinding | Record<string, unknown>,
-  domainContext?: ScanDomainContext
+  domainContext?: ScanDomainContext,
+  consentControlAssessment?: unknown
 ): NormalizedConcern {
   const normalizedFinding = normalizeScanValidationFinding(finding);
   const fallbackTitle = typeof finding.title === "string" && finding.title.trim().length > 0 ? finding.title : "Validation finding";
@@ -1974,6 +2017,7 @@ export function normalizeConcernFromValidationFinding(
   const title = normalizedFinding?.title ?? fallbackTitle;
   const description = normalizedFinding?.description ?? title;
   return buildConcernFromSharedInput({
+    consentControlAssessment,
     description,
     domainContext,
     evidence: [],
@@ -2633,15 +2677,19 @@ function buildGdprTransparencyArticle13Concerns(
         classifyGdprTransparencyTopics({
           text: evidenceText ?? "",
         }).matches.some((match) => match.topic === "processing_purposes");
+      // Revalidate retained topic evidence, including historical adapter signals.
+      // A privacy mailbox is controller contact, not a DPO designation.
+      const dpoDesignationConfirmed = topic !== "dpo_contact" ||
+        classifyGdprTransparencyTopics({ text: evidenceText ?? "" }).matches.some((match) => match.topic === "dpo_contact");
+      const controllerContactConfirmed = topic !== "controller_contact" ||
+        !hasUnsupportedGenericPrivacyContact(evidenceText ?? "");
       const extractedState = getGdprTransparencyArticle13ConcernState(signal);
       const state =
         extractedState === "sufficient" && (!evidenceText || !sourceUrl)
           ? "ambiguous"
-          : !processingPurposesEvidenceSubstantive && extractedState === "sufficient"
+          : (!processingPurposesEvidenceSubstantive || !dpoDesignationConfirmed || !controllerContactConfirmed) && extractedState === "sufficient"
           ? "ambiguous"
-          : staleLegalFrameworkReferenceObserved && topic === "international_transfers"
-            ? "partial"
-            : extractedState;
+          : extractedState;
       const evidence = uniqueStrings([evidenceText, sourceUrl]);
 
       return buildConcernFromSharedInput({
@@ -2667,6 +2715,7 @@ function buildGdprTransparencyArticle13Concerns(
           matchStrength: getStringValue(signal.matchStrength ?? signal.match_strength),
           matchedLocale: locale,
           matchedTerm: getStringValue(signal.matchedTerm ?? signal.matched_term),
+          selectedPolicySectionHeading: getStringValue(signal.selectedPolicySectionHeading ?? signal.selected_policy_section_heading),
           pageType: "privacy_policy",
           policyIsPrimarySource: true,
           productionCredit: true,
@@ -2677,6 +2726,8 @@ function buildGdprTransparencyArticle13Concerns(
           sourceUrls: sourceUrl ? [sourceUrl] : [],
           policySnippets: evidenceText ? [evidenceText] : [],
           processingPurposesEvidenceSubstantive,
+          dpoDesignationConfirmed,
+          controllerContactConfirmed,
           staleLegalFrameworkReferenceObserved
         },
         severity: "low",
@@ -3288,8 +3339,9 @@ function buildConsentSurfaceAssessmentConcerns(
   if (!assessment) return [];
 
   const assessmentUsable =
-    assessment.assessmentStatus === "complete" &&
-    assessment.coverage.status === "complete" &&
+    ((assessment.assessmentStatus === "complete" && assessment.coverage.status === "complete") ||
+      (assessment.surface.status === "observed_actionable" &&
+        [assessment.controls.accept, assessment.controls.reject, assessment.controls.options].some((control) => control.state === "observed"))) &&
     assessment.document.identityStatus === "matched" &&
     assessment.scan.noGo === false;
   const privacyChoiceOnly =
@@ -3505,8 +3557,15 @@ function buildConsentOptionsControlProminenceConcerns(
       evidence.layer === "deeper_layer" &&
       evidence.presentationType === "persistent_link"
   );
+  const assessmentComplete = assessment.surface.status === "observed_actionable" && (
+    (assessment.assessmentStatus === "complete" && assessment.coverage.status === "complete") ||
+    (assessment.artifactVersion === "2.2" && assessment.document.identityStatus === "matched" && !assessment.scan.noGo &&
+      (assessment.controls.options.state === "observed" || hasVerifiedConsentControlAbsence(assessment, "options")))
+  );
   const state: ConsentOptionsControlProminenceState =
-    firstLayerOptions.some((evidence) => evidence.presentationType === "dedicated_button")
+    !assessmentComplete
+      ? "insufficient_retained_evidence"
+      : firstLayerOptions.some((evidence) => evidence.presentationType === "dedicated_button")
       ? "dedicated_button"
       : firstLayerOptions.some(
           (evidence) =>
@@ -3526,11 +3585,7 @@ function buildConsentOptionsControlProminenceConcerns(
               ? "first_layer_control"
               : persistentOptions.length > 0
                 ? "persistent_link"
-                : assessment.assessmentStatus !== "complete" ||
-                    assessment.coverage.status !== "complete" ||
-                    assessment.surface.status !== "observed_actionable"
-                  ? "insufficient_retained_evidence"
-                  : assessment.controls.accept.state === "observed" &&
+              : assessment.controls.accept.state === "observed" &&
                       assessment.controls.reject.state === "observed"
                     ? "balanced_accept_decline_no_first_layer_settings"
                     : assessment.controls.accept.state === "observed" &&
@@ -3565,6 +3620,8 @@ function buildConsentOptionsControlProminenceConcerns(
       originKey: `consent.options_control_prominence.${state}`,
       originType: "runtime_artifact",
       rawEvidence: {
+        consentControlAssessmentContractVersion: assessment.artifactVersion,
+        consentControlAssessmentSourceHash: assessment.provenance.sourceHash,
         consentControlAssessmentStatus: assessment.assessmentStatus,
         consentControlCoverageStatus: assessment.coverage.status,
         consentOptionsControlProminenceEvidence: true,
@@ -3602,11 +3659,12 @@ function buildConsentControlInventoryConcerns(
   const inventoryComplete =
     assessment.assessmentStatus === "complete" &&
     assessment.coverage.status === "complete";
-  const projectControlState = (state: typeof assessment.controls.accept.state) =>
-    state === "observed" || inventoryComplete ? state : "unknown";
-  const acceptState = projectControlState(assessment.controls.accept.state);
-  const rejectState = projectControlState(assessment.controls.reject.state);
-  const optionsState = projectControlState(assessment.controls.options.state);
+  const projectControlState = (key: "accept" | "reject" | "options") =>
+    assessment.controls[key].state === "observed" || hasVerifiedConsentControlAbsence(assessment, key)
+      ? assessment.controls[key].state : "unknown";
+  const acceptState = projectControlState("accept");
+  const rejectState = projectControlState("reject");
+  const optionsState = projectControlState("options");
 
   const runtimeEvidenceArtifacts = uniqueStrings([
     ...assessment.surface.evidenceRefs,
@@ -3622,7 +3680,7 @@ function buildConsentControlInventoryConcerns(
       description:
         inventoryComplete
           ? "A complete, same-document first-layer consent-control inventory retained factual Accept, Reject, and Options observation states."
-          : "A limited, same-document first-layer consent-control assessment retained unknown or observed Accept, Reject, and Options states without converting missing evidence into absence.",
+          : "A same-document assessment retained each control state with its own inspection coverage; unresolved controls remain limited.",
       domainContext,
       evidence: runtimeEvidenceArtifacts,
       observedValue: [
@@ -3639,12 +3697,15 @@ function buildConsentControlInventoryConcerns(
         consentControlAssessmentSourceHash: assessment.provenance.sourceHash,
         consentControlAssessmentStatus: assessment.assessmentStatus,
         consentControlCoverageStatus: assessment.coverage.status,
+        consentControlBehavior: projectConsentControlBehavior(assessment),
         consentControlInventoryEvidence: true,
         consentControlInventoryComplete: inventoryComplete,
         consentSurfaceStatus: assessment.surface.status,
         firstLayerAcceptState: acceptState,
         firstLayerOptionsState: optionsState,
         firstLayerRejectState: rejectState,
+        consentControlInspections: assessment.artifactVersion === "2.2"
+          ? Object.fromEntries(Object.entries(assessment.controls).map(([key, control]) => [key, control.inspection])) : undefined,
         runtimeEvidenceArtifacts
       },
       severity: "low",
@@ -3657,6 +3718,63 @@ function buildConsentControlInventoryConcerns(
   ];
 }
 
+function buildGpcResponseConcerns(
+  runtimeArtifacts: Record<string, unknown> | null | undefined,
+  domainContext?: ScanDomainContext,
+) {
+  const parsed = gpcResponseAssessmentSchema.safeParse(
+    runtimeArtifacts?.gpcResponseAssessment ?? runtimeArtifacts?.gpc_response_assessment,
+  );
+  if (!parsed.success) return [];
+  const assessment = parsed.data;
+  const title = assessment.status === "no_observable_response"
+    ? "No observable GPC response"
+    : "GPC response";
+  const evidenceArtifacts = uniqueStrings([
+    assessment.comparison.baselineArtifact?.uri ?? "",
+    assessment.comparison.gpcArtifact?.uri ?? "",
+    ...assessment.comparison.evidenceRefs,
+  ]).slice(0, 32);
+  return [buildConcernFromSharedInput({
+    categoryId: "privacy",
+    description: assessment.contractVersion === "certscore.gpc-response-assessment.v3"
+      ? `${describeGpcBoundedObservation(assessment.observation)} Paired activity comparison: ${assessment.status.replaceAll("_", " ")}.`
+      : assessment.contractVersion === "certscore.gpc-response-assessment.v2"
+      ? assessment.status === "responsive"
+        ? "Less canonically classified tracking activity was observed within the matched passive GPC window, with verified signal delivery. This bounded comparison does not establish causation or legal compliance."
+        : assessment.status === "no_observable_response"
+          ? "Verified passive GPC delivery did not produce a qualifying activity reduction within the matched observation window. Unrelated cookie or CMP variation is not treated as a privacy response. This is not a legal conclusion."
+          : "GPC delivery or comparison coverage could not be fully verified. Other verified scan evidence remains available; this GPC limitation is not a successful response or an observed gap."
+      : assessment.status === "responsive"
+      ? "The passive GPC condition produced observable baseline deltas in cookies, trackers, advertising or measurement activity, or consent/CMP behavior. This is an operational observation, not a legal conclusion."
+      : assessment.status === "no_observable_response"
+        ? "No observable baseline delta was retained under the otherwise equivalent passive GPC condition. This does not determine whether any law was satisfied."
+        : "The paired passive baseline and GPC evidence was not sufficiently comparable to determine an observable response.",
+    domainContext,
+    evidence: evidenceArtifacts,
+    observedValue: assessment.status,
+    originKey: `privacy.gpc_response.${assessment.status}`,
+    originType: "runtime_artifact",
+    rawEvidence: {
+      gpcResponseAssessment: assessment,
+      gpcResponseAssessmentContractVersion: assessment.contractVersion,
+      gpcResponseStatus: assessment.status,
+      gpcComparisonComparable: assessment.comparison.comparable,
+      gpcEnabledProof: assessment.comparison.enabledProof,
+      gpcBaselineDeltas: assessment.comparison.deltas,
+      legalInterpretation: "not_assessed",
+      runtimeEvidenceArtifacts: evidenceArtifacts,
+      scoreEffect: "none",
+    },
+    severity: "low",
+    signalKey: "privacy.gpc_response",
+    signalLabel: title,
+    signalSource: "runtime_artifact_signal",
+    sourceType: "signal",
+    title,
+  })];
+}
+
 function buildConsentDismissWithoutRejectConcerns(
   runtimeArtifacts: Record<string, unknown> | null | undefined,
   domainContext?: ScanDomainContext
@@ -3664,8 +3782,7 @@ function buildConsentDismissWithoutRejectConcerns(
   const assessment = getConsentControlAssessmentForConcern(runtimeArtifacts);
   if (
     !assessment ||
-    assessment.assessmentStatus !== "complete" ||
-    assessment.coverage.status !== "complete" ||
+    !hasVerifiedConsentControlAbsence(assessment, "reject") ||
     assessment.document.identityStatus !== "matched" ||
     assessment.scan.noGo !== false ||
     assessment.surface.status !== "observed_actionable" ||
@@ -3715,6 +3832,7 @@ function buildConsentDismissWithoutRejectConcerns(
         consentControlAssessmentSourceHash: assessment.provenance.sourceHash,
         consentControlAssessmentStatus: assessment.assessmentStatus,
         consentControlCoverageStatus: assessment.coverage.status,
+        consentRejectInspectionComplete: hasVerifiedConsentControlAbsence(assessment, "reject"),
         consentDismissWithoutRejectEvidence: true,
         consentSurfaceObserved: true,
         consentSurfaceDiagnostics: {
@@ -3796,23 +3914,30 @@ function buildConsentPaidDeclinePathConcerns(
       originKey: `consent.paid_decline_path.${paidDeclineState}`,
       originType: "runtime_artifact",
       rawEvidence: {
+        consentControlAssessmentContractVersion: assessment.artifactVersion,
+        consentControlAssessmentSourceHash: assessment.provenance.sourceHash,
         consentControlAssessmentStatus: assessment.assessmentStatus,
         consentControlCoverageStatus: assessment.coverage.status,
+        consentRejectInspectionComplete: hasVerifiedConsentControlAbsence(assessment, "reject"),
+        consentControlDocumentIdentityStatus: assessment.document.identityStatus,
+        consentControlNoGo: assessment.scan.noGo,
+        consentControlSurfaceStatus: assessment.surface.status,
         consentPaidDeclinePathEvidence: true,
         consentPaidDeclinePathState: paidDeclineState,
         freeRejectControlState: assessment.controls.reject.state,
+        scoreEffect: "none",
         retainedConsentPaidDeclineControls: retainedControls,
         runtimeEvidenceArtifacts: uniqueStrings([
           ...retainedControls.flatMap((control) => control.artifactRefs),
           "scan_runtime_artifacts.consent_control_assessment"
         ])
       },
-      severity: "low",
+      severity: "medium",
       signalKey: "privacy.consent_paid_decline_path",
       signalLabel: "Paid decline path",
       signalSource: "runtime_artifact_signal",
       sourceType: "signal",
-      title: "Paid decline path observed"
+      title: "Paid alternative required to decline tracking"
     })
   ];
 }
@@ -3863,6 +3988,38 @@ function buildPreConsentStorageAssessmentConcerns(
       title: "Pre-consent storage assessment"
     })
   ];
+}
+
+function buildRejectClickTrackingConcerns(
+  runtimeArtifacts: Record<string, unknown> | null | undefined,
+  domainContext?: ScanDomainContext
+) {
+  const assessment = readRejectClickTrackingAssessment(runtimeArtifacts?.rejectClickTrackingAssessment);
+  if (!assessment) return [];
+  const retained = assessRejectClickTracking(runtimeArtifacts?.postRefusalEvidenceProjection);
+  if (!retained || JSON.stringify(retained) !== JSON.stringify(assessment)) return [];
+  const urls = assessment.requests.map((row) => row.url);
+  return [buildConcernFromSharedInput({
+    categoryId: "enforcement_outcomes_after_user_choice",
+    description: REJECT_CLICK_TRACKING_COPY.description,
+    domainContext,
+    evidence: urls,
+    observedValue: `${assessment.eligibleRequestCount} tracking request(s) observed after Reject`,
+    originKey: REJECT_CLICK_TRACKING_SIGNAL,
+    originType: "runtime_artifact",
+    rawEvidence: {
+      rejectClickTrackingAssessment: assessment,
+      runtimeEvidenceArtifacts: [`post-refusal-packet:sha256:${assessment.sourcePacketSha256}`, ...urls],
+      runtimeRequestUrls: urls,
+      runtimeVendors: uniqueStrings(assessment.requests.map((row) => row.vendor)),
+    },
+    severity: "medium",
+    signalKey: REJECT_CLICK_TRACKING_SIGNAL,
+    signalLabel: REJECT_CLICK_TRACKING_COPY.label,
+    signalSource: "runtime_artifact_signal",
+    sourceType: "signal",
+    title: REJECT_CLICK_TRACKING_COPY.label,
+  })];
 }
 
 function buildPostRefusalObservationConcerns(
@@ -3993,6 +4150,155 @@ function buildPostRefusalObservationConcerns(
   ];
 }
 
+function postActionActivityIdentity(row: Record<string, unknown>) {
+  const activityType = getStringValue(row.activityType);
+  const category = getStringValue(row.category) ?? "unknown";
+  const hostname = getStringValue(row.hostname) ?? "";
+  const vendor = getStringValue(row.vendor) ?? "";
+  if (activityType === "network_request") {
+    const url = getStringValue(row.url);
+    return url ? `request:${url}|${hostname}|${vendor}|${category}` : null;
+  }
+  if (activityType === "storage_write") {
+    const storageType = getStringValue(row.storageType);
+    const storageIdentityHash = getStringValue(row.storageIdentityHash);
+    return storageType && storageIdentityHash
+      ? `storage:${storageType}|${storageIdentityHash}|${hostname}|${vendor}|${category}`
+      : null;
+  }
+  return null;
+}
+
+function buildPostAcceptObservationConcerns(
+  runtimeArtifacts: Record<string, unknown> | null | undefined,
+  domainContext?: ScanDomainContext
+) {
+  const projection = getRuntimeRecord(runtimeArtifacts, [
+    "postAcceptEvidenceProjection",
+    "post_accept_evidence_projection"
+  ]);
+  if (
+    !projection ||
+    getRuntimeBoolean(projection, ["productionProjectable"]) !== true ||
+    getRuntimeBoolean(projection, ["acceptanceExercised"]) !== true ||
+    getRuntimeString(projection, ["registrationStatus"]) !== "confirmed"
+  ) {
+    return [];
+  }
+
+  const activityRows = getRuntimeObjectArray(projection, ["postAcceptActivity"]);
+  const contradictionObserved = getRuntimeBoolean(projection, ["contradictionObserved"]) === true;
+  const packetSha256 = getRuntimeString(projection, ["packetSha256"]);
+  const requestUrls = activityRows.flatMap((row) => {
+    const url = getStringValue(row.url);
+    return url ? [url] : [];
+  });
+  const commonEvidence = {
+    acceptanceExercised: true,
+    acceptanceRegistrationStatus: "confirmed",
+    postAcceptPacketSha256: packetSha256,
+    postAcceptProductionProjectable: true,
+    runtimeEvidenceArtifacts: [
+      ...(packetSha256 ? [`post-accept-packet:sha256:${packetSha256}`] : []),
+      ...requestUrls,
+    ],
+    runtimeRequestUrls: requestUrls,
+    scoreEffect: "none",
+  };
+
+  const rejectProjection = getRuntimeRecord(runtimeArtifacts, [
+    "postRefusalEvidenceProjection",
+    "post_refusal_evidence_projection"
+  ]);
+  const rejectRows = rejectProjection &&
+    getRuntimeBoolean(rejectProjection, ["productionProjectable"]) === true &&
+    getRuntimeBoolean(rejectProjection, ["refusalExercised"]) === true &&
+    getRuntimeString(rejectProjection, ["registrationStatus"]) === "confirmed"
+    ? getRuntimeObjectArray(rejectProjection, ["postRefusalActivity"])
+    : [];
+  const rejectIdentities = new Set(rejectRows.flatMap((row) => {
+    const identity = postActionActivityIdentity(row);
+    return identity ? [identity] : [];
+  }));
+  const sharedActivityRows = activityRows.filter((row) => {
+    const identity = postActionActivityIdentity(row);
+    return identity !== null && rejectIdentities.has(identity);
+  });
+
+  return [
+    ...(activityRows.length > 0
+      ? [buildConcernFromSharedInput({
+          categoryId: "enforcement_outcomes_after_user_choice",
+          description:
+            "A confirmed Accept action was followed by classified non-essential activity in the retained post-accept window. This is an informational behavior record and does not affect score.",
+          domainContext,
+          evidence: requestUrls,
+          observedValue: `${activityRows.length} post-accept non-essential event(s)`,
+          originKey: "privacy.post_accept_consent_dependent_activity",
+          originType: "runtime_artifact",
+          rawEvidence: {
+            ...commonEvidence,
+            postAcceptConsentDependentActivity: activityRows,
+            post_accept_consent_dependent_activity: activityRows,
+          },
+          severity: "low",
+          signalKey: "privacy.post_accept_consent_dependent_activity",
+          signalLabel: "Consent-dependent activity after acceptance",
+          signalSource: "runtime_artifact_signal",
+          sourceType: "signal",
+          title: "Consent-dependent activity observed after acceptance"
+        })]
+      : []),
+    ...(sharedActivityRows.length > 0
+      ? [buildConcernFromSharedInput({
+          categoryId: "enforcement_outcomes_after_user_choice",
+          description:
+            "Some sanitized request identities or exact storage identities appeared after both confirmed choices. This is partial overlap, not equivalent outcomes: observation windows can differ and request query values are redacted. It corroborates review without adding a second score effect.",
+          domainContext,
+          evidence: requestUrls,
+          observedValue: `${sharedActivityRows.length} shared retained activity identity match(es)`,
+          originKey: "privacy.accept_reject_outcomes_indistinguishable",
+          originType: "runtime_artifact",
+          rawEvidence: {
+            ...commonEvidence,
+            acceptRejectOutcomeMatches: sharedActivityRows,
+            accept_reject_shared_observed_activity: true,
+            corroboratesPostRefusalFinding: true,
+          },
+          severity: "low",
+          signalKey: "privacy.accept_reject_outcomes_indistinguishable",
+          signalLabel: "Shared observed activity after Accept and Reject",
+          signalSource: "runtime_artifact_signal",
+          sourceType: "signal",
+          title: "Shared observed activity after Accept and Reject"
+        })]
+      : []),
+    ...(contradictionObserved
+      ? [buildConcernFromSharedInput({
+          categoryId: "enforcement_outcomes_after_user_choice",
+          description:
+            "The visitor clicked Accept, but the consent record saved afterward still showed the relevant optional purposes as denied.",
+          domainContext,
+          evidence: packetSha256 ? [`post-accept-packet:sha256:${packetSha256}`] : [],
+          observedValue: "acceptance signal contradicted confirmed action",
+          originKey: "privacy.acceptance_signal_contradicts_action",
+          originType: "runtime_artifact",
+          rawEvidence: {
+            ...commonEvidence,
+            acceptanceSignalContradictsAction: true,
+            acceptance_signal_contradicts_action: true,
+          },
+          severity: "low",
+          signalKey: "privacy.acceptance_signal_contradicts_action",
+          signalLabel: "Saved consent did not match Accept",
+          signalSource: "runtime_artifact_signal",
+          sourceType: "signal",
+          title: "Saved consent did not match the confirmed Accept choice"
+        })]
+      : [])
+  ];
+}
+
 function getGdprTransparencyConcernState(concern: NormalizedConcern) {
   const rawEvidence = concern.evidenceBundle.rawEvidence;
   const value = rawEvidence?.gdprTransparencyArticle13ConcernState ??
@@ -4111,31 +4417,87 @@ function resolveGdprTransparencyConcernConflicts(concerns: NormalizedConcern[]) 
 }
 
 
+function buildFormDestinationConcerns(runtimeArtifacts: Record<string, unknown> | null | undefined) {
+  const result = formDestinationProjectionSchema.safeParse(runtimeArtifacts?.formDestinations);
+  if (!result.success || !qualifiesFormDestinationReview(result.data)) return [];
+  const projection = result.data, copy = formDestinationCopy(projection);
+  return [buildConcernFromSharedInput({
+    categoryId: "privacy", originType: "runtime_artifact", originKey: FORM_DESTINATION_SIGNAL,
+    title: copy.title, description: copy.description, observedValue: copy.description,
+    severity: copy.severity, sourceType: "signal", signalSource: "runtime_artifact_signal",
+    signalKey: FORM_DESTINATION_SIGNAL, signalLabel: copy.title, evidence: [projection.trace.events[0]!.documentUrl],
+    rawEvidence: { formDestinations: projection, unifiedFindingId: FORM_DESTINATION_FINDING_ID, pageUrl: projection.trace.events[0]!.documentUrl },
+  })];
+}
+
+function buildCmsSecurityConcerns(runtimeArtifacts: Record<string, unknown> | null | undefined) {
+  const result = cmsSecurityProjectionSchema.safeParse(runtimeArtifacts?.cmsSecurity);
+  if (!result.success || !result.data.assessment.matches.length) return [];
+  const projection = result.data, copy = cmsSecurityCopy(projection);
+  return [buildConcernFromSharedInput({
+    categoryId: "site_integrity", originType: "runtime_artifact", originKey: CMS_SECURITY_SIGNAL,
+    title: copy.title, description: copy.description, observedValue: copy.description,
+    severity: copy.severity, sourceType: "signal", signalSource: "runtime_artifact_signal",
+    signalKey: CMS_SECURITY_SIGNAL, signalLabel: copy.title, evidence: [projection.documentUrl],
+    rawEvidence: { cmsSecurity: projection, unifiedFindingId: CMS_SECURITY_FINDING_ID, pageUrl: projection.documentUrl },
+  })];
+}
+
+function buildSiteIntegrityConcerns(runtimeArtifacts: Record<string, unknown> | null | undefined) {
+  const result = siteIntegrityProjectionSchema.safeParse(runtimeArtifacts?.siteIntegrity);
+  if (!result.success) return [];
+  const projection = result.data;
+  return [buildConcernFromSharedInput({
+    categoryId: "site_integrity", originType: "runtime_artifact", originKey: SITE_INTEGRITY_SIGNAL,
+    title: SITE_INTEGRITY_COPY.title, description: SITE_INTEGRITY_COPY.description,
+    observedValue: `${projection.observation.links.length} retained concealed outbound links`,
+    severity: SITE_INTEGRITY_SEVERITY, sourceType: "signal", signalSource: "runtime_artifact_signal",
+    signalKey: SITE_INTEGRITY_SIGNAL, signalLabel: SITE_INTEGRITY_COPY.title,
+    evidence: [projection.observation.documentUrl],
+    rawEvidence: { siteIntegrity: projection, siteIntegrityPolicyVersion: SITE_INTEGRITY_POLICY_VERSION,
+      unifiedFindingId: SITE_INTEGRITY_FINDING_ID, pageUrl: projection.observation.documentUrl,
+      runtimeEvidenceArtifacts: [projection.evidenceRef, ...projection.observation.links.map(link => link.evidenceRef)] },
+  })];
+}
+
 export function buildNormalizedConcerns(input: {
   domainContext?: ScanDomainContext;
   reviewFindingCandidates: ReviewFindingCandidateInput[];
   runtimeArtifacts?: Record<string, unknown> | null;
   validationFindings: Array<ScanValidationFinding | Record<string, unknown>>;
 }) {
+  const hybrid = getRuntimeRecord(input.runtimeArtifacts, ["hybridRuntimeEvidence", "hybrid_runtime_evidence"]);
+  const consentControlAssessment = [
+    input.runtimeArtifacts?.consentControlAssessment,
+    input.runtimeArtifacts?.consent_control_assessment,
+    hybrid?.consentControlAssessment,
+    hybrid?.consent_control_assessment,
+  ].find((assessment) => assessment !== undefined);
   const concerns = [
     ...input.reviewFindingCandidates.map((candidate) =>
-      normalizeConcernFromReviewFindingCandidate(candidate, input.domainContext)
+      normalizeConcernFromReviewFindingCandidate(candidate, input.domainContext, consentControlAssessment)
     ),
     ...input.validationFindings.flatMap((finding) => {
       const normalizedFinding = normalizeScanValidationFinding(finding);
-      return normalizedFinding ? [normalizeConcernFromValidationFinding(normalizedFinding, input.domainContext)] : [];
+      return normalizedFinding ? [normalizeConcernFromValidationFinding(normalizedFinding, input.domainContext, consentControlAssessment)] : [];
     }),
+    ...buildSiteIntegrityConcerns(input.runtimeArtifacts),
+    ...buildFormDestinationConcerns(input.runtimeArtifacts),
+    ...buildCmsSecurityConcerns(input.runtimeArtifacts),
     ...buildScanNoGoAssessmentConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildRuntimeCoverageLimitationConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildCollectionSurfaceAssessmentConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildConsentSurfaceAssessmentConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildConsentNoSurfaceConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildConsentControlInventoryConcerns(input.runtimeArtifacts, input.domainContext),
+    ...buildGpcResponseConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildConsentDismissWithoutRejectConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildConsentOptionsControlProminenceConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildConsentPaidDeclinePathConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildPreConsentStorageAssessmentConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildPostRefusalObservationConcerns(input.runtimeArtifacts, input.domainContext),
+    ...buildRejectClickTrackingConcerns(input.runtimeArtifacts, input.domainContext),
+    ...buildPostAcceptObservationConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildCmpLoadOrderConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildRtbCookieSyncConcerns(input.runtimeArtifacts, input.domainContext),
     ...buildGdprTransparencyArticle13Concerns(input.runtimeArtifacts, input.domainContext),

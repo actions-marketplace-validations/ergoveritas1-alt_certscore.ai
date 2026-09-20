@@ -1,6 +1,9 @@
 import "server-only";
+import { projectScanReportNoGo, resolveScanReportScore } from "../../lib/scans/scan-report-disposition";
 
 import { createHash } from "node:crypto";
+import { presentRuntimeGraphForRead } from "./runtime-evidence-graph-projection";
+import { externalizeRuntimeGraphForPersistence } from "./runtime-evidence-graph-storage";
 import {
   collectionSurfaceAssessmentSchema,
   consentControlAssessmentSchema,
@@ -17,7 +20,11 @@ import {
   buildScanReportUnifiedFindings as buildScanReportUnifiedFindingsFromState,
   debugBuildScanReportUnifiedFindingStateForScan
 } from "../../lib/scans/scan-report-unified-findings";
-import { deriveCanonicalOverallScoreForReport } from "./canonical-overall-score";
+import {
+  CANONICAL_OVERALL_SCORE_SOURCE,
+  CANONICAL_OVERALL_SCORE_VERSION,
+  deriveCanonicalOverallScoreForReport,
+} from "./canonical-overall-score";
 import { deriveSharedScanDetailGdprEprivacyCoverageChecklist } from "./scan-detail-checklist";
 import { buildRuntimeCookieInventory } from "../../lib/scans/runtime-cookie-evidence";
 import { deriveCertScoreFindings } from "../../lib/scans/derive-findings";
@@ -83,7 +90,7 @@ export function hasReadyScanReportProjection(scanRecord: Pick<ScanDetailResponse
 export function getPersistedScanReportProjection(
   scanRecord: Pick<ScanDetailResponse, "scan" | "snapshot">
 ) {
-  return readPersistedScanReportProjection(scanRecord);
+  return presentRuntimeGraphForRead(readPersistedScanReportProjection(scanRecord), process.env);
 }
 
 type PersistedScanReportProjectionRow = {
@@ -195,7 +202,7 @@ export async function loadPersistedScanReportProjection(input: {
 }) {
   const cached = getCachedCompletedReportProjection(input);
   if (cached) {
-    return cached;
+    return presentRuntimeGraphForRead(cached, process.env);
   }
   const row = await queryOne<PersistedScanReportProjectionRow>(
     `select s.id as scan_id,
@@ -227,7 +234,7 @@ export async function loadPersistedScanReportProjection(input: {
       value: projection,
     });
   }
-  return projection;
+  return presentRuntimeGraphForRead(projection, process.env);
 }
 
 /**
@@ -256,7 +263,7 @@ export async function loadAnonymousPersistedScanReportProjection(input: {
     [input.scanId],
     { readOnly: true }
   );
-  return row ? projectionFromPersistedRow(row) : null;
+  return presentRuntimeGraphForRead(row ? projectionFromPersistedRow(row) : null, process.env);
 }
 
 export type ScanReportProjectionRow = {
@@ -570,12 +577,13 @@ export async function loadScanReportProjectionRows(scanIds: string[]) {
   return new Map(result.rows.map((row) => [row.scan_id, row] as const));
 }
 
-async function deriveScanReportProjection(
+export async function deriveScanReportProjection(
   scanRecord: ScanDetailResponse,
   source: ScanReportProjectionSource = {}
 ) {
   const snapshot = record(scanRecord.snapshot);
   const sourceSnapshot = record(source.snapshot) ?? snapshot;
+  const noGo = projectScanReportNoGo(scanRecord);
   const assessment = canonicalConsentAssessment(scanRecord);
   const canonicalRuntimeArtifacts = assessment
     ? withPersistedFirstLayerConsentEvidence(
@@ -672,6 +680,7 @@ async function deriveScanReportProjection(
     "canonical_score",
     () => projectionScanRecord.scan.status === "completed"
       ? deriveCanonicalOverallScoreForReport({
+          scanRecord: projectionScanRecord,
           checklistRows: checklist,
           unifiedFindings: reportState.globalUnifiedFindings
         })
@@ -695,14 +704,14 @@ async function deriveScanReportProjection(
     })
   );
   const industry = stringValue(scanRecord.domainBenchmark?.industry) ?? stringValue(sourceSnapshot?.admin_industry_label) ?? stringValue(snapshot?.admin_industry_label);
-  const score = canonicalScore ?? numberValue(snapshot?.certscore_overall);
+  const score = resolveScanReportScore(projectionScanRecord, canonicalScore ?? numberValue(snapshot?.certscore_overall));
   const egressId = shouldUseLocalV2DagScanTool() ? null : stringValue(sourceSnapshot?.egress_id) ?? stringValue(snapshot?.egress_id);
   const egressProvider = shouldUseLocalV2DagScanTool() ? null : stringValue(sourceSnapshot?.egress_type) ?? stringValue(snapshot?.egress_type);
 
   const value: ProjectionValue = {
     score,
-    topFindingCount: visibleCanonicalHighPriorityFindings.length,
-    findingCount: reportState.globalUnifiedFindings.length || numberValue(snapshot?.report_finding_count),
+    topFindingCount: noGo ? 0 : visibleCanonicalHighPriorityFindings.length,
+    findingCount: noGo ? 0 : reportState.globalUnifiedFindings.length || numberValue(snapshot?.report_finding_count),
     cmpVendorName: stringValue(snapshot?.cmp_vendor_name),
     privacyPolicyPresent: booleanValue(sourceSnapshot?.privacy_policy_present) ?? booleanValue(snapshot?.privacy_policy_present),
     consentAcceptObserved: assessment
@@ -733,9 +742,9 @@ async function deriveScanReportProjection(
     egressId,
     egressProvider,
     durationMs: numberValue(scanRecord.scan.durationMs),
-    scoreSource: canonicalScore === null ? (score === null ? null : "legacy.scan_snapshot") : "canonical.gdpr_eprivacy",
-    scoreVersion: canonicalScore === null ? null : GDPR_EPRIVACY_EVIDENCE_SCORE_VERSION,
-    scoreScoredAt: scanRecord.scan.completedAt
+    scoreSource: canonicalScore === null ? (score === null ? null : "legacy.scan_snapshot") : CANONICAL_OVERALL_SCORE_SOURCE,
+    scoreVersion: canonicalScore === null ? null : CANONICAL_OVERALL_SCORE_VERSION,
+    scoreScoredAt: noGo ? null : scanRecord.scan.completedAt
   };
   if (!scanRecord.scan.completedAt) {
     throw new ScanReportProjectionNotReadyError(scanRecord.scan.id, "completion time is missing");
@@ -767,7 +776,7 @@ async function deriveScanReportProjection(
     evidenceIndex: indexedChecklistEvidence.evidenceIndex,
     globalUnifiedFindings: reportState.globalUnifiedFindings,
     legacyScoreAssessmentInput: buildLegacyGdprEprivacyVersionedAssessmentInput({
-      assessment: legacyScoreAssessment,
+      assessment: { ...legacyScoreAssessment, score: resolveScanReportScore(projectionScanRecord, legacyScoreAssessment.score) },
       checklistRows: checklist,
       scanId: scanRecord.scan.id,
       scoredAt: scanRecord.scan.completedAt,
@@ -778,7 +787,7 @@ async function deriveScanReportProjection(
     // V3 persists each display packet once. The accessor restores the
     // owner-specific ordering from ownerUnifiedFindingIds for existing callers.
     ownerUnifiedFindings: [],
-    topFindingIds: visibleCanonicalHighPriorityFindings.map((finding) => finding.id)
+    topFindingIds: noGo ? [] : visibleCanonicalHighPriorityFindings.map((finding) => finding.id)
   };
   if (!isGdprEprivacyChecklistPresentation(canonicalReportProjection.checklistPresentation)) {
     throw new ScanReportProjectionNotReadyError(
@@ -830,10 +839,10 @@ export async function persistScanReportProjection(
   const persistedProjection = await measureReportProjectionPhase(
     scanRecord.scan.id,
     "payload_normalize_and_serialize",
-    () => buildPersistedScanReportProjection({
+    async () => buildPersistedScanReportProjection(await externalizeRuntimeGraphForPersistence({
       ...scanRecord,
       snapshot: projectedSnapshot
-    }, { canonicalReportProjection })
+    }), { canonicalReportProjection })
   );
   const generation = getScanReportProjectionGeneration(scanRecord);
 

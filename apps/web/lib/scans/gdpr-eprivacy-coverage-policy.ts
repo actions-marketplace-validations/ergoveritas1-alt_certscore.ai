@@ -1,15 +1,24 @@
+import { projectPreconsentTrackingTiming } from "./preconsent-tracking-timing";
+import { readChoicePathExecution } from "./choice-path-execution";
+import { checklistRemediation } from "./checklist-remediation";
 import { getRuntimeVendorDisclosureEvidence } from "./runtime-vendor-disclosure";
+import { readRejectClickTrackingAssessment, REJECT_CLICK_TRACKING_SIGNAL } from "./reject-click-tracking-policy";
 import { derivePolicyCoverageContext, getWeakPolicyEvidenceLimitation } from "./policy-coverage-context";
 import {
   classifyConsentControlLabel,
+  classifyGdprTransparencyTopics,
+  extractPolicyUpdateDateText,
   collectionSurfaceAssessmentSchema,
   consentControlAssessmentSchema,
+  hasVerifiedConsentControlAbsence,
   evaluateLegalFrameworkValidity,
   hasStaleLegalFrameworkReference,
   hasSubstantiveLegalBasisEvidence,
   hasSubstantiveProcessingPurposesEvidence,
   MIN_GDPR_TRANSPARENCY_POLICY_TEXT_CHARS,
   policyTextEvidenceProjectionSchema,
+  policySurfaceInspectionOutcomeSchema,
+  postRefusalReportProjectionSchema,
 } from "@certscore/contracts";
 import type {
   ConsentOptionsControlProminenceState,
@@ -21,6 +30,7 @@ import {
   isFunctionalCookieExcludedFromTrackingEvidence,
   isNonEssentialCookieCategory,
   isPreConsentStorageAssessment,
+  projectPreConsentStorageMetric,
   type PreConsentStorageAssessment
 } from "./runtime-cookie-evidence";
 
@@ -479,6 +489,9 @@ function makeIncompleteConsentSurfaceInspectionOutcome(
 ) {
   const assessment = getConsentControlAssessmentFromArtifacts(input.runtimeArtifacts);
   if (assessment) {
+    const control = rowId === "reject_all_path_availability" ? "reject"
+      : rowId === "options_settings_preferences_control" ? "options" : null;
+    if (control && hasVerifiedConsentControlAbsence(assessment, control)) return null;
     if (
       assessment.assessmentStatus === "complete" &&
       assessment.coverage.status === "complete" &&
@@ -820,64 +833,17 @@ function getPreconsentCookieStorageTimingSummary(runtimeArtifacts: Record<string
 
 function getPreconsentThirdPartyTrackingTimingSummary(runtimeArtifacts: Record<string, unknown> | null | undefined) {
   const hybridRuntimeEvidence = getHybridRuntimeEvidence(runtimeArtifacts);
-  const timelineMarkers = getHybridTimelineMarkers(runtimeArtifacts);
-  const networkSummary = getHybridNetworkSummary(runtimeArtifacts);
-  const navigationStartMs = getNumber(timelineMarkers, ["navigationStartMs", "navigation_start_ms"]);
-  const state0Rows = getObjectArray(hybridRuntimeEvidence, [
-    "preconsentState0RequestObservations",
-    "preconsent_state0_request_observations"
+  const keys = ["requestPurposeClassificationConfidence", "request_purpose_classification_confidence"];
+  const trackingRequestTiming = projectPreconsentTrackingTiming([
+    ...getObjectArray(runtimeArtifacts, keys), ...getObjectArray(hybridRuntimeEvidence, keys),
   ]);
-  const classifiedRows = getObjectArray(hybridRuntimeEvidence, [
-    "requestPurposeClassificationConfidence",
-    "request_purpose_classification_confidence"
-  ]);
-  const requestRows = getObjectArray(hybridRuntimeEvidence, ["requestObservations", "request_observations"]);
-  const preconsentThirdPartyCount =
-    getNumber(networkSummary, ["preConsentThirdPartyRequestCount", "pre_consent_third_party_request_count"]) ?? 0;
-  const rows = [
-    ...state0Rows,
-    ...classifiedRows.filter(rowHasPreconsentTimingEvidence),
-    ...requestRows.filter((row) =>
-      getBoolean(row, ["thirdParty", "third_party"]) === true &&
-      (rowHasPreconsentTimingEvidence(row) || preconsentThirdPartyCount > 0)
-    )
-  ];
-  const observedMs = getSortedUniqueMs([
-    ...rows.map((row) =>
-      getRuntimeObservedMs(row, [
-        "firstSeenMs",
-        "first_seen_ms",
-        "firstRequestMs",
-        "first_request_ms",
-        "firstObservedMs",
-        "first_observed_ms",
-        "tsMs",
-        "ts_ms",
-        "timestampMs",
-        "timestamp_ms"
-      ], navigationStartMs)
-    ),
-    getRuntimeObservedMs(timelineMarkers, [
-      "firstThirdPartyTrackingRequestMs",
-      "first_third_party_tracking_request_ms",
-      "firstThirdPartyRequestMs",
-      "first_third_party_request_ms"
-    ], navigationStartMs),
-    getRuntimeObservedMs(networkSummary, [
-      "firstThirdPartyTrackingRequestMs",
-      "first_third_party_tracking_request_ms",
-      "firstThirdPartyRequestMs",
-      "first_third_party_request_ms"
-    ], navigationStartMs)
-  ]);
-
+  const observedMs = getSortedUniqueMs(trackingRequestTiming.requests.map(row => row.firstSeenMs));
   return compactRecord({
+    trackingRequestTiming,
     firstPreconsentThirdPartyTrackingObservedMs: observedMs[0] ?? null,
-    firstPreconsentThirdPartyTrackingObservationBasis: observedMs.length > 0
-      ? "runtime_third_party_request_timing"
-      : null,
+    firstPreconsentThirdPartyTrackingObservationBasis: observedMs.length ? "classified_request_timing.v1" : null,
     preconsentThirdPartyTrackingObservedMs: compactArray(observedMs, 6),
-    preconsentThirdPartyTrackingTimedObservationCount: observedMs.length
+    preconsentThirdPartyTrackingTimedObservationCount: trackingRequestTiming.requests.length,
   });
 }
 
@@ -1425,8 +1391,8 @@ function getConsentPaidDeclinePathConcern(
     const rawEvidence = concern.evidenceBundle.rawEvidence;
     return concern.originKey.startsWith("consent.paid_decline_path.") &&
       concern.originType === "runtime_artifact" &&
-      concern.promotionEligibility === "internal_only" &&
-      concern.externalSurfacingEligibility === "audit_only" &&
+      concern.promotionEligibility === "eligible" &&
+      concern.externalSurfacingEligibility === "eligible" &&
       concern.regulatoryChecklistEligibility === "review_signal" &&
       rawEvidence?.consentPaidDeclinePathEvidence === true;
   }) ?? null;
@@ -1773,7 +1739,8 @@ function makeOutcome(
       projectedFindings: [],
       retainedEvidence: compactRecord({
         evidenceRefs: [...new Set(evidenceRefs)].slice(0, 6),
-        ...(criticalEvidence?.retainedEvidence ?? {})
+        ...(criticalEvidence?.retainedEvidence ?? {}),
+        remediation: checklistRemediation({ rowId, status }),
       }),
       statusBasis: limitation
     },
@@ -1804,7 +1771,13 @@ function deriveTransportSecurityOutcomes(input: GdprEprivacyCoveragePolicyInput)
     finalUrl: getString(summary, ["finalUrl", "final_url"]),
     formTransportCount: getNumber(summary, ["formTransportCount", "form_transport_count"]),
     httpProbeAttempted: getBoolean(summary, ["httpProbeAttempted", "http_probe_attempted"]),
+    httpProbeErrorCategory: getString(summary, ["httpProbeErrorCategory", "http_probe_error_category"]),
+    httpProbeErrorMessage: getString(summary, ["httpProbeErrorMessage", "http_probe_error_message"]),
+    httpProbeFinalScheme: getString(summary, ["httpProbeFinalScheme", "http_probe_final_scheme"]),
     httpProbeFinalUrl: getString(summary, ["httpProbeFinalUrl", "http_probe_final_url"]),
+    httpProbeOutcome: getString(summary, ["httpProbeOutcome", "http_probe_outcome"]),
+    httpProbeRedirectChain: getStringArray(summary, ["httpProbeRedirectChain", "http_probe_redirect_chain"]).slice(0, 12),
+    httpProbeStatus: getNumber(summary, ["httpProbeStatus", "http_probe_status"]),
     httpRedirectsToHttps: getBoolean(summary, ["httpRedirectsToHttps", "http_redirects_to_https"]),
     insecureFormTransportObserved: getBoolean(summary, ["insecureFormTransportObserved", "insecure_form_transport_observed"]),
     insecureFormTransports: getObjectArray(summary, ["insecureFormTransports", "insecure_form_transports"]).slice(0, 12),
@@ -1908,16 +1881,65 @@ function deriveTransportSecurityOutcomes(input: GdprEprivacyCoveragePolicyInput)
         value: validTlsCertificate,
       });
     })(),
-    transportOutcomeFromBoolean({
-      falseStatus: "Gap observed",
-      falseText: "The explicit HTTP-origin probe did not redirect to HTTPS.",
-      nullText: "The explicit HTTP-origin redirect probe was not retained or did not complete.",
-      retainedEvidence,
-      rowId: "transport_security_http_redirect",
-      trueStatus: "Observed",
-      trueText: "The explicit HTTP-origin probe redirected to HTTPS.",
-      value: getBoolean(summary, ["httpRedirectsToHttps", "http_redirects_to_https"]),
-    }),
+    (() => {
+      const rowId = "transport_security_http_redirect";
+      const outcome = getString(summary, ["httpProbeOutcome", "http_probe_outcome"]);
+      const status = getNumber(summary, ["httpProbeStatus", "http_probe_status"]);
+      const errorCategory = getString(summary, ["httpProbeErrorCategory", "http_probe_error_category"]);
+      const redirected = getBoolean(summary, ["httpRedirectsToHttps", "http_redirects_to_https"]);
+      if (outcome === "redirected_to_https" || (outcome === null && redirected === true)) {
+        return makeOutcome(
+          rowId,
+          "Observed",
+          "The explicit HTTP-origin probe redirected to HTTPS.",
+          transportEvidenceRef(summary),
+          { retainedEvidence },
+        );
+      }
+      if (outcome === "plaintext_response_served") {
+        return makeOutcome(
+          rowId,
+          "Gap observed",
+          `The explicit HTTP-origin probe served a terminal${status === null ? "" : ` HTTP ${status}`} response over plaintext HTTP instead of redirecting to HTTPS.`,
+          transportEvidenceRef(summary),
+          { retainedEvidence },
+        );
+      }
+      if (outcome === "http_request_rejected") {
+        return makeOutcome(
+          rowId,
+          "Not testable",
+          `The HTTP origin returned${status === null ? "" : ` HTTP ${status}`} without serving normal page content or redirecting to HTTPS. This is retained as transport-hardening context, not proof of plaintext content exposure.`,
+          transportEvidenceRef(summary),
+          { retainedEvidence },
+        );
+      }
+      if (outcome === "probe_failed") {
+        return makeOutcome(
+          rowId,
+          "Not testable",
+          `The explicit HTTP-origin probe did not complete${errorCategory ? ` (${errorCategory})` : ""}; an operational failure does not establish plaintext content exposure.`,
+          transportEvidenceRef(summary),
+          { retainedEvidence },
+        );
+      }
+      if (redirected === false) {
+        return makeOutcome(
+          rowId,
+          "Not testable",
+          "The retained legacy redirect flag was negative, but no typed terminal HTTP outcome was retained. The evidence is insufficient to distinguish plaintext content from a rejected or failed probe.",
+          transportEvidenceRef(summary),
+          { retainedEvidence },
+        );
+      }
+      return makeOutcome(
+        rowId,
+        "Not testable",
+        "The explicit HTTP-origin redirect probe was not retained or did not complete.",
+        transportEvidenceRef(summary),
+        { retainedEvidence },
+      );
+    })(),
     transportOutcomeFromBoolean({
       falseStatus: "Observed",
       falseText: "No mixed-content HTTP subresources were retained for the scanned HTTPS page.",
@@ -1931,12 +1953,15 @@ function deriveTransportSecurityOutcomes(input: GdprEprivacyCoveragePolicyInput)
     transportOutcomeFromBoolean({
       falseStatus: "Observed",
       falseText: "No insecure observed form transport was retained for the scanned page.",
-      nullText: "Observed form transport evidence was not retained.",
+      nullText: getNumber(summary, ["formTransportCount", "form_transport_count"]) === 0
+        ? "No forms were observed on the assessed page; form transport was not assessed. Forms found on other pages are outside this check."
+        : "Observed form transport evidence was not retained.",
       retainedEvidence,
       rowId: "transport_security_form_transport",
       trueStatus: "Gap observed",
       trueText: "An observed form resolved to insecure HTTP transport or was on an HTTP page.",
-      value: getBoolean(summary, ["insecureFormTransportObserved", "insecure_form_transport_observed"]),
+      value: getNumber(summary, ["formTransportCount", "form_transport_count"]) === 0
+        ? null : getBoolean(summary, ["insecureFormTransportObserved", "insecure_form_transport_observed"]),
     }),
   ];
 }
@@ -2035,7 +2060,9 @@ function deriveConsentSurfaceOutcome(input: GdprEprivacyCoveragePolicyInput) {
       documentIdentityStatus === "matched" &&
       scanNoGo === false;
 
-    if (!complete || surfaceState === "unknown") {
+    const verifiedObservedSurface = surfaceState === "observed_actionable" &&
+      documentIdentityStatus === "matched" && scanNoGo === false;
+    if ((!complete && !verifiedObservedSurface) || surfaceState === "unknown") {
       return makeOutcome(
         "consent_surface_observed",
         "Not confirmed",
@@ -2475,7 +2502,21 @@ function getCanonicalPreConsentStorageAssessment(
 }
 
 function getPreConsentStorageEvidenceRefs(assessment: PreConsentStorageAssessment) {
-  const rowRefs = assessment.evidenceRows.slice(0, 6).map((row) => {
+  const essentialityRank = (row: PreConsentStorageAssessment["evidenceRows"][number]) =>
+    row.essentiality === "non_essential" && row.exclusionReason === null
+      ? 0
+      : row.essentiality === "unknown"
+        ? 1
+        : 2;
+  const selectedRows = [...assessment.evidenceRows]
+    .sort((left, right) =>
+      essentialityRank(left) - essentialityRank(right) ||
+      (left.firstObservedMs ?? Number.POSITIVE_INFINITY) -
+        (right.firstObservedMs ?? Number.POSITIVE_INFINITY) ||
+      left.name.localeCompare(right.name)
+    )
+    .slice(0, 6);
+  const rowRefs = selectedRows.map((row) => {
     const owner = row.initiatorVendor ?? row.domain;
     const timing = row.timingEvidence === "before_consent_write"
       ? row.firstObservedMs === null
@@ -2573,7 +2614,7 @@ function derivePreConsentCookieStorageOutcome(input: GdprEprivacyCoveragePolicyI
     return makeOutcome(
       "pre_consent_cookies_storage",
       "Review signal",
-      "Pre-consent storage was observed, but one or more records could not be classified as essential or non-essential or could not be reconciled to the aggregate count. Review the retained storage inventory before drawing a conclusion.",
+      `${projectPreConsentStorageMetric(assessment).explanation} Review the retained storage inventory before drawing a conclusion.`,
       evidenceRefs,
       { retainedEvidence }
     );
@@ -2592,7 +2633,7 @@ function derivePreConsentCookieStorageOutcome(input: GdprEprivacyCoveragePolicyI
     return makeOutcome(
       "pre_consent_cookies_storage",
       "Review signal",
-      "Non-essential storage candidates were present in a pre-consent snapshot, but retained evidence did not confirm that they were written during the scan.",
+      "Classified non-essential storage identities were present in a pre-consent snapshot, but retained evidence did not confirm that they were written during the scan.",
       evidenceRefs,
       { retainedEvidence }
     );
@@ -4109,7 +4150,7 @@ function deriveThirdPartyIframePreConsentOutcome(input: GdprEprivacyCoveragePoli
     return makeOutcome(
       "third_party_iframe_pre_consent",
       "Gap observed",
-      "Known 3rd party iframe embeds were retained before a recorded consent action on the scanned page.",
+      "Known 3rd party iframe embeds were retained before a recorded consent action on the scanned page. This establishes pre-consent embedded-service activity, not tracking classification by itself.",
       [
         `3rd party iframe observations: ${observedCount}`,
         ...evidence.embeddedHosts.map((host) => `Iframe host: ${host}`).slice(0, 5),
@@ -4121,6 +4162,9 @@ function deriveThirdPartyIframePreConsentOutcome(input: GdprEprivacyCoveragePoli
           embeddedContentObservedMs: compactArray(evidence.observedMs, 6),
           embeddedContentPurposeBuckets: evidence.purposeBuckets,
           firstEmbeddedContentObservedMs: evidence.observedMs[0] ?? null,
+          // Query-free source URLs give a conservative distinct-embed lower bound.
+          // Only rows already admitted by this concern policy participate.
+          embeddedFrameSources: compactArray(uniqueStrings(evidence.embeddedRows.map(row => boundedRuntimeEvidenceUrl(getString(row, ["frameUrl", "frame_url", "url"])))), 8),
           iframeObservationCount: observedCount,
           preConsentIframeCount: evidence.preConsentIframeCount ?? observedCount
         }
@@ -4255,13 +4299,15 @@ function deriveRejectPathOutcome(input: GdprEprivacyCoveragePolicyInput) {
       ]).slice(0, 12),
       {
         retainedEvidence: {
+          scoreEffect: "none",
           consentPaidDeclinePathConcern: {
             canonicalConcernKey: paidDeclinePathConcern.canonicalConcernKey,
             originKey: paidDeclinePathConcern.originKey,
             regulatoryChecklistEligibility: paidDeclinePathConcern.regulatoryChecklistEligibility
           },
           freeRejectControlObserved: false,
-          paidSubscriptionDeclinePathObserved: true,
+          paidSubscriptionDeclinePathObserved: !paymentRequired,
+          paymentRequiredDeclinePathObserved: paymentRequired,
           retainedConsentPaidDeclineControls: retainedControls
         }
       }
@@ -4840,6 +4886,12 @@ function deriveOptionsSettingsPreferencesControlOutcome(input: GdprEprivacyCover
     }
     const inventoryEvidence = controlInventoryConcern.evidenceBundle.rawEvidence ?? {};
     const optionsState = getString(inventoryEvidence, ["firstLayerOptionsState", "first_layer_options_state"]);
+    if (optionsState === "observed" && !prominenceConcern) {
+      return makeOutcome("options_settings_preferences_control", "Observed",
+        "An options, settings, or preferences control was verified in the retained first-layer inventory. Prominence and preference behavior were not established.",
+        controlInventoryConcern.evidenceBundle.runtimeArtifacts,
+        { retainedEvidence: { consentControlInventoryConcern: { canonicalConcernKey: controlInventoryConcern.canonicalConcernKey }, optionsControlObserved: true } });
+    }
     const acceptState = getString(inventoryEvidence, ["firstLayerAcceptState", "first_layer_accept_state"]);
     const rejectState = getString(inventoryEvidence, ["firstLayerRejectState", "first_layer_reject_state"]);
     if (
@@ -5018,6 +5070,13 @@ function deriveOptionsSettingsPreferencesControlOutcome(input: GdprEprivacyCover
         concernEvidenceRefs,
         { retainedEvidence }
       );
+    }
+
+    if (optionsState === "observed") {
+      return makeOutcome("options_settings_preferences_control", "Observed",
+        "An options, settings, or preferences control was verified in the retained first-layer inventory. Overall inventory coverage or prominence remains limited.",
+        controlInventoryConcern.evidenceBundle.runtimeArtifacts,
+        { retainedEvidence: { ...retainedEvidence, optionsControlObserved: true } });
     }
 
     const incompleteAssessmentOutcome = makeIncompleteConsentSurfaceInspectionOutcome(
@@ -5296,11 +5355,12 @@ function deriveAcceptConsentControlOutcome(input: GdprEprivacyCoveragePolicyInpu
       return makeOutcome(
         "accept_consent_control",
         "Observed",
-        "A structured accept, accept-all, or allow-all consent control was observed in the policy-gated normalized first-layer inventory.",
+        getString(getObject(inventoryEvidence, ["consentControlBehavior"]), ["description"]) ?? "A structured accept, accept-all, or allow-all consent control was observed in the policy-gated normalized first-layer inventory.",
         controlInventoryConcern.evidenceBundle.runtimeArtifacts,
         {
           retainedEvidence: {
             acceptControlObserved: true,
+            consentControlBehavior: inventoryEvidence.consentControlBehavior,
             consentControlInventoryConcern: {
               canonicalConcernKey: controlInventoryConcern.canonicalConcernKey,
               originKey: controlInventoryConcern.originKey
@@ -6141,7 +6201,31 @@ function hasConcretePostRejectNonEssentialDetail(row: Record<string, unknown>) {
 }
 
 function derivePostRejectOutcome(input: GdprEprivacyCoveragePolicyInput) {
+  // A separately verified action session may differ from the passive inventory.
+  // Only the already eligible canonical concern can select this scored review.
+  const clickConcern = (input.normalizedConcerns ?? []).find((concern) =>
+    concern.originKey === REJECT_CLICK_TRACKING_SIGNAL && concern.originType === "runtime_artifact" &&
+    concern.promotionEligibility === "eligible" && concern.externalSurfacingEligibility === "eligible" &&
+    concern.regulatoryChecklistEligibility === "review_signal");
+  const clickAssessment = readRejectClickTrackingAssessment(clickConcern?.evidenceBundle.rawEvidence?.rejectClickTrackingAssessment);
+  const confirmedRefusal = getBoolean(getPostRejectTrackingReductionEvidence(input.runtimeArtifacts), ["rejectInteractionConfirmed"]) === true;
+  if (clickAssessment && !confirmedRefusal) {
+    const first = Math.min(...clickAssessment.requests.map((row) => row.startedAtMs));
+    const vendors = [...new Set(clickAssessment.requests.flatMap((row) => row.vendor ? [row.vendor] : []))];
+    return makeOutcome("post_reject_tracking_reduction", "Review signal",
+      `${clickAssessment.eligibleRequestCount} tracking request(s) began after the Reject control was clicked${vendors.length ? ` (including ${vendors.join(", ")})` : ""}; first observed ${((first - clickAssessment.actionDispatchedAtMs) / 1000).toFixed(2)}s after the click. Review the recorded requests and how the Reject action controls this tracking activity.`,
+      [`Evidence: post-refusal-packet:sha256:${clickAssessment.sourcePacketSha256}`],
+      { retainedEvidence: {
+        rejectClickTrackingAssessment: clickAssessment,
+        normalizedConcernKey: clickConcern!.canonicalConcernKey,
+        rejectClickVerified: true,
+        rejectInteractionConfirmed: false,
+        refusalRegistrationStatus: "unconfirmed",
+        scoreEffect: "canonical_reject_click_tracking_policy",
+      } });
+  }
   const consentLifecycleLimitation = getConsentLifecycleAuditLimitation(input.runtimeArtifacts);
+  const firstLayerChoiceEvidence = getFirstLayerConsentChoiceEvidence(input);
   const rejectDiagnostic = getEventMetadata(input.events, "reject_persistence_diagnostic");
   const consentOutcomeSummary = getHybridConsentOutcomeSummary(input.runtimeArtifacts);
   const reductionEvidence = getPostRejectTrackingReductionEvidence(input.runtimeArtifacts);
@@ -6229,7 +6313,16 @@ function derivePostRejectOutcome(input: GdprEprivacyCoveragePolicyInput) {
       ? getString(reductionEvidence, ["rejectInteractionFailureReason", "reject_interaction_failure_reason"]) ??
         getPostRejectFailureReason(rejectInteractionFailureClass)
       : getPostRejectFailureReason(rejectInteractionFailureClass);
+  // Preserve descriptive capture from the persisted typed packet without
+  // changing registration, checklist status, finding eligibility or score.
+  const actionProjection = postRefusalReportProjectionSchema.safeParse(input.runtimeArtifacts?.postRefusalEvidenceProjection);
+  const afterClickEvidence = actionProjection.success && actionProjection.data.packetSha256 && actionProjection.data.afterActionCapture
+    ? { afterActionCapture: actionProjection.data.afterActionCapture, sourcePacketSha256: actionProjection.data.packetSha256 }
+    : {};
   const postRejectRetainedEvidence = {
+    reportControlObserved: firstLayerChoiceEvidence.assessment?.controls.reject.state === "observed",
+    ...afterClickEvidence,
+    execution: readChoicePathExecution(input.runtimeArtifacts?.postRefusalEvidenceProjection, "reject"),
     baselineVendors: compactArray(baselineVendors, 5),
     concretePostRejectNonEssentialDetailsRetained: concretePostRejectNonEssentialRows.length > 0,
     persistedVendors: compactArray(persistedVendors, 5),
@@ -6252,6 +6345,41 @@ function derivePostRejectOutcome(input: GdprEprivacyCoveragePolicyInput) {
     rejectInteractionFailureReason,
     rejectInteractionConfirmed: rejectInteractionSucceeded
   };
+
+  const completeFirstLayerInventoryWithoutReject =
+    firstLayerChoiceEvidence.assessment?.assessmentStatus === "complete" &&
+    firstLayerChoiceEvidence.rejectControlObserved === false;
+  const independentRejectActionIncomplete = ["reject_path_incomplete_at_passive_barrier", "reject_path_timeout", "reject_path_worker_failed"].includes(rejectInteractionFailureClass ?? "");
+  if (completeFirstLayerInventoryWithoutReject && !independentRejectActionIncomplete && !rejectInteractionSucceeded) {
+    return makeOutcome(
+      "post_reject_tracking_reduction",
+      "Not testable",
+      "The completed first-layer consent inventory retained no actionable Reject or necessary-only control, so a post-Reject activity window was not applicable. Missing refusal-control availability is assessed separately.",
+      [
+        "Evidence: complete first-layer consent-control assessment",
+        "Reason: no_actionable_reject_control"
+      ],
+      {
+        retainedEvidence: {
+          ...postRejectRetainedEvidence,
+          productionPosture: "not_applicable_no_reject_control"
+        }
+      }
+    );
+  }
+
+  if (independentRejectActionIncomplete && !rejectInteractionSucceeded) {
+    return makeOutcome("post_reject_tracking_reduction", "Not testable",
+      rejectInteractionFailureReason ?? "The independent Reject test did not complete; post-Reject behavior could not be assessed.",
+      reductionEvidenceRefs, { retainedEvidence: {
+        ...postRejectRetainedEvidence,
+        productionPosture: "limited_independent_reject_action",
+        reportPresentation: completeFirstLayerInventoryWithoutReject
+          ? "omit_no_actionable_reject_control"
+          : "show",
+        scoreEffect: "none"
+      } });
+  }
 
   if (
     POST_CHOICE_FLOW_DEFERRED_FROM_PRODUCTION_CORE ||
@@ -6864,7 +6992,12 @@ const POLICY_DISCLOSURE_ROWS: PolicyDisclosureRowConfig[] = [
   {
     rowId: "privacy_notice_availability",
     label: "Privacy notice",
-    signalKeys: ["privacyPolicyPresent", "privacy_policy_present"],
+    signalKeys: [
+      "privacyNoticeAvailabilityObserved",
+      "privacy_notice_availability_observed",
+      "privacyPolicyPresent",
+      "privacy_policy_present",
+    ],
     textPattern: /privacy policy|privacy notice|privacy center/i
   },
   {
@@ -6918,7 +7051,7 @@ const POLICY_DISCLOSURE_ROWS: PolicyDisclosureRowConfig[] = [
   },
   {
     rowId: "dpo_contact_point_disclosure",
-    label: "Privacy contact point",
+    label: "DPO contact point (where applicable)",
     disclosureType: "dpo_contact",
     signalKeys: ["dpoContactPointDisclosureObserved", "dpo_contact_point_disclosure_observed"],
     textPattern: /data protection officer|dpo|chief privacy officer|privacy officer|privacy office|privacy contact|privacy team|data protection contact/i
@@ -7049,14 +7182,8 @@ function getGdprTransparencyStaleLegalFrameworkConcern(
   }) ?? null;
 }
 
-function buildGdprTransparencyArticle13ConcernOutcome(
-  input: GdprEprivacyCoveragePolicyInput,
-  config: PolicyDisclosureRowConfig
-) {
-  const staleFrameworkConcern =
-    config.rowId === "international_transfers_disclosure"
-      ? getGdprTransparencyStaleLegalFrameworkConcern(input)
-      : null;
+function deriveStaleTransferFrameworkOutcome(input: GdprEprivacyCoveragePolicyInput) {
+  const staleFrameworkConcern = getGdprTransparencyStaleLegalFrameworkConcern(input);
   if (staleFrameworkConcern) {
     const rawEvidence = staleFrameworkConcern.evidenceBundle.rawEvidence ?? {};
     const matches = getObjectArray(rawEvidence, [
@@ -7071,7 +7198,7 @@ function buildGdprTransparencyArticle13ConcernOutcome(
         .find(Boolean) ??
       staleFrameworkConcern.description;
     return makeOutcome(
-      config.rowId,
+      "outdated_transfer_framework_reference",
       "Review signal",
       reviewMessage,
       [
@@ -7094,6 +7221,13 @@ function buildGdprTransparencyArticle13ConcernOutcome(
     );
   }
 
+  return null;
+}
+
+function buildGdprTransparencyArticle13ConcernOutcome(
+  input: GdprEprivacyCoveragePolicyInput,
+  config: PolicyDisclosureRowConfig
+) {
   const concern = getGdprTransparencyArticle13ChecklistConcern(input, config.rowId);
   if (!concern || concern.regulatoryChecklistEligibility === "none") {
     return null;
@@ -7134,11 +7268,6 @@ function buildGdprTransparencyArticle13ConcernOutcome(
     "legalFrameworkValidityMatches",
     "legal_framework_validity_matches"
   ]);
-  const staleLegalFrameworkReferenceObserved =
-    getBoolean(rawEvidence, [
-      "staleLegalFrameworkReferenceObserved",
-      "stale_legal_framework_reference_observed"
-    ]) === true;
   const automatedDecisionTopicObserved =
     topic === "automated_decision_making_or_profiling";
   const retainedEvidence = {
@@ -7154,6 +7283,7 @@ function buildGdprTransparencyArticle13ConcernOutcome(
       productionCredit: rawEvidence.productionCredit,
       productionCreditProfile: rawEvidence.productionCreditProfile,
       selectedPolicySectionUrl: sourceUrl,
+      selectedPolicySectionHeading: rawEvidence.selectedPolicySectionHeading,
       selectedEvidenceStrength: rawEvidence.selectedEvidenceStrength,
       source: "normalized_concern",
       surfaceUrl: sourceUrl,
@@ -7196,29 +7326,6 @@ function buildGdprTransparencyArticle13ConcernOutcome(
         ? "not_observed_with_sufficient_coverage"
         : "partial"
   };
-
-  if (
-    config.rowId === "international_transfers_disclosure" &&
-    staleLegalFrameworkReferenceObserved
-  ) {
-    const reviewMessage =
-      legalFrameworkValidityMatches
-        .map((match) => getString(match, ["reviewMessage", "review_message"]))
-        .find(Boolean) ??
-      "An obsolete or no-longer-current transfer-framework reference was observed. The current transfer basis was not established by this scan; review the policy wording and safeguards actually in use.";
-    return makeOutcome(
-      config.rowId,
-      "Review signal",
-      reviewMessage,
-      evidenceRefs,
-      {
-        retainedEvidence: {
-          ...retainedEvidence,
-          signalObserved: "stale_legal_framework_reference"
-        }
-      }
-    );
-  }
 
   if (concern.regulatoryChecklistEligibility === "observed") {
     return makeOutcome(
@@ -8526,6 +8633,10 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
   }
 
   const privacyPolicyPresent =
+    getBoolean(summary, [
+      "privacyNoticeAvailabilityObserved",
+      "privacy_notice_availability_observed",
+    ]) === true ||
     getBoolean(summary, ["privacyPolicyPresent", "privacy_policy_present"]) === true ||
     getBoolean(input.snapshot, ["privacy_policy_present", "privacyPolicyPresent"]) === true;
   const text = getPolicyDisclosureText(summary);
@@ -8704,41 +8815,6 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
             getPolicyReviewScanDate(input, summary),
           )
         : [];
-    if (
-      config.rowId === "international_transfers_disclosure" &&
-      hasStaleLegalFrameworkReference(legalFrameworkValidityMatches)
-    ) {
-      const reviewMessage =
-        legalFrameworkValidityMatches
-          .map((match) => match.reviewMessage)
-          .find((value): value is string => Boolean(value)) ??
-        "An obsolete or no-longer-current transfer-framework reference was observed. The current transfer basis was not established by this scan; review the policy wording and safeguards actually in use.";
-      return makeOutcome(
-        config.rowId,
-        "Review signal",
-        reviewMessage,
-        [
-          "Evidence: international data movement or transfer safeguard disclosure",
-          displayTextMatchEvidence ? `Excerpt: ${displayTextMatchEvidence}` : null,
-          ...getStringArray(summary, ["privacyPolicyUrls", "privacy_policy_urls"])
-            .map((url) => `Policy URL: ${url}`)
-            .slice(0, 2)
-        ].filter((value): value is string => Boolean(value)),
-        {
-          retainedEvidence: {
-            article13Signal: retainedArticle13Signal,
-            legalFrameworkValidityMatches,
-            policySurfaceSummary: summary,
-            rowSpecificSectionEvidence: rowSpecificSectionEvidence?.sectionEvidence ?? undefined,
-            selectedEvidenceStrength: rowSpecificSectionEvidence?.selectedEvidenceStrength ?? undefined,
-            selectedPolicySectionHeading: rowSpecificSectionEvidence?.selectedPolicySectionHeading ?? undefined,
-            signalObserved: "stale_legal_framework_reference",
-            staleLegalFrameworkReferenceObserved: true,
-            supportSource: rowSpecificSectionEvidence?.evidenceType ?? undefined
-          }
-        }
-      );
-    }
     return makeOutcome(
       config.rowId,
       "Observed",
@@ -8934,10 +9010,15 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
       );
     }
     const discoveryLimitation = privacyPolicyDiscoveryLimitation(summary, config.label);
+    const inspection = policySurfaceInspectionOutcomeSchema.safeParse(policySurfaceInspection);
+    const diagnostics = inspection.success ? inspection.data.retrievalDiagnostics : undefined;
+    const retrievalExplanation = diagnostics
+      ? ` Policy retrieval: ${diagnostics.failedDocumentCount} of ${diagnostics.attemptedDocumentCount} attempted documents failed; ${diagnostics.observedLinkFailureCount} failed documents came from observed links. ${inspection.success && !inspection.data.inspectionCompleted ? "Inspection did not complete. " : ""}Unsuccessful retrieval does not establish policy absence.`
+      : "";
     return makeOutcome(
       config.rowId,
       "Not testable",
-      discoveryLimitation.explanation,
+      discoveryLimitation.explanation + retrievalExplanation,
       [discoveryLimitation.evidence],
       {
         missingOrIncompleteSourceSignals: [
@@ -8949,6 +9030,7 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
           )
         ],
         retainedEvidence: {
+          policySurfaceInspection: inspection.success ? inspection.data : undefined,
           policySurfaceSummary: summary,
           privacyPolicyEvaluationState: getPrivacyPolicyEvaluationState(summary),
         }
@@ -9303,30 +9385,16 @@ function calibratePolicyDisclosureOutcome(outcome: GdprEprivacyCoverageOutcome) 
   }
 
   if (outcome.rowId === "dpo_contact_point_disclosure") {
-    const formalDpoDesignationConfirmed = /\b(?:data protection officer|dpo)\b/i.test(evidenceText);
-    const privacyContactPointConfirmed =
-      formalDpoDesignationConfirmed ||
-      /\b(?:privacy officer|chief privacy officer|privacy office|privacy contact|privacy team|data protection contact)\b/i.test(evidenceText);
-    if (
-      privacyContactPointConfirmed &&
-      (outcome.status === "Observed" || outcome.status === "Review signal")
-    ) {
-      return makeOutcome(
-        outcome.rowId,
-        "Observed",
-        formalDpoDesignationConfirmed
-          ? "A privacy contact point and an explicit Data Protection Officer or DPO designation were retained."
-          : "A privacy contact point was retained. The wording does not establish a formal GDPR Data Protection Officer designation.",
-        outcome.evidenceRefs,
-        {
-          retainedEvidence: {
-            ...outcome.criticalEvidence.retainedEvidence,
-            formalDpoDesignationConfirmed,
-            privacyContactPointConfirmed: true,
-            signalObserved: true
-          }
-        }
-      );
+    const formalDpoDesignationConfirmed = classifyGdprTransparencyTopics({ text: evidenceText })
+      .matches.some((match) => match.topic === "dpo_contact");
+    if (!formalDpoDesignationConfirmed) {
+      return makeOutcome(outcome.rowId, "Not confirmed",
+        "The retained excerpt does not establish a designated Data Protection Officer. A generic privacy contact does not satisfy this check; DPO applicability requires separate review.",
+        outcome.evidenceRefs, { retainedEvidence: {
+          ...outcome.criticalEvidence.retainedEvidence,
+          formalDpoDesignationConfirmed: false,
+          signalObserved: "not_confirmed_row_specific_extraction",
+        } });
     }
   }
 
@@ -9409,7 +9477,7 @@ function attachPolicyEvidenceProjection(
   const document = documents.find((candidate) => {
     const url = getString(candidate, ["sourceUrl", "source_url"]);
     return Boolean(sectionUrl && url && url === sectionUrl);
-  }) ?? documents[0] ?? null;
+  }) ?? (!sectionUrl && documents.length === 1 ? documents[0] : null) ?? null;
   const sourceUrl = sectionUrl
     ?? getString(document, ["sourceUrl", "source_url"])
     ?? getStringArray(summary, ["privacyPolicyUrls", "privacy_policy_urls"])[0]
@@ -9428,14 +9496,12 @@ function attachPolicyEvidenceProjection(
       : null,
     discoveryMethod: getString(document, ["discoveryMethod", "discovery_method"]),
     documentOwnerEntity: getString(document, ["documentOwnerEntity", "document_owner_entity"]),
+    documentHeading: getString(document, ["documentHeading"]),
     effectiveDate: getString(document, ["effectiveDate", "effective_date"]),
-    lastUpdatedText: getString(document, ["lastUpdatedText", "last_updated_text"])
-      ?? getStringArray(summary, ["policyLastUpdatedTexts", "policy_last_updated_texts"])[0]
-      ?? null,
+    lastUpdatedText: extractPolicyUpdateDateText(getString(document, ["lastUpdatedText", "last_updated_text"])) ?? null,
     ownershipConfidence: getNumber(document, ["ownershipConfidence", "ownership_confidence"]),
     policyTitle: getString(document, ["policyTitle", "policy_title"]),
-    retrievalTimestamp: getString(document, ["retrievalTimestamp", "retrieval_timestamp"])
-      ?? getString(summary, ["scanStartedAt", "scan_started_at"]),
+    retrievalTimestamp: getString(document, ["retrievalTimestamp", "retrieval_timestamp"]),
     sectionHeading,
     sourceUrl,
     targetRelationship: getString(document, ["targetRelationship", "target_relationship"]),
@@ -9494,6 +9560,7 @@ function derivePolicyDisclosureOutcomes(input: GdprEprivacyCoveragePolicyInput) 
       .map(canonicalizeGdprTransparencyDisclosureUncertainty)
       .map((outcome) => attachPolicyEvidenceProjection(input, outcome)),
     derivePolicyTextExtractionOutcome(input),
+    deriveStaleTransferFrameworkOutcome(input),
   ].filter((outcome): outcome is GdprEprivacyCoverageOutcome => Boolean(outcome));
 }
 
@@ -11542,6 +11609,41 @@ export function deriveGdprEprivacyCoveragePolicyOutcomes(input: GdprEprivacyCove
       .filter((outcome): outcome is GdprEprivacyCoverageOutcome => Boolean(outcome))
       .map((outcome) => [outcome.rowId, outcome])
   );
+  const concerns = input.normalizedConcerns ?? buildNormalizedConcerns({
+    reviewFindingCandidates: [], runtimeArtifacts: input.runtimeArtifacts, validationFindings: []
+  });
+  const noGo = concerns.find((concern) =>
+    concern.originKey === "scan_quality.scan_no_go_assessment.no_go" &&
+    concern.promotionEligibility === "eligible" &&
+    concern.externalSurfacingEligibility === "eligible"
+  );
+  if (noGo) {
+    // Apply the already-policy-approved coverage concern here, not in a report
+    // component. Independent TLS/HTTP probes and positive runtime facts survive.
+    const pageDependent = new Set([
+      "transport_security_https_delivery", "transport_security_mixed_content",
+      "transport_security_form_transport",
+    ]);
+    const runtimeAbsence = new Set([
+      "cmp_framework_signal_observed", "pre_consent_cookies_storage",
+      "pre_consent_third_party_tracking", "advertising_retargeting_vendor_signal_observed",
+      "retargeting_behavioral_advertising_signal_observed", "analytics_vendor_observed",
+      "third_party_iframe_pre_consent", "social_media_embed_pre_consent",
+      "embedded_content_pre_consent", "session_replay_fingerprinting_review",
+      "device_identification_fingerprinting_signal_observed", "public_collection_surfaces",
+      "preference_withdrawal_control", "cross_border_endpoint_review",
+    ]);
+    for (const [rowId, outcome] of Object.entries(byRow)) {
+      if (!pageDependent.has(rowId) && !(runtimeAbsence.has(rowId) && outcome.status === "Not observed")) continue;
+      byRow[rowId] = makeOutcome(rowId, "Not testable",
+        "The normal public page was not reached. Retained blocked-page observations do not establish this check for the intended page; independent transport probes remain separately reported.",
+        outcome.evidenceRefs, {
+          retainedEvidence: { ...outcome.criticalEvidence.retainedEvidence,
+            coverageConcernKey: noGo.originKey, observedContextStatus: outcome.status },
+          missingOrIncompleteSourceSignals: outcome.criticalEvidence.missingOrIncompleteSourceSignals,
+        });
+    }
+  }
   const weakPolicyLimitation = getWeakPolicyEvidenceLimitation(policyCoverageContext);
   if (!weakPolicyLimitation || !input.coverageLimited) {
     return byRow;

@@ -11,13 +11,13 @@ import {
 export const loadCachedAdminScanOperationalSnapshot = unstable_cache(
   async (period: AdminScanOperationalSnapshotPeriod, includeCanary: boolean, excludeMacMiniScanBot: boolean) =>
     loadAdminScanOperationalSnapshot(period, includeCanary, excludeMacMiniScanBot),
-  ["admin-scan-operational-snapshot-v2"],
+  ["admin-scan-operational-snapshot-v3"],
   { revalidate: 30 }
 );
 
 export const loadCachedAdminScanOverviewCounts = unstable_cache(
   async () => loadAdminScanOverviewCounts(),
-  ["admin-scan-overview-counts"],
+  ["admin-scan-overview-counts-v2"],
   { revalidate: 30 }
 );
 

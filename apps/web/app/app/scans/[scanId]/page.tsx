@@ -1,8 +1,11 @@
+import { FullSiteReportContinuity } from "../../../../components/scans/full-site-report-continuity";
+import { loadFullSiteNotice } from "../../../../server/scans/full-site-notice";
+import { readFullSiteOptions } from "../../../../server/scans/full-site-options";
 import { notFound, redirect } from "next/navigation";
 import { PendingScanStartedEvent } from "../../../../components/analytics/data-layer-events";
 import { PendingScanDetailView } from "../../../../components/scans/pending-scan-detail-view";
 import { ShadowScanReport } from "../../../../components/scans/report-lab/shadow-scan-report";
-import { buildTimelineReportModel } from "../../../../components/scans/report-lab/timeline-report-model";
+import { buildVerifiedTimelineReportModel } from "../../../../server/scans/verified-timeline-report-model";
 import { ScanProgressReportVisible } from "../../../../components/scans/scan-progress-report-visible";
 import { isPlatformAdminEmail } from "../../../../server/admin/platform-admin";
 import { getDashboardContext } from "../../../../server/auth";
@@ -38,15 +41,20 @@ export default async function ScanDetailPage({ params }: ScanDetailPageProps) {
   );
   if (!statusProjection) notFound();
 
+  const fullSiteNotice = statusProjection.fullSite && (await readFullSiteOptions()).allowed
+    ? await loadFullSiteNotice(scanId, organization.id, user.id) : null;
   const waitingForReportProjection =
     isCompletedScanStatus(statusProjection.status) &&
     statusProjection.reportProjectionRequired &&
     !statusProjection.reportReady;
   if (isPendingScanStatus(statusProjection.status) || waitingForReportProjection) {
     return (
-      <>
+      <FullSiteReportContinuity scanId={scanId}>
         <PendingScanStartedEvent />
         <PendingScanDetailView
+          fullSiteClassName="-mx-5 min-h-screen overflow-x-hidden bg-[#fcfcfb] text-zinc-950 lg:-mx-10"
+          fullSiteNotice={fullSiteNotice}
+          fullSite={(await readFullSiteOptions()).allowed ? statusProjection.fullSite : undefined}
           createdAt={statusProjection.createdAt}
           domainHostname={statusProjection.domainHostname}
           initialPreConsentPreview={statusProjection.preConsentPreview ?? null}
@@ -57,7 +65,7 @@ export default async function ScanDetailPage({ params }: ScanDetailPageProps) {
           startedAt={statusProjection.startedAt}
           status={waitingForReportProjection ? "processing" : statusProjection.status}
         />
-      </>
+      </FullSiteReportContinuity>
     );
   }
 
@@ -81,41 +89,47 @@ export default async function ScanDetailPage({ params }: ScanDetailPageProps) {
   if (!persistedReportProjection) {
     if (!statusProjection.reportProjectionRequired) redirect(legacyScanHref(scanId));
     return (
-      <PendingScanDetailView
-        createdAt={statusProjection.createdAt}
-        domainHostname={statusProjection.domainHostname}
-        initialPreConsentPreview={statusProjection.preConsentPreview ?? null}
-        pageUrl={statusProjection.pageUrl}
-        pendingPostCompletionWork
-        profile={statusProjection.profile}
-        scanId={statusProjection.id}
-        startedAt={statusProjection.startedAt}
-        status="processing"
-      />
+      <FullSiteReportContinuity scanId={scanId}>
+        <PendingScanDetailView
+          fullSiteClassName="-mx-5 min-h-screen overflow-x-hidden bg-[#fcfcfb] text-zinc-950 lg:-mx-10"
+          fullSiteNotice={fullSiteNotice}
+          fullSite={(await readFullSiteOptions()).allowed ? statusProjection.fullSite : undefined}
+          createdAt={statusProjection.createdAt}
+          domainHostname={statusProjection.domainHostname}
+          initialPreConsentPreview={statusProjection.preConsentPreview ?? null}
+          pageUrl={statusProjection.pageUrl}
+          pendingPostCompletionWork
+          profile={statusProjection.profile}
+          scanId={statusProjection.id}
+          startedAt={statusProjection.startedAt}
+          status="processing"
+        />
+      </FullSiteReportContinuity>
     );
   }
 
   let report;
   try {
-    report = buildTimelineReportModel(persistedReportProjection);
+    report = await buildVerifiedTimelineReportModel(persistedReportProjection);
   } catch {
     redirect(legacyScanHref(scanId));
   }
 
   return (
-    <>
+    <FullSiteReportContinuity scanId={scanId}>
       <PendingScanStartedEvent />
       <ScanProgressReportVisible scanId={scanId} />
       <ShadowScanReport
+        fullSiteNotice={fullSiteNotice}
         allowRestrictedScanOptions={canUseRestrictedScanOptions({
           membershipRole: membership.role,
           userEmail: user.email,
         })}
         defaultScanFrom={organizationSettings?.defaultScanFrom ?? "eu_ie"}
         mode="authenticated"
-        report={report}
+        report={(await readFullSiteOptions()).allowed ? report : { ...report, fullSite: undefined }}
         variant="timeline"
       />
-    </>
+    </FullSiteReportContinuity>
   );
 }

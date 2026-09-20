@@ -125,8 +125,9 @@ export function ApiReadRatePolicyDetails() {
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <h3 className="font-semibold text-slate-950">Read weights</h3>
           <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+            <li>Bounded report-evidence export page (up to 64 KB of entries): {API_READ_RATE_POLICY.weights.report_page} unit. Follow its cursor; repeated pages still consume quota.</li>
             <li>Ordinary scan, finding, inventory, or domain read: {API_READ_RATE_POLICY.weights.ordinary} unit.</li>
-            <li>Evidence, full report, diagnostics, export, or composite bundle: {API_READ_RATE_POLICY.weights.bundle} units.</li>
+            <li>Evidence, full report, diagnostics, findings export, or composite bundle: {API_READ_RATE_POLICY.weights.bundle} units.</li>
             <li>
               That permits {heavyReadsPerBurstWindow} direct heavy reads per caller and resource in 10 minutes, and{" "}
               {heavyReadsPerDailyWindow} in a rolling 24 hours.
@@ -309,7 +310,7 @@ export function LightMcpCallout() {
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Recommended starting point</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Start with Light MCP</h2>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-            Connect an MCP-capable agent to CertScore in about a minute. No account, API key, browser login, or OAuth—just one remote URL and three focused tools.
+            Connect an MCP-capable agent to CertScore in about a minute. No account, API key, browser login, or OAuth—a remote URL for scanning, status, result bundles and paginated report evidence.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link className="rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800" href="/mcp/light">

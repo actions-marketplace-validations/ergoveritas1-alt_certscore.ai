@@ -32,7 +32,7 @@ test("Admin Scans snapshot uses one cached aggregation and honors traffic visibi
   assert.match(repository, /MAC_MINI_SCAN_BOT_API_KEY_NAMES/);
   assert.match(repository, /certscore-canary/);
   assert.match(repository, /SCAN_NO_GO_SNAPSHOT_OUTCOMES/);
-  assert.match(cache, /admin-scan-operational-snapshot-v2/);
+  assert.match(cache, /admin-scan-operational-snapshot-v3/);
   assert.match(cache, /revalidate: 30/);
 });
 

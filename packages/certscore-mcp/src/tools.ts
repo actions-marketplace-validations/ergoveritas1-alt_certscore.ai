@@ -1,5 +1,12 @@
+import { apiV2GpcResponseSchema } from "@certscore/api-contracts";
+import { withResponseCapture, transferResponseCapture } from "./response-capture.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { CertScoreError, type FindingList, type JobStatus, type PreConsentCookiesTrackers, type PulseDetail, type PulseFormat, type PulseResult, type ScanResource, type TopFinding } from "@certscore/sdk";
+import { getCertScoreErrorContext, CertScoreError, type FindingList, type JobStatus, type PreConsentCookiesTrackers, type PulseDetail, type PulseFormat, type PulseResult, type ScanResource, type TopFinding } from "@certscore/sdk";
+
+function canonicalGpcObservationSummary(value: unknown): string | null {
+  const parsed = apiV2GpcResponseSchema.safeParse(value);
+  return parsed.success && parsed.data.contractVersion === "certscore.gpc-response-assessment.v3" ? parsed.data.summary : null;
+}
 
 const MAX_ERROR_RESPONSE_BODY_CHARS = 2_000;
 export const MAX_EVIDENCE_PACKET_CHARS = 250_000;
@@ -10,11 +17,13 @@ const MAX_TOOL_TEXT_CHARS = 8_000;
 const LEGAL_REVIEW_DISCLAIMER = "CertScore results are automated public-web observations for human and agentic review, not legal advice, certification, or a compliance determination.";
 const SCAN_PROVENANCE_GROUNDING = "retrievalMode describes how the current tool response obtained the scan; creationDecision describes whether the original scan request created or reused a scan only when that decision is retained. Never infer an unknown creationDecision from scan_id_lookup. For a reused or retrieved existing scan, use only persisted scanFrom and timestamps. Never infer its original scan region from the current request, the user's location, or a default execution region. If persisted region or timestamps are unavailable, report them as unavailable.";
 const INTERPRETATION_STATEMENT = "The CertScore score covers observable public-web scan signals only. Do not infer technologies that are not listed in the returned evidence or any legal compliance status.";
-const SCAN_BUNDLE_RESPONSE_CONTRACT = `Response contract: Report only observed CertScore evidence and CertScore classifications. criticality, priority, and confidence are CertScore metadata; regulatory review lenses are non-determinative CertScore review context—not legal severity, legal exposure, or a compliance determination. Absence of captured consent-action evidence does not establish what happens after Accept, Reject, or Decline. A confirmed post-refusal observation with termination.kind=evidence_satisfied means the observer intentionally stopped after retaining qualifying evidence; do not treat that termination as uncertainty about the returned observation. Keep any separately returned coverage limitation scoped to what was not measured. Do not extrapolate an observed embed, vendor, or request into unobserved cookies, fingerprinting, tracking, or processing, and do not infer violations or compliance beyond what CertScore observed. ${SCAN_PROVENANCE_GROUNDING}`;
-const SCAN_BUNDLE_INTERPRETATION_STATEMENT = "Report only observed CertScore evidence and persisted CertScore classifications. Without corresponding captured post-action evidence, do not infer what Accept, Reject, Decline, or another consent action would do; say the scan does not establish what happens after that action. When postRefusalObservation is confirmed and termination.kind is evidence_satisfied, state the returned post-refusal observation directly and explain that observation stopped intentionally after qualifying evidence was retained. Do not characterize that termination as uncertainty about the observation; mention unmeasured longer-term persistence only when relevant. Do not speculate that an observed embed, vendor, or request may cause additional cookies, fingerprinting, tracking, or processing unless CertScore observed that behavior. Treat returned priority or severity as a CertScore classification, not regulatory criticality or legal exposure; prefer ‘observed privacy risk signal’ or ‘CertScore finding’. Do not infer unobserved technologies, legal compliance, or a legal violation from scores or findings.";
+const SCAN_BUNDLE_RESPONSE_CONTRACT = `Response contract: Report only observed CertScore evidence and CertScore classifications. criticality, priority, and confidence are CertScore metadata; regulatory review lenses are non-determinative CertScore review context—not legal severity, legal exposure, or a compliance determination. Absence of captured consent-action evidence does not establish what happens after Accept, Reject, or Decline. A confirmed post-action observation with termination.kind=evidence_satisfied means the observer intentionally stopped after retaining qualifying evidence; do not treat that termination as uncertainty about the returned observation. Keep any separately returned coverage limitation scoped to what was not measured. Do not extrapolate an observed embed, vendor, or request into unobserved cookies, fingerprinting, tracking, or processing, and do not infer violations or compliance beyond what CertScore observed. ${SCAN_PROVENANCE_GROUNDING}`;
+const SCAN_BUNDLE_INTERPRETATION_STATEMENT = "Report only observed CertScore evidence and persisted CertScore classifications. For gpcResponse, use only GPC response, No observable GPC response, or indeterminate; do not call the result a GPC violation or say GPC was not honored. Keep its jurisdiction-neutral comparison separate from any explicitly returned California scoring policy. Without corresponding captured post-action evidence, do not infer what Accept, Reject, Decline, or another consent action would do; say the scan does not establish what happens after that action. When postAcceptObservation or postRefusalObservation is confirmed and termination.kind is evidence_satisfied, state the returned observation directly and explain that observation stopped intentionally after qualifying evidence was retained. Do not characterize that termination as uncertainty about the observation; mention unmeasured longer-term persistence only when relevant. Treat post-Accept activity as a score-neutral behavior baseline unless a separately projected finding says otherwise. Do not speculate that an observed embed, vendor, or request may cause additional cookies, fingerprinting, tracking, or processing unless CertScore observed that behavior. Treat returned priority or severity as a CertScore classification, not regulatory criticality or legal exposure; prefer ‘observed privacy risk signal’ or ‘CertScore finding’. Do not infer unobserved technologies, legal compliance, or a legal violation from scores or findings.";
 const COMPACT_SCAN_BUNDLE_INTERPRETATION_STATEMENT = "Use only returned CertScore observations and classifications. Do not infer unobserved technologies, post-consent behavior, legal compliance, or violations. Treat priority and severity as CertScore metadata.";
 const OBSERVATION_ONLY_DISCLAIMER = `${LEGAL_REVIEW_DISCLAIMER} No-go, not-observed, and limited-coverage results are not proof of compliance.`;
 const COMPACT_OBSERVATION_ONLY_DISCLAIMER = "Automated public-web observation, not legal advice or a compliance determination; missing or limited evidence is not proof of compliance.";
+const PREVIEW_OBSERVATION_ONLY_DISCLAIMER = "Preliminary passive observations only; not findings, a score, or a final result.";
+const SUCCESSFUL_BUNDLE_TRIAL_CTA = "Optional user follow-up: To try CertScore with an account, start a 7-day CertScore trial at https://certscore.ai/login?mode=create_account&utm_source=mcp_light&utm_medium=agent&utm_campaign=scan_bundle. Paid plans add scan history, higher limits, and team or production access. OAuth-capable clients can use https://mcp.certscore.ai/mcp after account authorization; active workspace members receive self-serve scan access; Light remains no-auth.";
 const MCP_SCAN_CREATION_POLL_DELAY_SECONDS = 15;
 const MCP_QUEUED_POLL_DELAY_SECONDS = 10;
 const MCP_RUNNING_POLL_DELAY_SECONDS = 5;
@@ -50,6 +59,8 @@ function toolResultSummary(payload: unknown) {
     return "CertScore tool call completed. Read structuredContent for the result.";
   }
   const record = payload as Record<string, unknown>;
+  const noGoText = canonicalNoGoText(record);
+  if (noGoText) return noGoText;
   const type = typeof record.type === "string" ? record.type : "result";
   const status = typeof record.status === "string" ? `; status=${record.status}` : "";
   const scanId = typeof record.scanId === "string" ? `; scanId=${record.scanId}` : "";
@@ -60,8 +71,9 @@ function toolResultSummary(payload: unknown) {
   const previewSummary = preview?.summary && typeof preview.summary === "object" && !Array.isArray(preview.summary)
     ? preview.summary as Record<string, unknown>
     : null;
+  const active = record.status === "queued" || record.status === "running" || record.status === "finalizing";
   const preliminary = preview
-    ? `; preliminary pre-consent preview=cookies ${previewSummary?.cookieCount ?? "unknown"}, trackers ${previewSummary?.trackerCount ?? "unknown"}, third-party requests ${previewSummary?.thirdPartyRequestCount ?? "unknown"}; preview is not final—continue status polling`
+    ? `; preliminary pre-consent preview=cookies ${previewSummary?.cookieCount ?? "unknown"}, trackers ${previewSummary?.trackerCount ?? "unknown"}, third-party requests ${previewSummary?.thirdPartyRequestCount ?? "unknown"}; preview is not final—${active ? "continue status polling" : "follow the terminal result guidance"}`
     : "";
   const recordLinks = record.links && typeof record.links === "object" && !Array.isArray(record.links)
     ? record.links as Record<string, unknown>
@@ -89,7 +101,7 @@ export function toToolResult(payload: unknown, text?: string): CallToolResult {
   const structuredContent = payload !== null && typeof payload === "object" && !Array.isArray(payload)
     ? payload as Record<string, unknown>
     : { value: payload };
-  return {
+  return transferResponseCapture(payload, {
     structuredContent,
     content: [
       {
@@ -97,10 +109,10 @@ export function toToolResult(payload: unknown, text?: string): CallToolResult {
         text: text ?? toolResultSummary(payload)
       }
     ]
-  };
+  });
 }
 
-export function toToolError(error: unknown): CallToolResult {
+export function toToolError(error: unknown, context: { scanCreation?: boolean } = {}): CallToolResult {
   const responseRecord = error instanceof CertScoreError && error.responseBody && typeof error.responseBody === "object" && !Array.isArray(error.responseBody)
     ? error.responseBody as Record<string, unknown>
     : null;
@@ -110,7 +122,7 @@ export function toToolError(error: unknown): CallToolResult {
   const status = error instanceof CertScoreError ? error.status : undefined;
   const retryable = typeof terminalError?.retryable === "boolean"
     ? terminalError.retryable
-    : status === 429 || (typeof status === "number" && status >= 500);
+    : (error instanceof Error && error.name === "TimeoutError") || status === 429 || (typeof status === "number" && status >= 500);
   const retryAfterSeconds = typeof terminalError?.retryAfterSeconds === "number"
     ? terminalError.retryAfterSeconds
     : error instanceof CertScoreError && "retryAfterSeconds" in error && typeof error.retryAfterSeconds === "number"
@@ -119,15 +131,21 @@ export function toToolError(error: unknown): CallToolResult {
         ? 30
         : null;
   const code = error instanceof CertScoreError ? error.code : "internal_error";
-  const reasonCode = terminalError?.reasonCode === "non_public_target" ? "non_public_target" : null;
-  const message = error instanceof Error ? error.message : "Unknown CertScore MCP error.";
+  const reasonCode = typeof terminalError?.reasonCode === "string" && ["non_public_target", "domain_not_found", "dns_unavailable"].includes(terminalError.reasonCode) ? terminalError.reasonCode : null;
+  const targetRejected = context.scanCreation === true && code === "invalid_url" && status === 400;
+  const originalMessage = error instanceof Error ? error.message : "Unknown CertScore MCP error.";
+  const message = targetRejected ? `Scan target rejected. No scan was started. ${originalMessage}` : originalMessage;
   const creationRateLimit = terminalError?.creationRateLimit && typeof terminalError.creationRateLimit === "object" && !Array.isArray(terminalError.creationRateLimit)
     ? terminalError.creationRateLimit
     : null;
-  const recommendedNextAction = typeof terminalError?.recommendedNextAction === "string"
-    ? terminalError.recommendedNextAction
+  const recommendedNextAction = targetRejected
+    ? reasonCode === "non_public_target"
+      ? "Ask for a publicly reachable HTTP or HTTPS website, then call certscore_scan_site with that URL. Do not retry this private or ineligible target or try to bypass the public-target checks."
+      : 'Check the spelling and DNS of the intended hostname, then call certscore_scan_site with the actual public website URL, for example {"url":"https://example.com"}. A bare domain is accepted, but example.com and www.example.com are different hostnames; use www only if it is the intended site. Do not repeat the same invalid request. If the correct URL is unclear, ask the user.'
     : creationRateLimit
-      ? `No scan was created. Wait ${retryAfterSeconds ?? 30} seconds, then retry the same request. If the limit continues after that delay, contact support@certscore.ai.`
+      ? `No scan was created. Wait at least ${retryAfterSeconds ?? 30} seconds before retrying. To answer now, use certscore_get_latest_domain_scan if an existing scan meets the user's needs. Do not reconnect or create duplicate requests to bypass a quota.`
+    : typeof terminalError?.recommendedNextAction === "string"
+    ? terminalError.recommendedNextAction
     : retryable
       ? `Wait ${retryAfterSeconds ?? 30} seconds, then retry the same request. Stop and contact support@certscore.ai if the error repeats.`
       : "Correct the request using the error details, then retry only if the requested operation is still appropriate.";
@@ -136,11 +154,16 @@ export function toToolError(error: unknown): CallToolResult {
       code,
       reasonCode,
       message,
-      retryable,
-      retryAfterSeconds,
+      retryable: targetRejected ? false : retryable,
+      retryAfterSeconds: targetRejected ? null : retryAfterSeconds,
       recommendedNextAction,
+      ...((status === 403 || status === 429) ? { upgradeSupportEmail: "support@certscore.ai" } : {}),
+      ...(context.scanCreation && status === 403 ? { scanStarted: false, alternativeTool: "certscore_get_latest_domain_scan" } : {}),
+      ...(targetRejected ? { field: "url", scanStarted: false, inputCorrectionRequired: true } : {}),
       ...(creationRateLimit
-        ? { creationRateLimit }
+        ? { creationRateLimit, scanStarted: false, quotaConsumed: false,
+            alternativeTool: "certscore_get_latest_domain_scan",
+            recovery: { action: "wait_for_quota", retryAfterSeconds, requiresReauthorization: false } }
         : {}),
       ...(error instanceof CertScoreError ? {
         name: error.name,
@@ -150,18 +173,23 @@ export function toToolError(error: unknown): CallToolResult {
     }
   };
 
-  return {
-    content: [{ type: "text", text: JSON.stringify(payload) }],
+  return withResponseCapture({
+    content: [
+      { type: "text", text: JSON.stringify(payload) },
+      ...(targetRejected ? [{ type: "text" as const, text: `${message} ${recommendedNextAction}` }] : []),
+    ],
     isError: true
-  };
+  }, { ...(targetRejected || typeof terminalError?.recommendedNextAction !== "string" ? { recommendedNextAction } : {}), ...(getCertScoreErrorContext(error) ? { upstream: getCertScoreErrorContext(error) } : {}) });
 }
 
-export function toInvalidArgumentsToolError(errorMessage: string): CallToolResult {
-  const tool = errorMessage.match(/tool ([a-z_]+)/i)?.[1] ?? null;
-  const field = errorMessage.match(/\bat ([a-zA-Z0-9_.-]+)/)?.[1]
+export function toInvalidArgumentsToolError(errorMessage: string, validation?: { tool: string; issues: { field: string; code: string; required?: boolean }[] }): CallToolResult {
+  const tool = validation?.tool ?? errorMessage.match(/tool ([a-z_]+)/i)?.[1] ?? null;
+  const field = validation?.issues[0]?.field ?? errorMessage.match(/\bat ([a-zA-Z0-9_.-]+)/)?.[1]
     ?? (errorMessage.includes("url") ? "url" : errorMessage.includes("scanId") ? "scanId" : null);
-  const missing = /required|expected string, received undefined/i.test(errorMessage);
-  const message = field
+  const missing = validation?.issues[0]?.required === true || /required|expected string, received undefined/i.test(errorMessage);
+  const message = validation && validation.issues.length > 1
+    ? `Invalid arguments in fields: ${validation.issues.map(issue => issue.field).join(", ")}.`
+    : field
     ? missing
       ? `The ${field} field is required.`
       : `The ${field} field is invalid.`
@@ -170,7 +198,7 @@ export function toInvalidArgumentsToolError(errorMessage: string): CallToolResul
     ? "Provide a public URL or domain."
     : field === "scanId"
       ? "Provide the stable scanId returned by certscore_scan_site."
-      : "Correct the named fields using the tool input schema, then retry.";
+      : "Correct the named fields using the tool input schema. Omit optional parameters to use defaults; do not send null. Refresh tool discovery (tools/list) for the accepted types, values and limits, then retry.";
   const error: ActionableError = {
     code: "invalid_arguments",
     message,
@@ -178,7 +206,8 @@ export function toInvalidArgumentsToolError(errorMessage: string): CallToolResul
     retryable: false,
     retryAfterSeconds: null,
     recommendedNextAction,
-    mcpCode: -32602
+    mcpCode: -32602,
+    ...(validation ? { issues: validation.issues } : {})
   };
   const payload = tool === "certscore_scan_site"
     ? {
@@ -193,30 +222,33 @@ export function toInvalidArgumentsToolError(errorMessage: string): CallToolResul
         observationOnlyDisclaimer: OBSERVATION_ONLY_DISCLAIMER
       }
     : { error };
-  return {
+  return withResponseCapture({
     content: [{ type: "text", text: JSON.stringify(payload) }],
     ...(tool === "certscore_scan_site" ? { structuredContent: payload } : {}),
     isError: true
-  };
+  }, { message: error.message, recommendedNextAction: error.recommendedNextAction });
 }
 
 export function toInvalidScanIdToolError(): CallToolResult {
   const error: ActionableError = {
     code: "invalid_scan_id",
     field: "scanId",
-    message: "The scanId must be the canonical UUID returned by certscore_scan_site.",
+    message: "Invalid scanId. Use the unchanged UUID returned by certscore_scan_site. This request did not start a scan.",
     retryable: false,
     retryAfterSeconds: null,
     recommendedNextAction: "Use the unchanged scanId returned by certscore_scan_site. Do not use placeholders, report URLs, domains, or job IDs.",
     mcpCode: -32602
   };
-  return {
+  return withResponseCapture({
     content: [{ type: "text", text: JSON.stringify({ error }) }],
     isError: true
-  };
+  }, { message: error.message, recommendedNextAction: error.recommendedNextAction });
 }
 
 function terminalErrorForResult(value: Record<string, any>): ActionableError | null {
+  const terminalGuidance = value.status === "failed" || value.status === "expired"
+    ? ` This scan is terminal; polling the same scanId will not resume it. A freshness=refresh request starts a new scan and uses scan quota. Stop if the failure repeats.${typeof value.scanId === "string" && /^[a-f0-9-]{36}$/i.test(value.scanId) ? ` Support reference: ${value.scanId}.` : ""}`
+    : "";
   const existing = value.error && typeof value.error === "object" && !Array.isArray(value.error)
     ? value.error as Record<string, unknown>
     : null;
@@ -227,11 +259,11 @@ function terminalErrorForResult(value: Record<string, any>): ActionableError | n
       message: typeof existing.message === "string" ? existing.message : "The scan did not produce a canonical result.",
       retryable,
       retryAfterSeconds: typeof existing.retryAfterSeconds === "number" ? existing.retryAfterSeconds : retryable ? 30 : null,
-      recommendedNextAction: typeof existing.recommendedNextAction === "string"
+      recommendedNextAction: (typeof existing.recommendedNextAction === "string"
         ? existing.recommendedNextAction
         : retryable
           ? "Wait for the recommended delay, then retry certscore_scan_site with freshness=refresh."
-          : "Stop and review the scan limitations before deciding whether to change the URL."
+          : "Stop and review the scan limitations before deciding whether to change the URL.") + (typeof existing.recommendedNextAction === "string" && existing.recommendedNextAction.endsWith(terminalGuidance) ? "" : terminalGuidance)
     };
   }
   if (value.status === "completed_limited" && value.noGo) {
@@ -269,7 +301,8 @@ function terminalErrorForResult(value: Record<string, any>): ActionableError | n
       recommendedNextAction: "Wait for the recommended delay, then retry the same certscore_scan_site request."
     }
   };
-  return fallback[String(value.status)] ?? null;
+  const error = fallback[String(value.status)];
+  return error ? { ...error, recommendedNextAction: error.recommendedNextAction + terminalGuidance } : null;
 }
 
 function scanProvenance(value: Record<string, any>, fallbackMode: ScanProvenanceMode): {
@@ -353,6 +386,12 @@ export function withMcpAgentGuidance<T extends Record<string, any>>(
     typeof value.preConsentPreview === "object" &&
     !Array.isArray(value.preConsentPreview),
   );
+  const preConsentPreview = hasPreConsentPreview
+    ? {
+        ...value.preConsentPreview,
+        observationOnlyDisclaimer: PREVIEW_OBSERVATION_ONLY_DISCLAIMER,
+      }
+    : value.preConsentPreview;
   const reportUrl = usable
     ? typeof value.reportUrl === "string" && value.reportUrl.trim()
       ? value.reportUrl.trim()
@@ -367,8 +406,9 @@ export function withMcpAgentGuidance<T extends Record<string, any>>(
     : null;
   const activePollAction = `${retryAfterSeconds === null ? "Wait for the recommended delay" : `Wait at least ${retryAfterSeconds} seconds`}, then call certscore_get_scan_status once with scanId ${stableScanId ?? value.jobId}.`;
   const activeNextAction = `${hasPreConsentPreview ? "The returned preConsentPreview is a partial preview of passive evidence. Its counts are checkpoint-only partial counts, not the full scan tally; do not present them as final totals or stop the workflow. " : ""}${activePollAction} Continue with certscore_get_scan_status using the unchanged scanId ${stableScanId ?? value.jobId}. Do not poll in parallel or resubmit certscore_scan_site while this scan is active. After completed or completed_limited, call certscore_get_scan_bundle for the completed scan's final returned tally, canonical findings, and limitations.`;
-  return {
+  return withResponseCapture({
     ...value,
+    preConsentPreview,
     retryAfterSeconds,
     error,
     reportUrl,
@@ -382,15 +422,15 @@ export function withMcpAgentGuidance<T extends Record<string, any>>(
         ? `Call certscore_get_scan_bundle with scanId ${stableScanId ?? value.jobId} for the completed scan's final returned tally, canonical findings, and limitations.`
         : "Review the result and retained limitations.")),
     observationOnlyDisclaimer: OBSERVATION_ONLY_DISCLAIMER
-  };
+  }, error && !value.error && !value.noGo ? { message: error.message, recommendedNextAction: error.recommendedNextAction } : {});
 }
 
 export function withMcpScanProvenanceGuidance(value: Record<string, any>, fallbackProvenanceMode: ScanProvenanceMode) {
   const guided = withMcpAgentGuidance(value, fallbackProvenanceMode, "scan_status");
-  return {
+  return transferResponseCapture(guided, {
     ...guided,
     interpretationGuidance: interpretationGuidance(`${INTERPRETATION_STATEMENT} ${SCAN_PROVENANCE_GROUNDING}`)
-  };
+  });
 }
 
 export function boundEvidencePacket<T>(payload: T, maxSerializedChars = MAX_EVIDENCE_PACKET_CHARS): T | Record<string, unknown> {
@@ -846,6 +886,10 @@ export function findingsFromReport(report: PulseResult): TopFinding[] {
 export function exportFindings(report: PulseResult) {
   return {
     type: "certscore_mcp_findings_export",
+    exportVersion: "certscore.findings-export.v1",
+    exportedAt: new Date().toISOString(),
+    returnedFindingCount: findingsFromReport(report).length,
+    completeness: "canonical findings returned by the report; not a complete inventory of website behavior",
     scanId: scanIdFromPulse(report),
     domain: report.domain ?? report.request?.domain ?? null,
     summary: report.summary ?? null,
@@ -1036,7 +1080,11 @@ function findingText(finding: Record<string, any>, priorityLabel = "criticality"
   const nextStep = typeof finding.nextStep === "string" && finding.nextStep.trim()
     ? `; canonical next step=${boundedText(finding.nextStep.trim(), 180)}`
     : "";
-  return `- ${finding.label ?? finding.id ?? "Projected finding"}; ${priorityLabel}=${finding.criticality ?? "unknown"}; confidence=${finding.confidence ?? "unknown"}; observation=${finding.plainEnglish ?? evidence.summary ?? "No compact description available"}; evidence=${evidence.basis ?? "unknown"}/${evidence.phase ?? "phase unknown"}: ${evidence.summary ?? "No compact evidence summary available"}; review lenses=${lenses}${nextStep}.`;
+  const identity = typeof finding.id === "string" ? `; findingId=${finding.id}` : "";
+  if (finding.plainEnglish == null && evidence.summary == null) {
+    return `- ${finding.label ?? finding.id ?? "Projected finding"}${identity}; ${priorityLabel}=${finding.criticality ?? "unknown"}; confidence=${finding.confidence ?? "unknown"}; description and evidence detail are not included in this response tier.`;
+  }
+  return `- ${finding.label ?? finding.id ?? "Projected finding"}${identity}; ${priorityLabel}=${finding.criticality ?? "unknown"}; confidence=${finding.confidence ?? "unknown"}; observation=${finding.plainEnglish ?? evidence.summary ?? "No compact description available"}; evidence=${evidence.basis ?? "unknown"}/${evidence.phase ?? "phase unknown"}: ${evidence.summary ?? "No compact evidence summary available"}; review lenses=${lenses}${nextStep}.`;
 }
 
 function executiveOverviewText(summary: Record<string, any> | null | undefined) {
@@ -1093,14 +1141,43 @@ function canonicalScanProvenanceText(value: Record<string, any>) {
   return `Canonical scan provenance: scanId=${present(extractScanId(value))}; scanFrom/execution region=${present(value.scanFrom)}; completedAt=${present(value.completedAt)}; startedAt=${present(value.startedAt)}; createdAt=${present(value.createdAt)}; retrieval mode=${present(value.provenance?.retrievalMode)}; original creation decision=${present(value.provenance?.creationDecision)}; scan age seconds=${numeric(value.provenance?.scanAgeSeconds)}; compatibility provenance mode=${present(value.provenance?.mode)}.`;
 }
 
+/** Present only the API's retained disposition; never infer blockers from raw evidence. */
+function canonicalNoGo(value: Record<string, any>): Record<string, any> | null {
+  return value.resultDisposition === "no_go" && value.noGo && typeof value.noGo === "object" && !Array.isArray(value.noGo)
+    ? value.noGo
+    : null;
+}
+
+function canonicalNoGoText(value: Record<string, any>) {
+  const noGo = canonicalNoGo(value);
+  if (!noGo) return null;
+  return [
+    `CertScore scan: ${boundedText(noGo.title, 240) ?? "Scan access limitation"}; status=${value.status ?? "completed_limited"}; Not scored.`,
+    boundedText(noGo.explanation, 1_200),
+    boundedText(noGo.summary, 600),
+    noGo.evidenceExcerpt ? `Retained evidence: ${boundedText(noGo.evidenceExcerpt, 1_200)}` : null,
+    noGo.recommendedNextAction ? `Next: ${boundedText(noGo.recommendedNextAction, 1_000)}` : null,
+    typeof noGo.retryLikelyToHelp === "boolean" ? `Retry likely to help: ${noGo.retryLikelyToHelp ? "yes" : "no"}.` : null,
+    value.mcpMetadata?.truncated ? "Additional retained details were omitted to fit the response budget; see omission metadata and the report URL." : null,
+    canonicalScanProvenanceText(value),
+    `Full report: ${reportUrlFor(value) ?? "not available"}.`,
+    OBSERVATION_ONLY_DISCLAIMER,
+    SCAN_PROVENANCE_GROUNDING,
+  ].filter(Boolean).join("\n");
+}
+
 export function scanStatusText(value: Record<string, any>) {
-  const reportUrl = reportUrlFor(value);
+  const noGoText = canonicalNoGoText(value);
+  if (noGoText) return noGoText;
+  const reportUrl = value.status === "completed" || value.status === "completed_limited"
+    ? reportUrlFor(value)
+    : null;
   const nextAction = typeof value.recommendedNextAction === "string" && value.recommendedNextAction.trim()
     ? value.recommendedNextAction.trim()
     : "Review the returned status and retained limitations.";
   return boundedPreviewResultText([
     `CertScore scan status: status=${value.status ?? "unknown"}.`,
-  ], preConsentPreviewTextLines(value), [
+  ], [...preConsentPreviewTextLines(value), ...terminalLaneResultTextLines(value)], [
     `Next: ${nextAction}`,
     canonicalScanProvenanceText(value),
     `Full report: ${reportUrl ?? "not available"}.`,
@@ -1111,6 +1188,8 @@ export function scanStatusText(value: Record<string, any>) {
 }
 
 export function scanSiteText(value: Record<string, any>, leadingLines: string[] = []) {
+  const noGoText = canonicalNoGoText(value);
+  if (noGoText) return noGoText;
   const scanId = extractScanId(value) ?? "unknown";
   const active = value.status === "queued" || value.status === "running" || value.status === "finalizing";
   const nextAction = typeof value.recommendedNextAction === "string" && value.recommendedNextAction.trim()
@@ -1120,13 +1199,34 @@ export function scanSiteText(value: Record<string, any>, leadingLines: string[] 
       : "Review the returned result and retained limitations.";
   return boundedPreviewResultText([...leadingLines,
     `CertScore scan accepted: scanId=${scanId}; status=${value.status ?? "unknown"}.`,
-  ], preConsentPreviewTextLines(value), [
+  ], [...preConsentPreviewTextLines(value), ...terminalLaneResultTextLines(value)], [
     `Next: ${nextAction}`,
     `Provenance: retrieval=${value.provenance?.retrievalMode ?? "unknown"}; creation=${value.provenance?.creationDecision ?? "unknown"}.`,
     canonicalScanProvenanceText(value),
     OBSERVATION_ONLY_DISCLAIMER,
     INTERPRETATION_STATEMENT,
   ]);
+}
+
+function terminalLaneResultTextLines(value: Record<string, any>) {
+  const lines: string[] = [];
+  const gpcResponse = value.gpcResponse && typeof value.gpcResponse === "object" && !Array.isArray(value.gpcResponse)
+    ? value.gpcResponse as Record<string, any>
+    : null;
+  if (gpcResponse) {
+    const observationSummary = canonicalGpcObservationSummary(gpcResponse);
+    if (observationSummary) lines.push(`GPC observation: ${observationSummary}`);
+    lines.push(`GPC response: ${gpcResponse.findingTitle ?? "GPC response"}; status=${gpcResponse.status ?? "indeterminate"}; Sec-GPC: 1 proof retained on ${gpcResponse.comparison?.enabledProof?.requestsWithSecGpc ?? 0} request(s).`);
+  }
+  for (const [field, label] of [["postAcceptObservation", "Accept Path"], ["postRefusalObservation", "Reject Path"]] as const) {
+    const observation = value[field] && typeof value[field] === "object" && !Array.isArray(value[field])
+      ? value[field] as Record<string, unknown>
+      : null;
+    if (observation && typeof observation.interpretation === "string") {
+      lines.push(`${label}: ${observation.interpretation}`);
+    }
+  }
+  return lines;
 }
 
 function compactPreviewValue(value: unknown, fallback = "unknown", maxChars = 280) {
@@ -1162,9 +1262,17 @@ function preConsentPreviewTextLines(value: Record<string, any>) {
   const returnedTrackingVendorCount = summary.returnedTrackingVendorCount ?? trackers.length;
   const capturedOperationalVendorCount = summary.operationalVendorCount ?? operationalVendors.length;
   const returnedOperationalVendorCount = summary.returnedOperationalVendorCount ?? operationalVendors.length;
+  const status = String(value.status ?? "");
+  const active = status === "queued" || status === "running" || status === "finalizing";
+  const usable = status === "completed" || status === "completed_limited";
+  const previewWorkflowGuidance = active
+    ? "Wait for terminal scan status, then call certscore_get_scan_bundle for the completed scan's final returned tally, canonical findings, and coverage limitations."
+    : usable
+      ? "This scan is terminal. Do not use these checkpoint counts as the final tally; call certscore_get_scan_bundle for the canonical findings and coverage limitations."
+      : "This scan is terminal without a completed result. Treat this preview as retained diagnostic context only, do not continue polling, and follow the terminal Next guidance.";
   const lines = [
     `Partial pre-consent runtime preview: generated=${compactPreviewValue(preview.generatedAt, "unavailable", 80)}; lane=${compactPreviewValue(preview.sourceLane, "runtime_evidence", 80)}; coverage=${compactPreviewValue(coverage.status, "unknown", 80)}; cookies captured=${capturedCookieCount}; cookie identities returned=${returnedCookieCount}; tracking vendors captured=${capturedTrackingVendorCount}; tracking vendor identities returned=${returnedTrackingVendorCount}; operational/security/consent vendors captured=${capturedOperationalVendorCount}; operational identities returned=${returnedOperationalVendorCount}; all classified vendor observations=${summary.vendorCount ?? "unknown"}; third-party requests=${summary.thirdPartyRequestCount ?? "unknown"}.`,
-    "PARTIAL PREVIEW: These are checkpoint-only partial counts, not the full scan tally. Do not present them as final totals or stop the workflow. Wait for terminal scan status, then call certscore_get_scan_bundle for the completed scan's final returned tally, canonical findings, and coverage limitations.",
+    `PARTIAL PREVIEW: These are checkpoint-only partial counts, not the full scan tally. ${previewWorkflowGuidance}`,
     "Metric scope: tracking vendors exclude operational, security, and consent-management vendors. The completed inventory's broader trackerCount may include those categories, so do not compare that field directly with trackingVendorCount.",
   ];
   if (cookies.length > 0) {
@@ -1212,10 +1320,11 @@ function preConsentPreviewTextLines(value: Record<string, any>) {
   ) {
     lines.push(`Preview identity lists are bounded: ${capturedCookieCount} cookies captured/${returnedCookieCount} identities returned; ${capturedTrackingVendorCount} tracking vendors captured/${returnedTrackingVendorCount} identities returned; ${capturedOperationalVendorCount} operational vendors captured/${returnedOperationalVendorCount} identities returned. Use captured counts for checkpoint coverage and returned arrays for names.`);
   }
-  const disclaimer = typeof preview.observationOnlyDisclaimer === "string" && preview.observationOnlyDisclaimer.trim()
-    ? preview.observationOnlyDisclaimer.trim()
-    : "Preliminary passive observations only; not findings, a score, or a final result.";
-  lines.push(`${compactPreviewValue(disclaimer, "Preliminary passive observations only.", 500)} Continue sequential status polling until terminal status; at completed or completed_limited, retrieve certscore_get_scan_bundle before reporting the full scan results or final returned tally.`);
+  lines.push(`${PREVIEW_OBSERVATION_ONLY_DISCLAIMER} ${active
+    ? "Continue sequential status polling until terminal status; at completed or completed_limited, retrieve certscore_get_scan_bundle before reporting the full scan results or final returned tally."
+    : usable
+      ? "The scan is terminal; retrieve certscore_get_scan_bundle before reporting the full scan results or final returned tally."
+      : "The scan is terminal without a completed result; do not continue polling or report this preview as a final result."}`);
   return lines;
 }
 
@@ -1297,6 +1406,8 @@ export function preConsentInventoryText(value: Record<string, any>) {
 }
 
 export function pulseReportText(value: Record<string, any>, label = "CertScore report") {
+  const noGoText = canonicalNoGoText(value);
+  if (noGoText) return noGoText;
   const scanId = extractScanId(value) ?? "unknown";
   const domain = typeof value.domain === "string" ? value.domain : "unknown domain";
   const score = typeof value.summary?.score === "number"
@@ -1309,7 +1420,10 @@ export function pulseReportText(value: Record<string, any>, label = "CertScore r
   const body = [
     ...(overview ? [overview] : []),
     `Canonical projected findings returned in this ${label.toLocaleLowerCase()}: ${findings.length}.`,
-    ...findings.map((finding) => findingText(finding as Record<string, any>))
+    ...findings.map((finding) => findingText(finding as Record<string, any>)),
+    ...(findings.some((finding) => finding.plainEnglish == null && finding.evidence?.summary == null)
+      ? [`For finding descriptions and evidence, call certscore_list_findings with scanId=${scanId}, or certscore_explain_finding with that scanId and a returned findingId. No new scan is needed.`]
+      : [])
   ];
   return boundedResultText(
     `${label} for ${domain}; scanId=${scanId}${score === null ? "" : `; CertScore score=${score}`}.`,
@@ -1329,12 +1443,18 @@ export function markdownReportText(value: Record<string, any>) {
   );
 }
 
-export function scanBundleText(bundle: Record<string, any>) {
+export function scanBundleText(bundle: Record<string, any>, options: { lightTrialCta?: boolean } = {}) {
+  const noGoText = canonicalNoGoText(bundle);
+  if (noGoText) return noGoText;
   const score = typeof bundle.score === "number" ? `; CertScore score=${bundle.score}` : "";
-  const footer = [OBSERVATION_ONLY_DISCLAIMER, SCAN_BUNDLE_INTERPRETATION_STATEMENT];
+  const footer = [...(options.lightTrialCta ? [SUCCESSFUL_BUNDLE_TRIAL_CTA] : []), OBSERVATION_ONLY_DISCLAIMER, SCAN_BUNDLE_INTERPRETATION_STATEMENT];
   const lines = [
     SCAN_BUNDLE_RESPONSE_CONTRACT,
     `CertScore scan bundle for ${bundle.domain ?? "unknown domain"}; status=${bundle.status ?? "unknown"}${score}; scanId=${bundle.scanId ?? "unknown"}.`,
+    `Risk: ${bundle.riskLevel ?? "unknown"}. Finding IDs (returned): ${Array.isArray(bundle.findings) ? bundle.findings.slice(0, 20).map((finding: Record<string, any>) => String(finding.id ?? "unknown").slice(0, 120)).join(", ") || "none" : "unavailable"}.`,
+    bundle.preConsentCookiesTrackers
+      ? `Pre-consent inventory: total=${bundle.preConsentCookiesTrackers.total ?? "unknown"}; returned=${bundle.preConsentCookiesTrackers.rows?.length ?? "unknown"}. Counts describe retained coverage, not consent compliance.`
+      : `Pre-consent inventory: ${bundle.mcpMetadata?.omittedSections?.includes("preConsentCookiesTrackers") ? "omitted to fit the response byte limit" : "not included in this response"}. Call certscore_get_pre_consent_cookies_trackers with scanId=${bundle.scanId ?? "unknown"} for retained rows and counts; no new scan is needed.`,
     canonicalScanProvenanceText(bundle),
     `Full report: ${bundle.reportUrl ?? (bundle.scanId ? `https://certscore.ai/scan/${encodeURIComponent(String(bundle.scanId))}` : "not available")}.`
   ];
@@ -1349,6 +1469,36 @@ export function scanBundleText(bundle: Record<string, any>) {
     : null;
   if (coverage) {
     append(`Coverage: status=${coverage.status ?? "unknown"}; ${coverage.summary ?? "Review limitations before interpreting absence."}`);
+  }
+  const gpcResponse = bundle.gpcResponse && typeof bundle.gpcResponse === "object" && !Array.isArray(bundle.gpcResponse)
+    ? bundle.gpcResponse as Record<string, any>
+    : null;
+  if (gpcResponse) {
+    const observationSummary = canonicalGpcObservationSummary(gpcResponse);
+    if (observationSummary) append(`GPC observation: ${observationSummary}`);
+    const proof = gpcResponse.comparison?.enabledProof;
+    const californiaPolicy = gpcResponse.californiaPolicy;
+    append(`GPC response: ${gpcResponse.findingTitle ?? "GPC response"}; status=${gpcResponse.status ?? "indeterminate"}; Sec-GPC: 1 proof retained on ${proof?.requestsWithSecGpc ?? 0} request(s).`);
+    if (californiaPolicy?.applied === true && californiaPolicy.deductionPoints === 15) {
+      append("California scoring policy: −15 points. This score effect is separate from the jurisdiction-neutral GPC comparison.");
+    }
+  }
+  const postAccept = bundle.postAcceptObservation && typeof bundle.postAcceptObservation === "object" && !Array.isArray(bundle.postAcceptObservation)
+    ? bundle.postAcceptObservation as Record<string, any>
+    : null;
+  if (postAccept && typeof postAccept.interpretation === "string") {
+    const termination = postAccept.termination && typeof postAccept.termination === "object" && !Array.isArray(postAccept.termination)
+      ? postAccept.termination as Record<string, unknown>
+      : null;
+    const intentionalEvidenceStop = termination?.kind === "evidence_satisfied" && termination.intentional === true
+      ? " The observation then stopped intentionally because qualifying evidence had been captured."
+      : "";
+    append(`Accept Path: ${postAccept.interpretation}${intentionalEvidenceStop}`);
+    for (const limitation of Array.isArray(postAccept.coverageLimitations)
+      ? postAccept.coverageLimitations.slice(0, 3)
+      : []) {
+      append(`Accept Path coverage limitation: ${limitation}`);
+    }
   }
   const postRefusal = bundle.postRefusalObservation && typeof bundle.postRefusalObservation === "object" && !Array.isArray(bundle.postRefusalObservation)
     ? bundle.postRefusalObservation as Record<string, any>
@@ -1423,8 +1573,6 @@ export function scanBundleText(bundle: Record<string, any>) {
     if (rowsRendered < rows.length) {
       append(`${rows.length - rowsRendered} additional returned pre-consent row${rows.length - rowsRendered === 1 ? " was" : "s were"} omitted from TextContent to preserve the size limit; see structuredContent or the report URL.`);
     }
-  } else {
-    append("No row-level pre-consent inventory was available for this result; review coverage and limitations before interpreting absence.");
   }
   lines.push(...footer);
   return lines.join("\n");
@@ -1567,9 +1715,13 @@ export function buildScanBundle(input: {
     scoreVersion: input.scan.scoreVersion ?? null,
     scoreUpdatedAt: input.scan.scoreUpdatedAt ?? null,
     riskLevel: input.scan.riskLevel ?? null,
+    ...(input.scan.gpcResponse ? { gpcResponse: input.scan.gpcResponse } : {}),
+    postAcceptObservation: input.scan.postAcceptObservation ?? null,
     postRefusalObservation: input.scan.postRefusalObservation ?? null,
     provenance: scanProvenance(input.scan as unknown as Record<string, any>, "existing_scan_retrieved"),
-    interpretationGuidance: interpretationGuidance(SCAN_BUNDLE_INTERPRETATION_STATEMENT),
+    interpretationGuidance: interpretationGuidance(input.scan.gpcResponse?.contractVersion === "certscore.gpc-response-assessment.v3"
+      ? SCAN_BUNDLE_INTERPRETATION_STATEMENT.replace("For gpcResponse,", "For the paired gpcResponse.status,") + " Report the separate bounded observation, CMP-recorded state and directly observed requests. Observation completion does not mean GPC was honored."
+      : SCAN_BUNDLE_INTERPRETATION_STATEMENT),
     resultDisposition: input.scan.resultDisposition ?? null,
     noGo: input.scan.noGo ?? null,
     coverage: input.scan.coverage ?? null,
@@ -1602,7 +1754,7 @@ export function buildScanBundle(input: {
     ...(detail === "evidence" || detail === "full"
       ? { evidenceSummary: bundleEvidenceSummary(evidence, allFindings, links, detail === "full") }
       : {}),
-    ...(detail === "full" ? {
+    ...(detail === "full" && Object.keys(report).length > 0 ? {
       fullReport: compactEvidenceValue(deduplicatedReport.residual, {
         arrayItems: 50,
         depth: 8,
@@ -1675,15 +1827,27 @@ export function buildScanBundle(input: {
     bundle.mcpMetadata.nextRecommendedMaxBytes = completeBytes <= responseCeilingBytes
       ? Math.max(5_000, Math.ceil(completeBytes / 1_000) * 1_000)
       : null;
-    bundle.recommendedNextAction = canonicalFindingsComplete
+    bundle.recommendedNextAction = canonicalNoGo(bundle)?.recommendedNextAction ?? (canonicalFindingsComplete
       ? "Canonical findings complete; retry only for omitted envelope detail."
       : bundle.mcpMetadata.nextRecommendedMaxBytes
         ? `Retry with maxBytes=${bundle.mcpMetadata.nextRecommendedMaxBytes} to retrieve the complete requested tier, or open ${bundle.reportUrl ? "the report URL" : "an available content URL"}.`
-        : `The complete requested tier exceeds the MCP byte ceiling; open ${bundle.reportUrl ? "the report URL" : "an available content URL"}.`;
+        : `The complete requested tier exceeds the MCP byte ceiling; open ${bundle.reportUrl ? "the report URL" : "an available content URL"}.`);
     refresh();
   };
 
   captureFullPayloadBytes();
+  // Access disposition and its remedy outrank optional lane detail in a no-go envelope.
+  // Retained evidence remains available through the reported content URLs.
+  if (canonicalNoGo(bundle)) {
+    for (const section of ["gpcResponse", "postAcceptObservation", "postRefusalObservation"]) {
+      if (bundle.mcpMetadata.actualBytes <= maxBytes) break;
+      if (bundle[section]) {
+        markBudgetOmitted(section, "lane_detail_omitted_to_preserve_no_go");
+        delete bundle[section];
+        refresh();
+      }
+    }
+  }
   if (bundle.mcpMetadata.actualBytes > maxBytes && bundle.fullReport) {
     markBudgetOmitted("fullReport", "full_report_omitted_to_byte_limit");
     delete bundle.fullReport;
@@ -1820,6 +1984,7 @@ export function buildScanBundle(input: {
       scanId: bundle.scanId,
       domain: bundle.domain,
       url: bundle.url,
+      scanFrom: bundle.scanFrom,
       status: bundle.status,
       score: bundle.score,
       scoreLabel: bundle.scoreLabel,
@@ -1827,6 +1992,8 @@ export function buildScanBundle(input: {
       scoreVersion: bundle.scoreVersion,
       scoreUpdatedAt: bundle.scoreUpdatedAt,
       riskLevel: bundle.riskLevel,
+      ...(bundle.gpcResponse ? { gpcResponse: bundle.gpcResponse } : {}),
+      postAcceptObservation: bundle.postAcceptObservation,
       postRefusalObservation: bundle.postRefusalObservation,
       provenance: bundle.provenance,
       interpretationGuidance: bundle.interpretationGuidance,

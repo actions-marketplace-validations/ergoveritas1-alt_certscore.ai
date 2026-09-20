@@ -1,6 +1,8 @@
 import type { CertScoreFinding } from "./finding-registry";
+import { SITE_INTEGRITY_FINDING_ID } from "@certscore/contracts";
 
 const SUPPRESSED_EXECUTIVE_TOP_FINDING_IDS = new Set([
+  SITE_INTEGRITY_FINDING_ID,
   "multi_vendor_tracking_detected",
   "large_third_party_footprint",
   "collection_endpoints_detected",

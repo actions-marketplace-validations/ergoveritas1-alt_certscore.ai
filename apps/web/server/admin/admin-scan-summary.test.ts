@@ -150,7 +150,7 @@ test("Admin Scans separates requester identity from outbound scanner egress", as
   const listSource = await readFile("apps/web/server/admin/list-admin-scans.ts", "utf8");
   const repositorySource = await readFile("apps/web/server/admin/repository.ts", "utf8");
 
-  assert.match(pageSource, /\{ label: "Requester IP" \}, \{ label: "Requested" \}/);
+  assert.match(pageSource, /\{ label: "Requester IP" \}, \{ label: "Requested" \}, \{ label: "Page" \}, \{ label: "Created via" \}/);
   assert.match(pageSource, /\{ label: "Scan ID" \}, \{ label: "Scanner egress" \},/);
   assert.match(pageSource, /\{ label: "Scanner egress" \},\s+\{ label: "Open"/);
   assert.match(pageSource, /formatRequestedDateTime/);
@@ -166,7 +166,7 @@ test("Admin Scans separates requester identity from outbound scanner egress", as
 test("Admin Scans gives access outcomes room for at most two visible lines", async () => {
   const pageSource = await readFile("apps/web/app/app/admin/scans/page.tsx", "utf8");
 
-  assert.match(pageSource, /w-\[2957px\] min-w-\[2957px\] table-fixed/);
+  assert.match(pageSource, /w-\[3477px\] min-w-\[3477px\] table-fixed/);
   assert.match(pageSource, /<ScanSizeCell matrix=\{matrix\} \/>/);
   assert.match(pageSource, /Site load \{website \? `\$\{website\.megabytes\.toFixed\(2\)\} MB` : "—"\}/);
   assert.match(pageSource, /Policy \{policy\?\.compressedKilobytes/);
@@ -305,7 +305,7 @@ test("Admin Scans streams a route-local result skeleton instead of blocking the 
 
   assert.match(pageSource, /import \{ Suspense \} from "react"/);
   assert.match(pageSource, /function AdminScansContentFallback/);
-  assert.match(pageSource, /<Suspense fallback=\{<AdminScansContentFallback \/>\}>/);
+  assert.match(pageSource, /<Suspense[^>]*fallback=\{<AdminScansContentFallback \/>\}>/);
   assert.match(pageSource, /<AdminScansContent resolvedSearchParams=\{resolvedSearchParams\} \/>/);
 });
 
@@ -537,7 +537,7 @@ test("admin users paginate in SQL instead of loading the complete account histor
 
   assert.match(pageSource, /listAdminUsersPage\(pageSize,/);
   assert.doesNotMatch(pageSource, /listAdminUsers\(\)/);
-  assert.match(pageSource, /const \[requestedUserPage, workspaces, mcpActivationFunnel\] = await Promise\.all\(\[/);
+  assert.match(pageSource, /const \[requestedUserPage, workspaces\] = await Promise\.all\(\[/);
   assert.match(pageSource, /app\.admin\.users\.workspaces/);
   assert.match(pageSource, /pendingContent=/);
   assert.doesNotMatch(pageSource, />Last requested</);
@@ -546,8 +546,12 @@ test("admin users paginate in SQL instead of loading the complete account histor
   assert.match(listSource, /latestActivityAt\(row\.last_associated_scan_at, row\.last_scan_requested_at\)/);
   assert.match(repositorySource, /selected_users as/);
   assert.match(repositorySource, /limit \$1 offset \$2/);
-  assert.match(repositorySource, /where scans\.submitted_by_user_id = selected_users\.id/);
+  assert.match(repositorySource, /user_activity\.user_id = selected_users\.id/);
   assert.match(sortSource, /lastScan: "greatest\(request_activity\.last_scan_requested_at, associated_activity\.last_scan_at\)"/);
+  assert.match(sortSource, /activity: "greatest\(latest_product_activity\.occurred_at,/);
+  assert.match(repositorySource, /latest_product_activity as/);
+  assert.match(repositorySource, /from product_analytics_events events/);
+  assert.match(repositorySource, /events\.occurred_at >= timezone\('utc', now\(\)\) - interval '90 days'/);
   assert.match(repositorySource, /from mcp_oauth_refresh_tokens tokens/);
   assert.match(repositorySource, /active_mcp_connector_count/);
   assert.match(repositorySource, /from public\.mcp_tool_invocation_events/);
@@ -560,12 +564,12 @@ test("admin users paginate in SQL instead of loading the complete account histor
   assert.match(pageSource, /Claude activation funnel/);
   assert.match(pageSource, /within 24h/);
   assert.match(pageSource, /within 1h/);
-  assert.match(pageSource, /activeMcpConnectorCount > 0 \? "authorized" : user\.lastMcpOAuthAuthorizedAt \? "approved" : "authorization ended"/);
   assert.match(pageSource, /lastMcpOAuthAuthorizedAt \?\? user\.lastMcpConnectorAt/);
-  assert.match(pageSource, /Activation:/);
-  assert.match(pageSource, /awaiting initialization/);
-  assert.match(pageSource, /awaiting tool discovery/);
-  assert.match(pageSource, /MCP usage \(90d\):/);
+  assert.match(pageSource, /Last activity type/);
+  assert.match(pageSource, /sortKey === "activity" \|\| sortKey === "lastLogin" \|\| sortKey === "lastScan" \? "desc" : "asc"/);
+  assert.match(pageSource, /active.*connection/);
+  assert.match(pageSource, /calls.*\/ 90d/);
+  assert.match(pageSource, /max-w-\[22rem\]/);
   assert.match(pageSource, /lastMcpToolInvocationAt/);
 });
 
@@ -617,17 +621,14 @@ test("admin scan list logs its expensive production stages separately", async ()
   assert.match(listSource, /app\.admin\.scans\.score-attribution/);
 });
 
-test("admin section navigation prefetches only lightweight pages and has a loading boundary", async () => {
+test("admin section navigation avoids competing prefetches and has a loading boundary", async () => {
   const layoutSource = await readFile("apps/web/app/app/admin/layout.tsx", "utf8");
   const loadingSource = await readFile("apps/web/app/app/admin/loading.tsx", "utf8");
   const actionsSource = await readFile("apps/web/app/app/admin/scans/admin-scan-actions.tsx", "utf8");
   const overviewSource = await readFile("apps/web/app/app/admin/page.tsx", "utf8");
   const appShellSource = await readFile("apps/web/components/dashboard/app-shell.tsx", "utf8");
 
-  assert.match(
-    layoutSource,
-    /prefetch=\{item\.href === "\/app\/admin\/analytics" \|\| item\.href === "\/app\/admin\/mcp"\}/,
-  );
+  assert.match(layoutSource, /prefetch=\{false\}/);
   assert.doesNotMatch(layoutSource, /prefetch=\{true\}/);
   assert.match(loadingSource, /aria-label="Loading admin page"/);
   assert.match(loadingSource, /aria-busy="true"/);

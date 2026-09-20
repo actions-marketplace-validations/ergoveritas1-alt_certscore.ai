@@ -13,6 +13,7 @@ RUN corepack enable
 WORKDIR /app
 
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY patches ./patches
 COPY apps/browser-extension/package.json ./apps/browser-extension/package.json
 COPY apps/v2-dag-lambda/package.json ./apps/v2-dag-lambda/package.json
 COPY apps/validation-worker/package.json ./apps/validation-worker/package.json
@@ -43,7 +44,7 @@ FROM build-dependencies AS builder
 # Next's production compilation now exceeds V8's default ~4 GB old-space
 # ceiling. Keep the larger heap scoped to the image builder; it is not carried
 # into the ECS runtime stage.
-ENV NODE_OPTIONS="--max-old-space-size=6144"
+ENV NODE_OPTIONS="--max-old-space-size=8192"
 
 COPY packages/shared ./packages/shared
 COPY packages/ui ./packages/ui

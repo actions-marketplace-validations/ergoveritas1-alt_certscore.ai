@@ -1,0 +1,13 @@
+# MCP telemetry completeness
+
+Implemented locally September 12, 2026. Deployment remains explicitly on hold.
+
+- Latest-domain scan responses now project nested scan identity, status and region into the existing invocation event. Summaries distinguish linked scans, no eligible scan, inapplicable diagnostics and missing capture. Report scanStatus aliases are supported. Historical records are not backfilled or reinterpreted.
+- Server-generated guidance has typed action categories. Bounded capture retains the category, next tool, polling interval, paging continuation, explicit quota consumption and creation decision without raw guidance prose or full response storage. Admin uses typed fields first, preserving legacy projections.
+- Admin distinguishes Call result, Response at call time and Current scan outcome. Current outcome no longer falls back to tool success; retained response-time status is labeled separately. No rate limit reported does not assert an access check, quota check or consumption. Request details show explicit consumption/creation information or Not recorded.
+- Usage includes an expandable diagnostic panel with CloudWatch queries for pre-tool OAuth/Entra failures and starts without acknowledged telemetry ingestion. These are manual queries using existing logs, not live counts or automatic reconciliation. They do not inherit the table's traffic filter. Missing terminal records remain unknown. OAuth rejection logs include a fresh correlation ID, allowlisted route, HTTP status and stage; the same OAuth ID is returned in X-Request-Id. No tokens or raw URLs are logged by this addition.
+- Existing 2 KB summary and 4 KB request-details limits remain enforced. No database migration, capacity, retention, background collector, scan or model call was added. Estimated incremental field/log storage cost below $1/month at 100,000 MCP calls, disclosed before implementation. Log queries run only when an operator chooses them.
+
+Verification: 137 MCP tests, 39 HTTP transport tests and 17 focused Admin/shared tests pass. Admin projections and filters ran against local PostgreSQL using read-only fixture CTEs. MCP/shared builds and web/HTTP TypeScript checks pass. Regression coverage includes nested association, no eligible scan, pagination, polling, diagnostic privacy, quota consumption, legacy records and OAuth rejection correlation headers.
+
+Rollout dependency: deploy the shared-schema/web telemetry receiver before the MCP emitter because ingestion validates summaries strictly. Do not deploy until the owner releases the hold. Production verification of these telemetry changes remains pending.

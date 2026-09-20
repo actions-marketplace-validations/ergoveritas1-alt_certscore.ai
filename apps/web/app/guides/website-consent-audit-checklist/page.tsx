@@ -19,10 +19,13 @@ export const metadata: Metadata = {
 export default function WebsiteConsentAuditChecklistGuidePage() {
   return (
     <AiVisibilityContent
+      showEvidenceExamples={false}
       badge={guide.badge}
       intro={guide.intro}
       path={guide.path}
       relatedLinks={[
+        { href: "/resources/consent-audit-worksheet.md", label: "Download the consent audit worksheet (Markdown)" },
+        { href: "/sample-report", label: "Explore the sample report" },
         { href: "/findings/pre_consent_tracking_detected", label: "tracking started before consent finding" },
         { href: "/findings/reject_tracking_persists_after_reject", label: "reject tracking persists finding" },
         { href: "/findings/cookie_disclosure_gap", label: "cookie disclosure gap finding" },

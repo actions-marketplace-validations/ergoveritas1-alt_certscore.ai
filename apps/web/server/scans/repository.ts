@@ -1,7 +1,9 @@
 "use server";
 
-import { query, queryOne } from "@website-signal-risk-scanner/db";
-import { PRIOR_SCAN_ACCELERATION_MAX_AGE_DAYS } from "@website-signal-risk-scanner/shared";
+import { fullSiteInternalEnabled } from "@website-signal-risk-scanner/db";
+
+import { query, queryOne, withWriteTransaction, insertFullSiteCrawl } from "@website-signal-risk-scanner/db";
+import { PRIOR_SCAN_ACCELERATION_MAX_AGE_DAYS, validateFullSiteRequest, fullSitePolicy, canUseFullSite } from "@website-signal-risk-scanner/shared";
 import type {
   AccessPostureClass,
   RecoverableFindingClass,
@@ -13,6 +15,9 @@ import type {
 } from "@website-signal-risk-scanner/shared";
 import { isMissingComplianceChangeEventsTable } from "../changes/legacy-change-events";
 import { parsePlatformAdminEmails } from "../admin/platform-admin-core";
+import { getDomain } from "tldts";
+import { randomUUID } from "node:crypto";
+import { bindRuntimeGraphDispatchToScan } from "./runtime-evidence-graph-dispatch";
 
 export type ScanDetailQueryRow = {
   completed_at: string | null;
@@ -1064,7 +1069,19 @@ export async function upsertUsageCounter(input: {
 }
 
 export async function createQueuedFullScan(input: QueuedFullScanInsert): Promise<{ id: string }> {
-  const data = await queryOne<{ id: string }>(
+  let crawl: ReturnType<typeof validateFullSiteRequest> = { fullSite: false };
+  if ((input.scanConfigJson?.fullSite !== undefined && input.scanConfigJson.fullSite !== false) || input.scanConfigJson?.crawlOptions !== undefined) {
+    const { getDashboardContext } = await import("../auth");
+    const context = await getDashboardContext();
+    crawl = validateFullSiteRequest(input.scanConfigJson, (fullSiteInternalEnabled() && canUseFullSite(context.membership?.role)) &&
+      context.organization.id === input.organizationId && context.user.id === input.submittedByUserId, fullSitePolicy(process.env));
+  }
+  const scanId = randomUUID();
+  const validatedConfig: Record<string, unknown> = crawl.fullSite ? {...input.scanConfigJson,...crawl} : {...input.scanConfigJson};
+  if (!crawl.fullSite) delete validatedConfig.crawlOptions;
+  else validatedConfig.hostname = new URL(String(validatedConfig.normalizedUrl)).hostname;
+  const scanConfig = bindRuntimeGraphDispatchToScan({ scanId, scanConfig: validatedConfig, environment: process.env });
+  const insert = async (run: typeof queryOne) => run<{ id: string }>(
     `insert into scans (
        organization_id,
        domain_id,
@@ -1076,9 +1093,10 @@ export async function createQueuedFullScan(input: QueuedFullScanInsert): Promise
        pages_scanned,
        scan_config_json,
        queue_priority,
-       queue_origin
+       queue_origin,
+       id
      )
-     values ($1, $2, $3, $4, $5, case when $5 = 'running' then now() else null end, $6, 0, $7, $8, $9)
+     values ($1, $2, $3, $4, $5, case when $5 = 'running' then now() else null end, $6, 0, $7, $8, $9, $10::uuid)
      returning id`,
     [
       input.organizationId,
@@ -1087,15 +1105,25 @@ export async function createQueuedFullScan(input: QueuedFullScanInsert): Promise
       input.scanType ?? "full",
       input.initialStatus ?? "queued",
       input.pagesRequested,
-      input.scanConfigJson,
+      scanConfig,
       input.queuePriority ?? 50,
-      input.queueOrigin ?? "user"
+      input.queueOrigin ?? "user",
+      scanId
     ]
   );
 
-  if (!data) {
-    throw new Error("Could not create full scan: Unknown error");
-  }
+  const data = crawl.fullSite ? await withWriteTransaction(async client => {
+    const inserted = await insert(async (sql: string, values: unknown[] = []) => (await client.query(sql,values)).rows[0] ?? null);
+    if (!inserted) throw new Error("Could not create full scan.");
+    const execution = scanConfig.execution as Record<string, unknown>;
+    const intent = execution?.v2DagLambda as Record<string, unknown>;
+    if (intent?.orchestrationMode !== "sharded") throw new Error("This scan option requires the sharded Lambda runtime.");
+    await insertFullSiteCrawl(client,{ scanId, userId: input.submittedByUserId!, requested: crawl.crawlOptions,
+      policy: fullSitePolicy(process.env), region: String(intent.awsRegion), url: String(scanConfig.normalizedUrl),
+      siteKey: getDomain(String(scanConfig.hostname)) ?? String(scanConfig.hostname) });
+    return inserted;
+  }) : await insert(queryOne);
+  if (!data) throw new Error("Could not create full scan: Unknown error");
 
   return { id: data.id };
 }
@@ -1291,7 +1319,7 @@ export async function loadScanDetailArtifacts(scanId: string): Promise<{
       `select id, event_type, message, metadata_json, created_at
          from scan_events
         where scan_id = $1
-        order by created_at asc`,
+        order by created_at asc, id asc`,
       [scanId],
       { readOnly: true }
     ).then((result) => result.rows),

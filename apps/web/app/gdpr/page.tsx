@@ -7,9 +7,9 @@ import { SiteHeader } from "../../components/layout/site-header";
 import { absoluteUrl, createBreadcrumbSchema, createPageMetadata, createPublicArticleSchema, createPublicWebPageSchema } from "../../lib/seo";
 import { getFindingReferenceItems } from "../../lib/marketing/finding-atlas";
 
-const pageTitle = "GDPR Website Privacy Scanner | Consent, Cookies & Tracking Review Signals | CertScore.ai";
+const pageTitle = "GDPR Website Evidence: Methodology & Review Guide | CertScore.ai";
 const pageDescription =
-  "Evidence-based GDPR review signals for public websites. Detect pre-consent tracking, third-party cookies before consent, consent UX issues, session replay signals, fingerprinting-related activity, and policy/runtime gaps. Automated observations for human and agentic review, not legal advice.";
+  "Interpret GDPR-relevant website evidence: consent states, cookies, tracking, policy comparisons, benchmark limitations, and review methodology.";
 const pagePath = "/gdpr";
 const disclaimer =
   "CertScore.ai findings are automated public-web observations for human and agentic review, not legal advice, certification, or a compliance determination.";
@@ -103,9 +103,9 @@ const runtimeCards = [
       "CertScore.ai records whether non-essential requests, cookies, storage, or identifier-bearing activity appear before a recorded consent choice."
   },
   {
-    title: "After reject",
+    title: "After a confirmed choice",
     body:
-      "Reject-path scans can surface whether classified non-essential activity appears to continue after a refusal-style interaction."
+      "On eligible sites, separate Accept and Reject observations retain what follows a confirmed choice. Accept is a score-neutral baseline; qualifying activity after a confirmed refusal can support a Reject Path finding."
   },
   {
     title: "Disclosure alignment",
@@ -350,16 +350,16 @@ export default function GdprPage() {
       <section className="border-b border-slate-200 bg-white">
         <div className="mx-auto grid max-w-6xl gap-10 px-6 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div className="space-y-6">
-            <Badge tone="neutral">GDPR privacy scanner</Badge>
+            <Badge tone="neutral">Evidence and methodology</Badge>
             <div className="space-y-4">
               <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                GDPR website privacy signals from real browser behavior
+                How to interpret GDPR website evidence
               </h1>
               <p className="text-lg leading-8 text-slate-600">
-                CertScore.ai scans public websites for GDPR-relevant consent, cookie, tracking, and data-protection review signals - including pre-consent tracking, third-party cookie activity before consent, consent UX friction, session replay signals, fingerprinting-related activity, and policy/runtime gaps.
+                Use this guide to interpret browser observations, understand coverage limits, and distinguish a review signal from a legal conclusion. For a new scan, start with the GDPR website scanner.
               </p>
             </div>
-            <CtaButtons location="gdpr_hero" />
+            <Link className="inline-flex font-semibold text-sky-700 underline underline-offset-4" href="/solutions/gdpr-website-compliance-scanner">Open the GDPR website scanner</Link>
             <div className="flex flex-wrap gap-2">
               {heroChips.map((chip) => (
                 <span key={chip} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
@@ -404,6 +404,9 @@ export default function GdprPage() {
           <h2 className="text-3xl font-semibold tracking-tight text-slate-950">A cookie banner is not the same as consent enforcement</h2>
           <p className="text-base leading-7 text-slate-600">
             CMPs and privacy policies are only part of GDPR/ePrivacy review. Reviewers need evidence of what loads, writes cookies or storage, transmits identifiers, or continues after reject. CertScore.ai compares live browser behavior with consent controls, cookies, trackers, and disclosures.
+          </p>
+          <p className="text-sm leading-7 text-slate-600">
+            Where an eligible consent control can be actioned safely, CertScore confirms the choice transition and retains what follows. That can support review of whether a refusal is reflected in observed runtime behavior and whether the presented choice is consistent with retained technical evidence. It does not establish consent validity or a legal violation. <Link className="font-semibold text-sky-700 hover:text-sky-900" href="/findings/reject_tracking_persists_after_reject">Review the finding method.</Link>
           </p>
         </div>
         <div className="mt-8 grid gap-5 md:grid-cols-3">

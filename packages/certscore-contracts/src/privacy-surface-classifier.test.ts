@@ -11,6 +11,7 @@ test("classifies canonical privacy-policy surfaces across supported locales", ()
   const examples = [
     ["Privacy policy", "en"],
     ["Datenschutzerklärung", "de"],
+    ["Datenschutzhinweise", "de"],
     ["Politique de confidentialité", "fr"],
     ["Política de privacidad", "es"],
     ["Informativa sulla privacy", "it"],
@@ -29,11 +30,48 @@ test("classifies canonical privacy-policy surfaces across supported locales", ()
   }
 });
 
+test("classifies German Datenschutzhinweise labels and paths as canonical privacy policies", () => {
+  const linkedPolicy = classifyPrivacySurface({
+    linkText: "Datenschutzhinweise ↗ Datenschutzhinweise auf psh-con.de (öffnet in neuem Tab)",
+    url: "https://www.psh-con.de/datenschutzhinweise",
+    localeHints: ["de"],
+  });
+  assert.equal(linkedPolicy.surfaceType, "privacy_policy");
+  assert.equal(linkedPolicy.matchStrength, "direct");
+  assert.equal(linkedPolicy.matchedLocale, "de");
+  assert.equal(linkedPolicy.matchedTerm, "datenschutzhinweise");
+
+  for (const slug of ["datenschutzhinweis", "datenschutzhinweise"]) {
+    const pathPolicy = classifyPrivacySurface({
+      linkText: "Rechtliches",
+      url: `https://www.psh-con.de/${slug}`,
+      localeHints: ["de"],
+    });
+    assert.equal(pathPolicy.surfaceType, "privacy_policy", slug);
+  }
+
+  const germanRegistry = PRIVACY_EVIDENCE_LOCALE_REGISTRY.find((entry) => entry.locale === "de");
+  assert.ok(germanRegistry?.privacyPolicyLabels.includes("datenschutzhinweise"));
+  assert.ok(germanRegistry?.privacyPolicyPathSlugs.includes("datenschutzhinweise"));
+});
+
 test("classifies a dedicated GDPR notice as a privacy-policy surface", () => {
   const classification = classifyPrivacySurface({ linkText: "GDPR Notice" });
   assert.equal(classification.surfaceType, "privacy_policy");
   assert.equal(classification.matchStrength, "direct");
   assert.equal(classification.matchedTerm, "gdpr notice");
+});
+
+test("product and privacy-request pages cannot displace the governing privacy document", () => {
+  for (const [linkText, path] of [
+    ["Privacy policy risk scanner", "/solutions/privacy-policy-risk-scanner"],
+    ["Cookie consent scanner", "/solutions/cookie-consent-scanner"],
+    ["Privacy request", "/privacy-request"],
+  ]) {
+    assert.equal(classifyPrivacySurface({ linkText, url: `https://example.test${path}`, surroundingText: "Privacy policy personal data GDPR" }).surfaceType, "unknown");
+  }
+  assert.equal(classifyPrivacySurface({ linkText: "Privacy policy", url: "https://example.test/privacy" }).surfaceType, "privacy_policy");
+  assert.equal(classifyPrivacySurface({ linkText: "Privacy policy", url: "https://example.test/products/privacy-policy" }).surfaceType, "privacy_policy");
 });
 
 test("marks explicitly general privacy notices with canonical scope provenance", () => {
@@ -45,42 +83,29 @@ test("marks explicitly general privacy notices with canonical scope provenance",
   }
 });
 
-test("classifies canonical policy labels and localized paths across all 40 locales", () => {
+test("classifies every canonical privacy-policy label and path across all 40 locales", () => {
   assert.equal(PRIVACY_EVIDENCE_LOCALE_REGISTRY.length, 40);
   for (const entry of PRIVACY_EVIDENCE_LOCALE_REGISTRY) {
-    const privacyLabel = entry.privacyPolicyLabels[0];
-    const cookieLabel = entry.cookiePolicyLabels[0];
-    const settingsLabel = entry.cookieSettingsLabels[0];
-    const privacySlug = entry.privacyPolicyPathSlugs[0];
-    const cookieSlug = entry.cookiePolicyPathSlugs[0];
-    assert.ok(privacyLabel && cookieLabel && settingsLabel && privacySlug && cookieSlug, entry.locale);
-
-    for (const [linkText, surfaceType] of [
-      [privacyLabel, "privacy_policy"],
-      [cookieLabel, "cookie_policy"],
-      [settingsLabel, "cookie_settings"],
-    ] as const) {
+    assert.ok(entry.privacyPolicyLabels.length > 0, `${entry.locale} privacy-policy labels`);
+    for (const linkText of entry.privacyPolicyLabels) {
       const classification = classifyPrivacySurface({
         linkText,
         localeHints: [entry.locale],
+        surroundingText: "Official policy notice",
       });
-      assert.equal(classification.surfaceType, surfaceType, `${entry.locale} ${linkText}`);
-      assert.equal(classification.matchedLocale, entry.locale, `${entry.locale} ${linkText}`);
+      assert.equal(classification.surfaceType, "privacy_policy", `${entry.locale} label: ${linkText}`);
+      assert.equal(classification.matchedLocale, entry.locale, `${entry.locale} label: ${linkText}`);
     }
 
-    const pathClassification = classifyPrivacySurface({
-      linkText: "Legal",
-      url: `https://example.test/${privacySlug}`,
-      localeHints: [entry.locale],
-    });
-    assert.equal(pathClassification.surfaceType, "privacy_policy", `${entry.locale} ${privacySlug}`);
-
-    const cookiePathClassification = classifyPrivacySurface({
-      linkText: "Legal",
-      url: `https://example.test/${cookieSlug}`,
-      localeHints: [entry.locale],
-    });
-    assert.equal(cookiePathClassification.surfaceType, "cookie_policy", `${entry.locale} ${cookieSlug}`);
+    assert.ok(entry.privacyPolicyPathSlugs.length > 0, `${entry.locale} privacy-policy paths`);
+    for (const slug of entry.privacyPolicyPathSlugs) {
+      const classification = classifyPrivacySurface({
+        linkText: "Legal",
+        url: `https://example.test/${slug}`,
+        localeHints: [entry.locale],
+      });
+      assert.equal(classification.surfaceType, "privacy_policy", `${entry.locale} path: ${slug}`);
+    }
   }
 });
 
@@ -120,21 +145,24 @@ test("classifies an English website-and-cookies notice as a combined privacy-coo
   );
 });
 
-test("classifies combined privacy-cookie policy labels across all 40 primary locales", () => {
+test("classifies every combined privacy-cookie policy label across all 40 primary locales", () => {
   for (const entry of PRIVACY_EVIDENCE_LOCALE_REGISTRY) {
-    const label = entry.combinedPrivacyCookieLabels?.[0];
-    assert.ok(label, `${entry.locale} combined policy label`);
-    const classification = classifyPrivacySurface({
-      linkText: label,
-      localeHints: [entry.locale],
-    });
-    assert.equal(classification.surfaceType, "cookie_policy", entry.locale);
-    assert.equal(classification.variant, "combined_privacy_cookie_surface", entry.locale);
-    assert.equal(
-      classification.reasonCodes.includes("variant_combined_privacy_cookie_surface"),
-      true,
-      entry.locale,
-    );
+    const labels = entry.combinedPrivacyCookieLabels;
+    assert.ok(labels && labels.length > 0, `${entry.locale} combined policy labels`);
+    for (const label of labels) {
+      const classification = classifyPrivacySurface({
+        linkText: label,
+        localeHints: [entry.locale],
+      });
+      assert.equal(classification.surfaceType, "cookie_policy", `${entry.locale} ${label}`);
+      assert.equal(classification.matchedLocale, entry.locale, `${entry.locale} ${label}`);
+      assert.equal(classification.variant, "combined_privacy_cookie_surface", `${entry.locale} ${label}`);
+      assert.equal(
+        classification.reasonCodes.includes("variant_combined_privacy_cookie_surface"),
+        true,
+        `${entry.locale} ${label}`,
+      );
+    }
   }
 });
 

@@ -1,5 +1,5 @@
 import { query, queryOne, withWriteTransaction } from "@website-signal-risk-scanner/db";
-import { DEFAULT_SCAN_FROM, normalizeScanFrom, type ScanFrom } from "@website-signal-risk-scanner/shared";
+import { DEFAULT_SCAN_FROM, normalizeScanFrom, type ScanFrom, type ApiReadRateCostClass } from "@website-signal-risk-scanner/shared";
 import { randomUUID } from "node:crypto";
 import {
   PULSE_API_VERSION,
@@ -147,6 +147,7 @@ function pulseRequestInsertValues(input: CreatePulseRequestInput, publicId: stri
         userAgent: input.context.userAgent,
         referer: input.context.referer,
         requestId: input.context.requestId ?? null,
+        anonymousMcpSurface: input.context.anonymousMcpSurface ?? null,
         format: input.context.format,
         detail: input.context.detail,
         freshness: input.context.freshness,
@@ -199,6 +200,7 @@ export async function createPulseRequestWithRetrievalQuota(input: CreatePulseReq
 }
 
 export async function claimPulseReadQuota(input: {
+  costClass?: ApiReadRateCostClass;
   detail: PulseRequestContext["detail"];
   principal: string;
   profile: PulseRetrievalProfile;
@@ -273,6 +275,7 @@ export async function claimPulseReadQuota(input: {
     );
     const row = usageResult.rows[0];
     const decision = decidePulseRetrievalQuota({
+      costClass: input.costClass,
       detail: input.detail,
       profile: input.profile,
       usage: {

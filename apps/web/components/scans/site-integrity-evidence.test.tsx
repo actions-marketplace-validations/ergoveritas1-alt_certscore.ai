@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { siteIntegrityProjectionFixture } from "../../../../packages/certscore-contracts/src/site-integrity.fixture";
+import { buildUnifiedFindingDisplayPackets } from "../../lib/scans/unified-findings";
+import { selectSiteIntegrityFinding } from "../../lib/scans/site-integrity-report";
+import { SiteIntegrityCallout, SiteIntegrityEvidence, SiteIntegritySiteContext } from "./site-integrity-evidence";
+import { FullSiteExecutiveSummary } from "./full-site-executive-summary";
+
+test("only projected integrity findings render a separate review callout and detailed evidence", () => {
+  assert.equal(renderToStaticMarkup(<><SiteIntegrityCallout /><SiteIntegrityEvidence /></>), "");
+  const packets = buildUnifiedFindingDisplayPackets({ runtimeArtifacts: { siteIntegrity: siteIntegrityProjectionFixture },
+    reviewFindingCandidates: [], validationFindings: [], validationFindingLookup: new Map() });
+  const finding = selectSiteIntegrityFinding(packets);
+  assert.ok(finding);
+  const html = renderToStaticMarkup(<><SiteIntegrityCallout finding={finding} /><SiteIntegrityEvidence finding={finding} /></>);
+  assert.match(html, /Site integrity · High priority/);
+  assert.match(html, /href="#site-integrity-evidence"/);
+  assert.match(html, /id="site-integrity-evidence"/);
+  assert.match(html, /pharmacy.example/);
+  assert.match(html, /Zero-size container with clipped overflow/);
+  assert.match(html, /Destinations \(2\)/);
+  assert.match(html, /Affected pages \(1\)/);
+  assert.match(html, /27-point score deduction/);
+  assert.doesNotMatch(html, /href="https:/);
+  for (const scannedPages of [1, 10]) {
+    const summary = renderToStaticMarkup(<FullSiteExecutiveSummary pending={false} scannedPages={scannedPages}
+      score={{ value: 100, scoredPages: scannedPages, priorityReview: [] }} />);
+    assert.match(summary, /score 100 out of 100/);
+    assert.doesNotMatch(summary, /separate site-integrity observation/);
+    assert.match(summary, /0 priority issues/);
+  }
+});
+
+
+test("site integrity displays affected pages and explicitly unavailable and limited page coverage", () => {
+  const packets = buildUnifiedFindingDisplayPackets({ runtimeArtifacts: { siteIntegrity: siteIntegrityProjectionFixture }, reviewFindingCandidates: [], validationFindings: [], validationFindingLookup: new Map() });
+  const finding = selectSiteIntegrityFinding(packets)!;
+  const html = renderToStaticMarkup(<SiteIntegritySiteContext.Provider value={{ findings: [finding], coverage: [
+    { pageId: "home", url: "https://clinic.example/", homepage: true, status: "limited" },
+    { pageId: "unavailable", url: "https://clinic.example/missing", homepage: false, status: "unavailable" },
+  ] }}><SiteIntegrityEvidence /></SiteIntegritySiteContext.Provider>);
+  assert.match(html, /27-point score deduction/);
+  assert.match(html, /Affected pages \(1\)/);
+  assert.match(html, /Capture retained for 1 of 2 scanned pages/);
+  assert.match(html, /1 capture was limited/);
+  assert.match(html, /1 page has unavailable evidence/);
+  assert.equal((html.match(/id="site-integrity-evidence"/g) ?? []).length, 1);
+});

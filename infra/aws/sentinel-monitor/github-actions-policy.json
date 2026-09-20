@@ -9,6 +9,24 @@
         "lambda:UpdateFunctionCode"
       ],
       "Resource": "arn:aws:lambda:us-west-2:199536052647:function:certscore-sentinel-monitor"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:GetSchedule",
+        "scheduler:UpdateSchedule"
+      ],
+      "Resource": "arn:aws:scheduler:us-west-2:199536052647:schedule/default/certscore-sentinel-hourly"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::199536052647:role/certscore-sentinel-scheduler-role",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "scheduler.amazonaws.com"
+        }
+      }
     }
   ]
 }

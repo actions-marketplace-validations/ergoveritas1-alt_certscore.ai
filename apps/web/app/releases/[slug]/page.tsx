@@ -32,6 +32,11 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
   const release = getPublishedRelease(slug);
   if (!release) notFound();
 
+  const ordered = getPublishedReleases();
+  const index = ordered.findIndex(item => item.slug === release.slug);
+  const newer = ordered[index - 1];
+  const older = ordered[index + 1];
+
   const schemas = [
     createReleaseArticleSchema(release),
     createBreadcrumbSchema([
@@ -80,6 +85,16 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
                 {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
               </div>
             ) : null}
+            {section.sourceLinks?.length ? (
+              <p className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm leading-6 text-slate-600">
+                <span className="font-semibold text-slate-700">Primary sources:</span>
+                {section.sourceLinks.map((link) => (
+                  <a className="font-medium text-sky-700 underline decoration-sky-300 underline-offset-4 hover:text-sky-900" href={link.href} key={link.href}>
+                    {link.label}
+                  </a>
+                ))}
+              </p>
+            ) : null}
             {section.bullets?.length ? (
               <ul className="mt-5 grid gap-3 text-base leading-7 text-slate-700">
                 {section.bullets.map((item) => (
@@ -117,7 +132,7 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
             <Link
               className="rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
               data-analytics-feature="release_cta"
-              data-analytics-id="release:mcp-light:product"
+              data-analytics-id={`release:${release.slug}:product`}
               href={release.primaryCta.href}
             >
               {release.primaryCta.label}
@@ -136,6 +151,10 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
           </div>
         </section>
 
+        <nav aria-label="Adjacent releases" className="grid gap-4 border-t border-slate-200 pt-8 sm:grid-cols-2">
+          {newer ? <Link className="text-sky-700" href={releasePath(newer)}>Newer release: {newer.headline}</Link> : <span />}
+          {older ? <Link className="text-sky-700" href={releasePath(older)}>Earlier release: {older.headline}</Link> : null}
+        </nav>
         <aside className="border-t border-slate-200 pt-8" aria-label="CertScore.ai social profiles">
           <SocialFollowLinks />
         </aside>

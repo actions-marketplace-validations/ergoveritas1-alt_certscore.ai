@@ -2,6 +2,7 @@ import {
   API_READ_RATE_POLICY,
   apiReadRateUnits,
   apiReadRateWindow,
+  type ApiReadRateCostClass,
   type ApiReadRateProfile,
   type ApiReadRateScope,
   type ApiReadRateWindowId
@@ -53,12 +54,13 @@ function retryAfterSeconds(oldestAt: string | null, now: Date, windowSeconds: nu
 }
 
 export function decidePulseRetrievalQuota(input: {
+  costClass?: ApiReadRateCostClass;
   detail: PulseDetail;
   now?: Date;
   profile?: PulseRetrievalProfile;
   usage: Usage;
 }) {
-  const weight = pulseRetrievalWeight(input.detail);
+  const weight = input.costClass ? apiReadRateUnits(input.costClass) : pulseRetrievalWeight(input.detail);
   const now = input.now ?? new Date();
   const profile = input.profile ?? "terminal";
   const limits = profile === "status"

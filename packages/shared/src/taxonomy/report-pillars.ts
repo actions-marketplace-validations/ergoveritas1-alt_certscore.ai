@@ -1,4 +1,8 @@
+import { FORM_DESTINATION_FINDING_ID, FORM_DESTINATION_SIGNAL } from "@certscore/contracts";
+import { CMS_SECURITY_FINDING_ID, CMS_SECURITY_SIGNAL } from "@certscore/contracts";
+import { SITE_INTEGRITY_FINDING_ID, SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY } from "@certscore/contracts";
 export type ReportPrimaryPillarId =
+  | "site_integrity"
   | "policies_rights_disclosures"
   | "consent_tracking_data_collection"
   | "consumer_protection_commercial_practices"
@@ -6,6 +10,7 @@ export type ReportPrimaryPillarId =
   | "regulatory_enforcement_overlay";
 
 export type ReportSectionId =
+  | "site_integrity_review"
   | "privacy_notices_rights_data_handling"
   | "terms_legal_disclosures"
   | "policy_clarity_consistency_review"
@@ -27,6 +32,7 @@ export type ReportSectionId =
   | "international_privacy_comparators";
 
 export type ReportEvidenceCategoryId =
+  | "site_integrity_observations"
   | "notice_scope_entity_identity"
   | "rights_request_mechanisms"
   | "data_handling_disclosures"
@@ -631,10 +637,12 @@ export const REPORT_PRIMARY_PILLARS: ReportPrimaryPillarDefinition[] = [
       "us_accessibility_enforcement_ada_doj",
       "international_privacy_comparators"
     ]
-  }
+  },
+  { id: "site_integrity", label: "Site integrity", sectionIds: ["site_integrity_review"] },
 ];
 
 export const REPORT_SECTIONS: ReportSectionDefinition[] = [
+  { id: "site_integrity_review", pillarId: "site_integrity", label: "Site integrity", evidenceCategoryIds: ["site_integrity_observations"] },
   {
     id: "privacy_notices_rights_data_handling",
     pillarId: "policies_rights_disclosures",
@@ -805,6 +813,7 @@ export const REPORT_SECTIONS: ReportSectionDefinition[] = [
 ];
 
 export const REPORT_EVIDENCE_CATEGORIES: ReportEvidenceCategoryDefinition[] = [
+  { id: "site_integrity_observations", sectionId: "site_integrity_review", label: "Site integrity observations" },
   {
     id: "notice_scope_entity_identity",
     sectionId: "privacy_notices_rights_data_handling",
@@ -1114,6 +1123,9 @@ export const REPORT_EVIDENCE_CATEGORIES: ReportEvidenceCategoryDefinition[] = [
 ];
 
 export const REPORT_SIGNALS: ReportSignalDefinition[] = [
+  defineReportSignal("runtime_artifact_signal", FORM_DESTINATION_SIGNAL, "Form-data destination review", "collection_surface_entry_points_and_handling_context"),
+  defineReportSignal("runtime_artifact_signal", CMS_SECURITY_SIGNAL, "CMS security review", "site_integrity_observations"),
+  defineReportSignal("runtime_artifact_signal", SITE_INTEGRITY_SIGNAL, SITE_INTEGRITY_COPY.title, "site_integrity_observations"),
   defineReportSignal(
     "snapshot_signal",
     "disclosure.privacy_policy_present",
@@ -2020,11 +2032,51 @@ export const REPORT_SIGNALS: ReportSignalDefinition[] = [
   ),
   defineReportSignal(
     "runtime_artifact_signal",
+    "privacy.post_reject_click_tracking",
+    "Tracking after Reject click",
+    "enforcement_outcomes_after_user_choice",
+    ["third_party_network_cookie_surface"],
+    ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"]
+  ),
+  defineReportSignal(
+    "runtime_artifact_signal",
     "privacy.post_refusal_non_essential_activity",
     "Non-essential activity after refusal",
     "enforcement_outcomes_after_user_choice",
     ["third_party_network_cookie_surface"],
     ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"]
+  ),
+  defineReportSignal(
+    "runtime_artifact_signal",
+    "privacy.post_accept_consent_dependent_activity",
+    "Consent-dependent activity after acceptance",
+    "enforcement_outcomes_after_user_choice",
+    ["third_party_network_cookie_surface"],
+    ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"]
+  ),
+  defineReportSignal(
+    "runtime_artifact_signal",
+    "privacy.accept_reject_outcomes_indistinguishable",
+    "Accept and Reject outcomes were indistinguishable",
+    "enforcement_outcomes_after_user_choice",
+    ["third_party_network_cookie_surface"],
+    ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"]
+  ),
+  defineReportSignal(
+    "runtime_artifact_signal",
+    "privacy.acceptance_signal_contradicts_action",
+    "Acceptance signal contradicted action",
+    "enforcement_outcomes_after_user_choice",
+    [],
+    ["consent_lawful_basis_user_choice"]
+  ),
+  defineReportSignal(
+    "runtime_artifact_signal",
+    "privacy.consent_paid_decline_path",
+    "Paid alternative required to decline non-essential tracking",
+    "choice_symmetry_dark_pattern_indicators",
+    ["consent_interface_control_availability"],
+    ["consent_lawful_basis_user_choice", "opt_out_choice_design_dark_pattern_risk"]
   ),
   defineReportSignal(
     "runtime_artifact_signal",
@@ -2052,11 +2104,11 @@ export const REPORT_SIGNALS: ReportSignalDefinition[] = [
   ),
   defineReportSignal(
     "runtime_artifact_signal",
-    "privacy.gpc_signal_not_honored",
-    "GPC signal not honored",
-    "enforcement_outcomes_after_user_choice",
-    ["third_party_network_cookie_surface"],
-    ["consent_lawful_basis_user_choice", "sale_sharing_targeted_advertising_controls"]
+    "privacy.gpc_response",
+    "GPC response",
+    "third_party_network_cookie_surface",
+    [],
+    []
   ),
   defineReportSignal(
     "runtime_artifact_signal",
@@ -2329,6 +2381,10 @@ export const REPORT_SIGNALS: ReportSignalDefinition[] = [
 ];
 
 export const REPORT_UNIFIED_FINDINGS = [
+  defineReportUnifiedFinding({ id: FORM_DESTINATION_FINDING_ID, label: "Form-data destination review", owner: "collection_surface_entry_points_and_handling_context", signalMappings: [{ source: "runtime_artifact_signal", key: FORM_DESTINATION_SIGNAL }] }),
+  defineReportUnifiedFinding({ id: CMS_SECURITY_FINDING_ID, label: "CMS security review", owner: "site_integrity_observations", signalMappings: [{ source: "runtime_artifact_signal", key: CMS_SECURITY_SIGNAL }] }),
+  defineReportUnifiedFinding({ id: SITE_INTEGRITY_FINDING_ID, label: SITE_INTEGRITY_COPY.title,
+    owner: "site_integrity_observations", signalMappings: [{ source: "runtime_artifact_signal", key: SITE_INTEGRITY_SIGNAL }] }),
   defineReportUnifiedFinding({
     id: "privacy_policy_present",
     label: "Privacy policy surface present",
@@ -2910,6 +2966,15 @@ export const REPORT_UNIFIED_FINDINGS = [
     aliases: ["Reject interaction did not reduce tracking", "Reject path did not reduce tracking"]
   }),
   defineReportUnifiedFinding({
+    id: "post_reject_click_tracking",
+    label: "Tracking after Reject click",
+    owner: "enforcement_outcomes_after_user_choice",
+    mirrors: ["third_party_network_cookie_surface"],
+    overlays: ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"],
+    signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.post_reject_click_tracking" }],
+    aliases: ["Tracking after Reject click; decision unverified"]
+  }),
+  defineReportUnifiedFinding({
     id: "post_refusal_non_essential_activity",
     label: "Non-essential activity continued after refusal",
     owner: "enforcement_outcomes_after_user_choice",
@@ -2917,6 +2982,45 @@ export const REPORT_UNIFIED_FINDINGS = [
     overlays: ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"],
     signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.post_refusal_non_essential_activity" }],
     aliases: ["Post-refusal non-essential activity", "Non-essential activity after reject"]
+  }),
+  defineReportUnifiedFinding({
+    id: "post_accept_consent_dependent_activity",
+    label: "Consent-dependent activity observed after acceptance",
+    owner: "enforcement_outcomes_after_user_choice",
+    mirrors: ["third_party_network_cookie_surface"],
+    overlays: ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"],
+    signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.post_accept_consent_dependent_activity" }],
+    aliases: ["Post-accept consent-dependent activity", "Non-essential activity after accept"]
+  }),
+  defineReportUnifiedFinding({
+    id: "accept_reject_outcomes_indistinguishable",
+    label: "Accept and Reject produced indistinguishable retained activity",
+    owner: "enforcement_outcomes_after_user_choice",
+    mirrors: ["third_party_network_cookie_surface"],
+    overlays: ["consent_lawful_basis_user_choice", "tracking_profiling_sensitive_data_risk"],
+    signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.accept_reject_outcomes_indistinguishable" }],
+    aliases: ["Accept and Reject outcomes indistinguishable", "Consent choice outcomes matched"]
+  }),
+  defineReportUnifiedFinding({
+    id: "acceptance_signal_contradicts_action",
+    label: "Saved consent did not match Accept",
+    owner: "enforcement_outcomes_after_user_choice",
+    overlays: ["consent_lawful_basis_user_choice"],
+    signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.acceptance_signal_contradicts_action" }],
+    aliases: ["Acceptance signal contradicts action", "TCF signal contradicted accept", "Consent signal contradicted confirmed acceptance"]
+  }),
+  defineReportUnifiedFinding({
+    id: "paid_alternative_required_to_decline_tracking",
+    label: "Paid alternative required to decline non-essential tracking",
+    owner: "choice_symmetry_dark_pattern_indicators",
+    mirrors: ["consent_interface_control_availability"],
+    overlays: ["consent_lawful_basis_user_choice", "opt_out_choice_design_dark_pattern_risk"],
+    signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.consent_paid_decline_path" }],
+    aliases: [
+      "Reject and subscribe path observed",
+      "Reject and pay path observed",
+      "No free reject path with paid alternative"
+    ]
   }),
   defineReportUnifiedFinding({
     id: "pre_consent_storage_not_cleared",
@@ -2945,13 +3049,11 @@ export const REPORT_UNIFIED_FINDINGS = [
     aliases: ["Reject interaction did not reduce third-party cookies"]
   }),
   defineReportUnifiedFinding({
-    id: "gpc_signal_not_honored",
-    label: "GPC signal not honored",
-    owner: "enforcement_outcomes_after_user_choice",
-    mirrors: ["third_party_network_cookie_surface"],
-    overlays: ["consent_lawful_basis_user_choice", "sale_sharing_targeted_advertising_controls"],
-    signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.gpc_signal_not_honored" }],
-    aliases: ["Global Privacy Control signal not honored", "GPC signal ignored"]
+    id: "gpc_response",
+    label: "GPC response",
+    owner: "third_party_network_cookie_surface",
+    signalMappings: [{ source: "runtime_artifact_signal", key: "privacy.gpc_response" }],
+    aliases: ["No observable GPC response"]
   }),
   defineReportUnifiedFinding({
     id: "gpc_disclosure_present",

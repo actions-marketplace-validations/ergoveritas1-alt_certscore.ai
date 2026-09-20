@@ -11,6 +11,10 @@ export type AiGuideContent = {
   sections: Array<{
     title: string;
     paragraphs: string[];
+    sourceLinks?: Array<{
+      href: string;
+      label: string;
+    }>;
   }>;
   title: string;
 };
@@ -116,31 +120,6 @@ export const aiGuideContent = {
       }
     ]
   },
-  checkWebsiteTrackingBeforeConsent: {
-    badge: "How-to guide",
-    title: "How to check if a website tracks users before consent",
-    description:
-      "A practical overview of checking whether tracking requests appear before a consent choice.",
-    path: "/guides/check-website-tracking-before-consent",
-    intro:
-      "To check whether a website tracks users before consent, scan the page before making any consent choice and inspect whether classified tracking requests or non-essential cookies appear before the consent event. CertScore.ai automates this review by observing public website behavior around tracking requests, cookies, consent flows, and related evidence. The result is an automated risk signal that helps teams review timing, vendors, and consent configuration without treating the scan as a legal determination.",
-    sections: [
-      {
-        title: "What CertScore.ai observes",
-        paragraphs: [
-          "CertScore.ai looks at public page behavior, tracking request timing, cookie activity, consent-surface signals, and retained evidence that helps explain why the signal appeared.",
-          "The scan is designed for repeatable triage, so teams can see whether a live website behaves as expected after tag, banner, or vendor changes."
-        ]
-      },
-      {
-        title: "What to review next",
-        paragraphs: [
-          "Review the vendor list, request URLs, cookie timing, consent-platform state, and geography-specific behavior before making operational decisions.",
-          "Automated findings may contain errors when consent state is already stored, a vendor is misclassified, a page blocks scanner access, or a banner behaves differently for different visitors."
-        ]
-      }
-    ]
-  },
   checkThirdPartyCookiesBeforeConsent: {
     badge: "How-to guide",
     title: "How to check third-party cookies before consent",
@@ -201,84 +180,109 @@ export const aiGuideContent = {
       "To detect tracking before consent, review a fresh page load before any consent interaction and compare observed tracking requests, cookies, and consent-surface evidence. CertScore.ai automates this review as a public website risk signal for teams to investigate.",
     sections: [
       {
-        title: "Direct answer",
+        title: "1. Define a repeatable starting point",
         paragraphs: [
-          "Tracking before consent is detected when classified tracking requests, vendor activity, or non-essential cookies appear before the scan records a consent choice.",
-          "The result should be reviewed against the underlying request, cookie, and consent evidence before deciding whether a site configuration needs to change."
+          "Record the exact public URL, date, browser, region, and the tag-manager or CMP version being reviewed. Use a fresh browser profile with no stored consent for each independent test. Do not log in, enter personal information, or interact with account or checkout controls.",
+          "A baseline ends when a consent interaction occurs. Keep an untouched baseline separate from Accept and Reject sessions so a prior choice cannot explain later requests. Record unavailable pages or blocked access as limitations."
         ]
       },
       {
-        title: "Why it matters",
+        title: "2. Observe the initial page load",
         paragraphs: [
-          "Consent tools, tag managers, analytics snippets, and embedded services can drift out of sync with the intended banner configuration.",
-          "A repeatable scan helps teams find live behavior that may deserve review without relying on a one-time manual browser check."
+          "For a manual check, open the browser Network panel before loading the target and keep the request log. Inspect requests, initiators, response timing, and cookies or storage while leaving the consent banner untouched. A third-party domain alone does not establish a tracking purpose.",
+          "With CertScore, enter the public URL in the scanner and read the completed report. Confirm the scan context and coverage before interpreting the pre-consent findings. Use the retained evidence attached to each finding rather than inferring behavior from a banner screenshot."
         ]
       },
       {
-        title: "What CertScore.ai observes",
+        title: "3. Separate requests, stored values, and purpose",
         paragraphs: [
-          "CertScore.ai observes request timing, cookie timing, vendor-like hosts, consent UI signals, and whether activity appears before a recorded choice.",
-          "The scan focuses on public website evidence and does not expose proprietary probe definitions or private evaluation fixtures."
+          "A request shows communication; a cookie snapshot shows stored state. Record the vendor classification, request timing, cookie name/domain/path or storage origin/key, and the evidence reference. Review unclear vendor purposes with the implementation owner.",
+          "Check both the tag manager and scripts embedded directly in templates. Embedded media, analytics, advertising, and replay integrations can have different triggers. Do not classify every third-party service as non-essential solely because it is external."
         ]
       },
       {
-        title: "Example evidence",
+        title: "4. Build a useful evidence record",
         paragraphs: [
-          "A sanitized example might show an analytics request to analytics.example/collect during the initial page-load window before a banner interaction.",
-          "Another example might show a marketing cookie associated with a third-party host appearing before the scan records an accept or reject choice."
+          "For each observation, record: target URL; date and region; baseline or action session; request or storage identity; observed purpose; timestamp; report evidence reference; coverage limitation; owner; and next action. Omit raw cookie values, personal data, and sensitive query strings from shared tickets.",
+          "Open the sample report to see how evidence is presented. Its observations belong to that sample scan and should never be copied into a finding about a different site."
         ]
       },
       {
-        title: "What teams should review next",
+        title: "5. Diagnose the configuration and retest",
         paragraphs: [
-          "Review consent-platform rules, tag-manager triggers, geography-specific banner behavior, and whether prior consent state could affect the observation.",
-          "After configuration changes, repeat the scan and compare whether the observed pre-consent activity changed."
+          "Ask the implementation owner to compare the observed request with consent-category mappings, tag firing rules, consent defaults, and hard-coded integrations. Verify the intended behavior before changing a rule; an essential service may need different handling from advertising.",
+          "After the change, repeat the same starting conditions in a fresh session. Compare the affected requests and storage activity, not just the overall score. Record a blocked or incomplete retest as inconclusive. Extend manual review to important templates and regions beyond the scanned surface."
+        ]
+      },
+      {
+        title: "Keep the conclusion within the evidence",
+        paragraphs: [
+          "No observed tracking means none was observed within the tested scope; it does not establish that tracking never occurs. A banner being visible is not proof that tags wait for consent. A scan is evidence for review, not a legal compliance determination."
         ]
       }
     ]
   },
   rejectConsentTrackingTest: {
     badge: "Consent guide",
-    title: "Reject consent tracking test: what to review",
+    title: "How to test tracking after Reject: an evidence walkthrough",
     description:
-      "Learn how teams can review whether a reject interaction reduces tracking activity on a public website.",
+      "Test tracking after Reject with a repeatable worksheet: verify the click, refusal state, request timing, storage evidence, and coverage limitations.",
     path: "/guides/reject-consent-tracking-test",
     intro:
       "A reject consent tracking test compares website behavior before and after a reject interaction to see whether tracking activity appears to change. CertScore.ai treats the result as an automated review signal, not a legal conclusion.",
     sections: [
       {
-        title: "Direct answer",
+        title: "1. Keep the baseline and Reject session separate",
         paragraphs: [
-          "A reject consent tracking test records baseline tracking activity, attempts a visible reject path where available, and reviews whether tracker requests or non-essential cookies persist afterward.",
-          "The test is useful for operational review because a banner can look correct while tag behavior remains unchanged."
+          "Record the exact URL, region, scan time, and the consent configuration under review. Begin the baseline without a stored choice. Start the Reject test in a separate fresh session; do not first accept and then reuse that state.",
+          "CertScore performs eligible Accept and Reject observations independently. Its bounded automated test uses an eligible first-layer control. Deeper preference-center paths, unavailable controls, blocked pages, and changed targets can leave coverage limited."
         ]
       },
       {
-        title: "Why it matters",
+        title: "2. Confirm which action actually happened",
         paragraphs: [
-          "Reject flows can break when consent-platform categories, tag-manager triggers, or embedded vendor defaults are misconfigured.",
-          "Teams need evidence from the browser session to decide whether the reject path behaves as intended."
+          "Read the control observation, click outcome, and semantic registration separately. A visible Reject label proves visibility only. A completed click proves activation only. A hidden banner or changed cookie does not by itself confirm refusal.",
+          "Confirmed refusal requires evidence of a denied decision. If registration is unverified, preserve that status in the review. Do not rewrite it as successful refusal because the interface disappeared."
         ]
       },
       {
-        title: "What CertScore.ai observes",
+        title: "3. Distinguish new activity from work already in flight",
         paragraphs: [
-          "CertScore.ai observes consent controls, request timing, cookie activity, and tracker-like vendor activity before and after a recorded reject interaction.",
-          "The scan summarizes reviewable behavior while avoiding legal pass/fail language."
+          "Inspect the retained request timing and ancestry. A request or redirect chain that began before the click is not proof that new tracking started afterward. Review the vendor classification and distinguish analytics, advertising, or session replay from essential or CMP traffic.",
+          "When refusal is unverified, a completed authorized Reject click can still support a review finding only if the report has verified qualifying tracking that started after the click and complete bounded capture. The registration status remains unverified. Missing timing, dropped activity, or incomplete capture cannot establish that result."
         ]
       },
       {
-        title: "Example evidence",
+        title: "4. Do not confuse storage persistence with active use",
         paragraphs: [
-          "A sanitized example might show a request to ads.example/pixel before reject and a similar request after reject.",
-          "Another example might show a non-essential analytics cookie still present after the scan records a reject choice."
+          "An unchanged cookie can remain after Reject without being read or transmitted. Compare exact cookie name, domain, path and partition, or storage origin, type and key, within the same action session. A different value is not unchanged persistence.",
+          "Storage presence alone is a factual review aid, not proof of active tracking. Give greater attention to directly observed eligible requests or writes and retained contradictions. Do not publish raw storage values in a ticket or report excerpt."
         ]
       },
       {
-        title: "What teams should review next",
+        title: "5. Use this interpretation checklist",
         paragraphs: [
-          "Check whether the reject control is visible, whether it maps to the right consent categories, and whether tags are gated on the stored choice.",
-          "Review vendor documentation and test across important page templates before assigning remediation."
+          "Control unavailable or capture incomplete: record limited coverage and investigate manually if needed. No eligible activity observed in a completed window: state that bounded observation; do not claim the website never tracks.",
+          "Completed Reject click with unverified refusal: keep the decision unverified and inspect any separately supported tracking review finding. Confirmed refusal with qualifying later activity: review the finding and its retained evidence with the responsible implementation team."
+        ]
+      },
+      {
+        title: "6. Prepare a reproducible handoff",
+        paragraphs: [
+          "Record the exact URL, date, region, report reference, baseline coverage, control clicked, action time, refusal status, request-chain start, classified vendor, evidence references, and capture limitations. Add the implementation owner and the expected tag behavior.",
+          "After a configuration change, retest under matching conditions in a fresh session and compare the affected evidence. Check important regions and page templates separately. Avoid combining unrelated sessions into a single before-and-after proof."
+        ]
+      },
+      {
+        title: "Method and source of this walkthrough",
+        sourceLinks: [
+          { href: "/resources/consent-audit-worksheet.md", label: "Download the blank audit worksheet" },
+          { href: "/methodology", label: "CertScore methodology" },
+          { href: "/guides/consent-enforcement-testing", label: "Accept and Reject observation scope" }
+        ],
+        paragraphs: [
+          "This walkthrough documents CertScore’s existing evidence distinctions: control visibility, completed action, semantic registration, bounded capture, request ancestry, and exact storage identity. It introduces no new scan results or population-wide statistics.",
+          "Use the sample report for the report format and the downloadable audit worksheet for a review record. Findings remain automated risk signals for review, not legal determinations."
         ]
       }
     ]
@@ -293,38 +297,45 @@ export const aiGuideContent = {
       "A website consent audit checklist should compare visible consent controls with observed tracking and cookie behavior before and after user choices. CertScore.ai helps teams structure that review with automated public website evidence.",
     sections: [
       {
-        title: "Direct answer",
+        title: "Scope and ownership",
         paragraphs: [
-          "A practical consent audit checks banner visibility, accept and reject controls, preference paths, tracking requests, cookie timing, and whether behavior changes after interaction.",
-          "The strongest review combines UI inspection with browser-observed evidence."
+          "Record the URL, scan date, region, browser context, CMP version, tag-manager version, reviewer, and responsible implementation owner. List the public pages and templates included and the areas that remain untested.",
+          "Document expected behavior for essential services, analytics, advertising, and embedded content. Keep legal interpretation with the appropriate reviewer; the technical audit records observations."
         ]
       },
       {
-        title: "Why it matters",
+        title: "Untouched baseline",
         paragraphs: [
-          "Consent behavior often changes when teams add vendors, update tag-manager rules, change templates, or adjust banner settings.",
-          "A checklist gives product, marketing, privacy, and engineering teams a shared review path."
+          "Use a fresh session without stored consent. Record whether Accept, Reject, and Options controls were observed, and whether the inventory was complete. Unknown is different from not observed.",
+          "Review retained pre-consent requests, cookie/storage timing, vendor classifications, and policy evidence. Record a reference for each observation; do not derive tracking from a screenshot or third-party hostname alone."
         ]
       },
       {
-        title: "What CertScore.ai observes",
+        title: "Independent Accept and Reject checks",
         paragraphs: [
-          "CertScore.ai observes consent surfaces, tracking requests, cookie timing, session replay indicators, fingerprinting-related signals, accessibility issues, and privacy disclosure gaps where evidence is available.",
-          "Findings are automated risk signals for human and agentic review, not compliance determinations."
+          "For each eligible action, record whether a unique control was actionable, whether the click completed, whether the decision was semantically verified, and whether the capture window completed. Preserve unverified and unavailable outcomes.",
+          "Review request ancestry after Reject and separate pre-click work from later requests. Treat Accept as a comparison baseline. Cookie presence alone does not establish active tracking after refusal."
         ]
       },
       {
-        title: "Example evidence",
+        title: "Policy and runtime comparison",
         paragraphs: [
-          "A sanitized example might show a banner with an accept button, no obvious reject control, and third-party analytics requests during initial page load.",
-          "Another example might show consent controls on the homepage but different behavior on a landing-page template."
+          "Confirm that the retained policy belongs to the target site. Compare a specific disclosed claim with directly comparable runtime evidence in the same scope and consent state.",
+          "Record missing or insufficient evidence as a limitation. Do not turn an inaccessible policy or an incomplete observation into a proven mismatch."
         ]
       },
       {
-        title: "What teams should review next",
+        title: "Remediation record",
         paragraphs: [
-          "Review tag-manager rules, consent-platform categories, vendor contracts, policy disclosures, and the page templates that matter most to visitors.",
-          "Use repeat scans after changes to see whether observed signals improved or persisted."
+          "For each item record: observation, retained evidence reference, expected behavior, implementation owner, proposed change, status, and retest date. Keep cookie values and sensitive query parameters out of shared notes.",
+          "Inspect consent-category mappings, tag triggers, embedded scripts, and vendor settings. Preserve the original report and compare the changed behavior under matching fresh-session conditions."
+        ]
+      },
+      {
+        title: "Closure and monitoring",
+        paragraphs: [
+          "Close an item only when its evidence and retest support the expected change. If the site is blocked or the capture is incomplete, keep the item open or explicitly inconclusive.",
+          "Repeat review when CMP settings, tags, vendors, or templates change. A successful bounded observation is not certification and does not cover every region, visitor state, or future request."
         ]
       }
     ]

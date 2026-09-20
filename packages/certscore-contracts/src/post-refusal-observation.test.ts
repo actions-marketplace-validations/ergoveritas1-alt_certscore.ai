@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   postRefusalEvidencePacketSchema,
+  postRefusalReportProjectionSchema,
   postRefusalLambdaDispatchConfigSchema,
   postRefusalLaneOutcomeSchema,
   postRefusalLambdaEvidenceDescriptorSchema,
@@ -63,6 +64,14 @@ function basePacket() {
   };
 }
 
+test("invalid optional graph cannot invalidate independently valid retained Reject proof", () => {
+  const base = postRefusalEvidencePacketSchema.parse(basePacket());
+  const parsed = postRefusalEvidencePacketSchema.parse({ ...base, runtimeEvidenceGraph: { scenario: "post_reject", contractVersion: "future" } });
+  const { runtimeEvidenceGraphDiagnostics, ...legacy } = parsed;
+  assert.deepEqual(legacy, base);
+  assert.deepEqual(runtimeEvidenceGraphDiagnostics, [{ scenario: "post_reject", reason: "unsupported_version" }]);
+});
+
 function confirmedPacket() {
   return {
     ...basePacket(),
@@ -72,6 +81,25 @@ function confirmedPacket() {
       method: "local_fixture_recipe" as const,
       confidence: 1,
       recipeId: "fixture-direct-reject-v1",
+    },
+    actionControlProof: {
+      contractVersion: "certscore.consent_action_control_proof.v1" as const,
+      action: "reject" as const,
+      observedAtMs: 8,
+      accessibleLabel: "Reject all",
+      labelSource: "visible_text" as const,
+      actionSemantics: "direct_label" as const,
+      classifierIntent: "reject" as const,
+      classifierConfidence: 1,
+      matchedLocale: "en" as const,
+      matchStrength: "direct" as const,
+      classifierReasonCodes: ["exact_reject_label"],
+      cmpId: "fixture",
+      recipeId: "fixture-direct-reject-v1",
+      selectorHint: "#reject-all",
+      visible: true as const,
+      enabled: true as const,
+      uniquelyActionable: true as const,
     },
     refusalRegistration: {
       status: "confirmed" as const,
@@ -96,6 +124,39 @@ function confirmedPacket() {
   };
 }
 
+test("legacy confirmed Reject evidence without verified control proof projects as indeterminate", () => {
+  const { actionControlProof: _omitted, ...legacyPacket } = confirmedPacket();
+  const projection = projectPostRefusalEvidenceForReport({
+    packet: postRefusalEvidencePacketSchema.parse(legacyPacket),
+  });
+
+  assert.equal(projection.evidenceDisposition, "indeterminate");
+  assert.equal(projection.indeterminateReason, "verified_action_control_proof_missing");
+  assert.equal(projection.productionProjectable, false);
+});
+
+test("Reject materialization retains explicit completed protocol evidence independently from confirmation", () => {
+  const base = confirmedPacket();
+  const packet = postRefusalEvidencePacketSchema.parse({ ...base,
+    decisionEvidence: { policyVersion: "semantic_consent_registration.v2", decision: "denied", basis: "verified_state",
+      observedAtMs: 15, observedStateSha256: "a".repeat(64), timestampBasis: "verified_state_observed" },
+    captureCoverage: { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 0 },
+    timing: { ...base.timing, observationMs: 250, readyAtMs: 265, totalMs: 265, observationExitReason: "window_elapsed" },
+  });
+  const projection = projectPostRefusalEvidenceForReport({ packet, packetSha256: "a".repeat(64) });
+  assert.equal(projection.execution?.status, "succeeded_with_confirmation");
+  assert.deepEqual(projection.registeredObservationCompletion, {
+    policyVersion: "registered_action_observation_completion.v1", action: "reject", startedAtMs: 15,
+    completedAtMs: 265, requiredWindowMs: 250, termination: "window_elapsed",
+  });
+  assert.deepEqual(postRefusalReportProjectionSchema.parse(JSON.parse(JSON.stringify(projection))), projection);
+  const incomplete = projectPostRefusalEvidenceForReport({ packet: { ...packet, timing: {
+    ...packet.timing, observationExitReason: undefined,
+  } }, packetSha256: "a".repeat(64) });
+  assert.equal(incomplete.execution?.status, "limited");
+  assert.equal(incomplete.execution?.consentConfirmed, true);
+});
+
 test("post-refusal evidence stays score-ineligible when refusal is unconfirmed", () => {
   const result = postRefusalEvidencePacketSchema.safeParse({
     ...basePacket(),
@@ -114,6 +175,22 @@ test("interaction diagnostics are typed and retain no raw browser error text", (
   const parsed = postRefusalEvidencePacketSchema.parse({
     ...basePacket(),
     interactionDiagnostics: {
+      resolver: {
+        snapshots: [{
+          attempt: 1,
+          elapsedMs: 25,
+          source: "named_recipe",
+          state: "control_hidden",
+          selectorMatchCount: 1,
+          visibleCount: 0,
+          enabledCount: 1,
+          labelMatchCount: 1,
+          actionableCount: 0,
+          cmpIds: ["OneTrust"],
+          controlLabels: ["reject all"],
+        }],
+        truncated: false,
+      },
       navigation: {
         outcome: "recovered_after_error",
         failureClass: "navigation_replaced",
@@ -131,6 +208,38 @@ test("interaction diagnostics are typed and retain no raw browser error text", (
   });
 
   assert.equal(parsed.interactionDiagnostics?.navigation.failureClass, "navigation_replaced");
+  assert.equal(parsed.interactionDiagnostics?.resolver?.snapshots[0]?.state, "control_hidden");
+  assert.equal(postRefusalEvidencePacketSchema.safeParse({
+    ...basePacket(),
+    interactionDiagnostics: {
+      navigation: {
+        outcome: "failed",
+        documentCommitted: false,
+        finalUrlAuthorized: false,
+      },
+      click: {
+        outcome: "not_attempted",
+        reResolvedBeforeDispatch: false,
+        confirmationCheckedAfterError: false,
+      },
+      resolver: {
+        snapshots: Array.from({ length: 13 }, (_, index) => ({
+          attempt: index + 1,
+          elapsedMs: index,
+          source: "named_recipe",
+          state: "selector_absent",
+          selectorMatchCount: 0,
+          visibleCount: 0,
+          enabledCount: 0,
+          labelMatchCount: 0,
+          actionableCount: 0,
+          cmpIds: [],
+          controlLabels: [],
+        })),
+        truncated: true,
+      },
+    },
+  }).success, false);
   assert.equal(postRefusalEvidencePacketSchema.safeParse({
     ...basePacket(),
     interactionDiagnostics: {
@@ -195,25 +304,27 @@ test("Lambda reject dispatch is bounded and requires explicit interaction author
   }).success, false);
 });
 
-test("normal sharded reject dispatch binds the canonical resolver to an exact scan target", () => {
+test("normal sharded reject dispatch requires bounded resolution before exact scan-target authorization", () => {
   const valid = postRefusalLambdaDispatchConfigSchema.parse({
     enabled: true,
     rolloutMode: "all_eligible",
     resolver: {
       kind: "canonical_cmp_registry",
-      recipeSetId: "canonical-consent-control-reject-v8",
+      recipeSetId: "canonical-consent-control-reject-v9",
     },
     interactionAuthorization: {
-      authorizationId: "sharded_scan_exact_target.v1",
-      kind: "scan_target",
-      normalizedUrl: "https://example.com/privacy?region=ca",
+      authorizationId: "sharded_scan_resolved_exact_target.v2",
+      kind: "scan_target_resolution",
+      maxRedirects: 5,
+      requestedUrl: "https://example.com/privacy?region=ca",
+      resolutionTimeoutMs: 1_500,
       scanId: "scan-123",
     },
   });
 
   assert.equal(valid.resolver.kind, "canonical_cmp_registry");
   assert.equal(valid.rolloutMode, "all_eligible");
-  assert.equal(valid.interactionAuthorization.kind, "scan_target");
+  assert.equal(valid.interactionAuthorization.kind, "scan_target_resolution");
   assert.equal(postRefusalLambdaDispatchConfigSchema.safeParse({
     ...valid,
     interactionAuthorization: {
@@ -388,6 +499,67 @@ test("storage persistence and writes must bind to retained snapshots and the ref
   assert.equal(result.success, false);
 });
 
+test("exact post-refusal storage-write identity survives canonical report projection", () => {
+  const storageIdentityHash = "e".repeat(64);
+  const postActionItem = {
+    storageType: "cookie" as const,
+    name: "_ga",
+    hostname: "example.test",
+    identityBasis: "cookie_name_domain_path_partition" as const,
+    identityHash: storageIdentityHash,
+    valueHash: "b".repeat(64),
+    vendor: "Google",
+    purpose: "analytics" as const,
+    nonEssential: true,
+  };
+  const write = {
+    storageType: "cookie" as const,
+    name: "_ga",
+    hostname: "example.test",
+    storageIdentityHash,
+    observedAtMs: 25,
+    msOffsetFromRefusal: 10,
+    evidenceSource: "instrumented_write" as const,
+    vendor: "Google",
+    purpose: "analytics" as const,
+    nonEssential: true,
+  };
+  const packet = postRefusalEvidencePacketSchema.parse({
+    ...confirmedPacket(),
+    storage: {
+      preActionCapturedAtMs: 5,
+      postActionCapturedAtMs: 30,
+      preAction: [],
+      postAction: [postActionItem],
+      writesAfterRefusal: [write],
+      nonEssentialItemsPersistingAfterRefusal: [],
+    },
+    observations: [{
+      observationType: "post_refusal_non_essential_activity",
+      observedAtMs: 25,
+      hostname: "example.test",
+      storageType: "cookie",
+      storageName: "_ga",
+      storageIdentityHash,
+      msOffsetFromRefusal: 10,
+      vendor: "Google",
+      evidenceKeys: ["confirmed_refusal_registration", "storage_write_after_refusal"],
+    }],
+  });
+
+  assert.equal(
+    projectPostRefusalEvidenceForReport({ packet }).postRefusalActivity[0]?.storageIdentityHash,
+    storageIdentityHash,
+  );
+  assert.equal(postRefusalEvidencePacketSchema.safeParse({
+    ...packet,
+    storage: {
+      ...packet.storage,
+      postAction: [{ ...postActionItem, identityHash: "f".repeat(64) }],
+    },
+  }).success, false);
+});
+
 test("persisted-storage observations bind to the exact post-action snapshot row", () => {
   const identityHash = "d".repeat(64);
   const item = {
@@ -450,6 +622,22 @@ test("persisted-storage observations bind to the exact post-action snapshot row"
     storage,
     observations: [{ ...observation, storageValueHash: "e".repeat(64) }],
   }).success, false);
+
+  const unnamedItem = { ...item, name: "" };
+  const unnamedPacket = {
+    ...confirmedPacket(), artifactVersion: "certscore.post_refusal_evidence.v2",
+    decisionEvidence: { policyVersion: "semantic_consent_registration.v2", decision: "denied",
+      observedStateSha256: "a".repeat(64), basis: "verified_state", observedAtMs: 15, timestampBasis: "instrumented_state_write" },
+    captureCoverage: { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 0 },
+    storage: { ...storage, preAction: [unnamedItem], postAction: [unnamedItem], nonEssentialItemsPersistingAfterRefusal: [unnamedItem] },
+    observations: [{ ...observation, storageName: "" }],
+  };
+  const retained = postRefusalEvidencePacketSchema.parse(unnamedPacket);
+  const projection = projectPostRefusalEvidenceForReport({ packet: retained, packetSha256: "f".repeat(64) });
+  assert.equal(projection.preConsentStorageNotCleared[0]?.name, "");
+  assert.equal(projection.preConsentStorageNotCleared[0]?.storageIdentityHash, identityHash);
+  assert.equal(projection.packetSha256, "f".repeat(64));
+  assert.equal(postRefusalEvidencePacketSchema.safeParse({ ...unnamedPacket, artifactVersion: "certscore.post_refusal_evidence.v1" }).success, false);
 });
 
 test("legacy persistence rows without exact identity remain parseable but are not report-projectable", () => {
@@ -597,4 +785,52 @@ test("embedded evidence descriptor status and observation counts must agree exac
     observationCount: 0,
     status: "confirmed_observation",
   }).success, false);
+});
+test("v2 refusal confirmation requires semantic decision, anchored time, and bounded capture", () => {
+  const packet = {
+    ...confirmedPacket(), artifactVersion: "certscore.post_refusal_evidence.v2",
+    decisionEvidence: { policyVersion: "semantic_consent_registration.v2", decision: "denied",
+      observedStateSha256: "a".repeat(64),
+      basis: "verified_state", observedAtMs: 15, timestampBasis: "instrumented_state_write" },
+    captureCoverage: { requestsDroppedBeforeAction: 2, requestsDroppedAfterAction: 0 },
+  };
+  const parsed = postRefusalEvidencePacketSchema.parse(packet);
+  const projection = projectPostRefusalEvidenceForReport({ packet: parsed, packetSha256: "b".repeat(64) });
+  assert.deepEqual(projection.decisionEvidence, packet.decisionEvidence);
+  assert.deepEqual(projection.captureCoverage, packet.captureCoverage);
+  assert.equal(projection.packetSha256, "b".repeat(64));
+  assert.equal(postRefusalReportProjectionSchema.safeParse({ ...projection,
+    decisionEvidence: { ...projection.decisionEvidence, decision: "granted" } }).success, false);
+  assert.equal(postRefusalEvidencePacketSchema.safeParse({ ...packet,
+    decisionEvidence: { ...packet.decisionEvidence, observedStateSha256: "c".repeat(64) } }).success, false);
+  for (const decision of ["granted", "mixed", "unknown"]) {
+    assert.equal(postRefusalEvidencePacketSchema.safeParse({ ...packet,
+      decisionEvidence: { ...packet.decisionEvidence, decision } }).success, false);
+  }
+  for (const evidence of [undefined, { ...packet.decisionEvidence, observedAtMs: 999 },
+    { ...packet.decisionEvidence, timestampBasis: undefined }, { ...packet.decisionEvidence, basis: "unverified" }]) {
+    assert.equal(postRefusalEvidencePacketSchema.safeParse({ ...packet, decisionEvidence: evidence }).success, false);
+  }
+  assert.equal(postRefusalEvidencePacketSchema.safeParse({ ...packet,
+    captureCoverage: { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 1 } }).success, false);
+  assert.equal(postRefusalEvidencePacketSchema.safeParse({ ...packet, productionProjectable: false,
+    captureCoverage: { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 1 } }).success, true);
+});
+
+test("legacy refusal UI and opaque-receipt proof remain readable but project neutrally", () => {
+  for (const expectedState of ["consent_surface_hidden", "canonical_cmp_consent_state_changed_after_reject", "canonical_consent_refusal_state_written_after_action"]) {
+    const packet = confirmedPacket();
+    const legacy = postRefusalEvidencePacketSchema.parse({ ...packet,
+      refusalRegistration: { ...packet.refusalRegistration, witnesses: [{
+        ...packet.refusalRegistration.witnesses[0], expectedState,
+      }] },
+    });
+    const projection = projectPostRefusalEvidenceForReport({ packet: legacy });
+    assert.equal(projection.productionProjectable, false);
+    assert.equal(projection.refusalExercised, false);
+    assert.equal(projection.registrationStatus, "unconfirmed");
+    assert.equal(projection.observationCount, 0);
+    assert.deepEqual(projection.postRefusalActivity, []);
+    assert.equal(legacy.refusalRegistration.status, "confirmed");
+  }
 });

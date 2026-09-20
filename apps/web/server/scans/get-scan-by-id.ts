@@ -1,4 +1,5 @@
 "use server";
+import { applyRuntimeGraphPresentationSwitch } from "./runtime-evidence-graph-projection";
 
 import { policyModelReviewArtifactSchema } from "@certscore/contracts";
 import {
@@ -43,6 +44,7 @@ import {
   type PersistedNanoSignalRow
 } from "../../lib/scans/nano-policy-signals";
 import { deriveRuntimeVendorDisclosureEvidenceFromRetainedSources } from "../../lib/scans/runtime-vendor-disclosure";
+import { buildTrackerVendorObservationIdentityKey } from "../../lib/scans/tracker-vendor-observation-identity";
 import { getPrimaryPolicyEnrichmentRow, getPolicyPageType } from "../../lib/scans/policy-enrichment-row";
 import { buildMergedSignalRecords } from "../../lib/scans/merged-signals";
 import { isPlatformAdminEmail } from "../admin/platform-admin";
@@ -653,7 +655,7 @@ function buildScannerSignalPopulationRecords(input: {
         }
       ],
       reportSignalSource:
-        signal.key.startsWith("privacy.") && /reject_reduced|weak_cookie_security|gpc_signal_not_honored/i.test(signal.key)
+        signal.key.startsWith("privacy.") && /reject_reduced|weak_cookie_security|gpc_response/i.test(signal.key)
           ? "runtime_artifact_signal"
           : signal.key.startsWith("privacy.") ||
               signal.key.startsWith("commerce.") ||
@@ -1022,7 +1024,7 @@ async function loadScanDetailRecord(input: {
   const normalizedTrackerVendors = [
     ...new Map(
       [...persistedTrackerVendors, ...runtimeDerivedTrackerVendors].map((tracker) => [
-        `${tracker.vendorName}|${tracker.detectionSource}|${tracker.scriptHost ?? ""}`,
+        buildTrackerVendorObservationIdentityKey(tracker),
         tracker
       ])
     ).values()
@@ -1336,10 +1338,10 @@ async function loadScanDetailRecord(input: {
           runtimeVendorDisclosureEvidence: runtimeVendorDisclosureEvidence
         }
       : modelReviewBackedRuntimeArtifacts;
-  const reportRuntimeArtifacts = withPersistedFirstLayerConsentEvidence(
+  const reportRuntimeArtifacts = applyRuntimeGraphPresentationSwitch(withPersistedFirstLayerConsentEvidence(
     vendorDisclosureRuntimeArtifacts,
     normalizedSnapshot
-  );
+  ), process.env);
   const hybridRuntimeSignalPopulations = getHybridNanoSignalPopulations(reportRuntimeArtifacts).map((signal) => ({
     ...signal,
     observedAt: signal.observedAt ?? scanObservedAt,

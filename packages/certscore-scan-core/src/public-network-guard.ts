@@ -101,6 +101,8 @@ export async function guardedPublicFetch(
     env?: Record<string, string | undefined>;
     fetchImpl?: typeof fetch;
     maxRedirects?: number;
+    /** Return a redirect without opening its destination. Default remains guarded follow. */
+    returnRedirectResponse?: boolean;
     resolver?: PublicNetworkResolver;
   } = {},
 ) {
@@ -113,8 +115,10 @@ export async function guardedPublicFetch(
     }
     const response = await fetchImpl(target, { ...init, redirect: "manual" });
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    if (options.returnRedirectResponse) return response;
     const location = response.headers.get("location");
     if (!location || redirectCount >= maxRedirects) {
+      await response.body?.cancel().catch(() => undefined);
       throw new PublicNetworkGuardError();
     }
     await response.body?.cancel().catch(() => undefined);

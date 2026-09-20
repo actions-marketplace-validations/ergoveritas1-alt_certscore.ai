@@ -583,6 +583,24 @@ test("classifies Portuguese Preferências only with retained consent context", (
   );
 });
 
+test("classifies explicit Portuguese refusal wording only in retained consent context", () => {
+  const withoutContext = classifyConsentControlLabel({
+    label: "Rejeitar cookies",
+    localeHints: ["pt"],
+  });
+  assert.equal(withoutContext.intent, "unknown");
+
+  const withContext = classifyConsentControlLabel({
+    label: "Rejeitar cookies",
+    contextText: "Usamos cookies para melhorar a experiência. Escolha suas preferências.",
+    localeHints: ["pt"],
+  });
+  assert.equal(withContext.intent, "reject");
+  assert.equal(withContext.matchStrength, "direct");
+  assert.equal(withContext.matchedTerm, "rejeitar cookies");
+  assert.equal(withContext.contextSatisfied, true);
+});
+
 test("classifies observed Danish and Lithuanian consent labels", () => {
   const danishAccept = classifyConsentControlLabel({
     label: "Acceptér alle",
@@ -777,9 +795,8 @@ test("classifies observed French reject-all cookie labels", () => {
   const compositeSubscriptionChoice = classifyConsentControlLabel({
     label: "Accepter les cookies ou Refuser et s'abonner",
   });
-  assert.equal(compositeSubscriptionChoice.intent, "reject");
-  assert.equal(compositeSubscriptionChoice.variant, "reject_with_subscription");
-  assert.equal(compositeSubscriptionChoice.matchedTerm, "refuser et s'abonner");
+  assert.equal(compositeSubscriptionChoice.intent, "unknown");
+  assert.ok(compositeSubscriptionChoice.reasonCodes.includes("conflicting_consent_decisions"));
 });
 
 test("classifies necessary-only labels as reject-equivalent", () => {
@@ -810,6 +827,26 @@ test("classifies Dutch and Polish necessary-only labels in both profiles", () =>
     assert.equal(classification.matchStrength, "equivalent");
     assert.equal(classification.variant, "necessary_only");
   }
+});
+
+test("keeps Polish Akceptuj niezbędne on the necessary-only refusal path", () => {
+  const withoutContext = classifyConsentControlLabel({
+    label: "Akceptuj niezbędne",
+    localeHints: ["pl"],
+  });
+  assert.equal(withoutContext.intent, "reject");
+  assert.equal(withoutContext.variant, "necessary_only");
+
+  const withContext = classifyConsentControlLabel({
+    label: "Akceptuj niezbędne",
+    contextText: "Używamy plików cookie. Wybierz ustawienia prywatności.",
+    localeHints: ["pl"],
+  });
+  assert.equal(withContext.intent, "reject");
+  assert.equal(withContext.semanticRole, "necessary_only");
+  assert.equal(withContext.variant, "necessary_only");
+  assert.equal(withContext.matchedTerm, "akceptuj niezbędne");
+  assert.notEqual(withContext.intent, "accept");
 });
 
 test("classifies decline non-essential cookies as reject", () => {
@@ -891,16 +928,15 @@ test("keeps the audited vocabulary represented across every supported locale", (
   }
 });
 
-test("classifies short non-essential reject labels in concatenated banner text", () => {
+test("classifies standalone non-essential refusal but withholds conflicting concatenated labels", () => {
   const standalone = classifyConsentControlLabel({ label: "Reject Non-Essential" });
   assert.equal(standalone.intent, "reject");
   assert.equal(standalone.matchedTerm, "reject non-essential");
   assert.equal(standalone.matchStrength, "direct");
 
   const concatenated = classifyConsentControlLabel({ label: "Save Accept All Reject Non-Essential" });
-  assert.equal(concatenated.intent, "reject");
-  assert.equal(concatenated.matchedTerm, "reject non-essential");
-  assert.equal(concatenated.matchStrength, "direct");
+  assert.equal(concatenated.intent, "unknown");
+  assert.ok(concatenated.reasonCodes.includes("conflicting_consent_decisions"));
 });
 
 test("classifies category-scoped analytics controls without broadening plain category labels", () => {
@@ -1015,8 +1051,8 @@ test("keeps generic contextual phrases bounded to complete control labels", () =
     label: "Learn more",
     contextText: "We use cookies. Choose your privacy preferences.",
   });
-  assert.equal(boundedControl.intent, "options");
-  assert.equal(boundedControl.matchStrength, "contextual");
+  assert.equal(boundedControl.intent, "unknown");
+  assert.ok(boundedControl.reasonCodes.includes("ambiguous_information_control"));
 });
 
 test("page prose cannot establish a consent surface from generic contextual phrases", () => {
@@ -1072,9 +1108,23 @@ test("schemas accept bounded classifier metadata", () => {
 test("recognizes restored German, French, Italian, and Polish consent labels", () => {
   const german = classifyConsentControlLabel({ label: "Nur notwendige", contextText: "Wir verwenden Cookies" });
   assert.equal(german.intent, "reject");
+  assert.equal(german.matchStrength, "equivalent");
+  assert.equal(german.confidence, 0.9);
   assert.equal(classifyConsentControlLabel({ label: "Non merci", contextText: "Nous utilisons des cookies" }).intent, "reject");
   assert.equal(classifyConsentControlLabel({ label: "Solo cookie tecnici" }).intent, "reject");
   const polish = classifyConsentControlLabel({ label: "Dostosuj zgody", classifierProfile: "multilingual_v1" });
   assert.equal(polish.intent, "options");
   assert.equal(isProductionCreditworthySupplementalConsentControlClassification("Dostosuj zgody", polish), true);
+});
+
+test("reviewed refusal observations retain full-phrase meaning without broadening actions", () => {
+  for (const label of ["Accept only essential", "NUR ESSENTIELLE COOKIES AKZEPTIEREN", "Nein Danke.", "Alles afwijzen", "Отказаться"]) {
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true, usage: "observation" }).intent, "reject", label);
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true, usage: "action" }).intent, "unknown", label);
+  }
+  assert.equal(classifyConsentControlLabel({ label: "Nein Danke.", ariaLabel: "dismiss cookie message", hasConsentContext: true, usage: "observation" }).intent, "reject");
+  assert.equal(classifyConsentControlLabel({ label: "Reject all", ariaLabel: "Accept all", hasConsentContext: true }).intent, "unknown");
+  for (const label of ["Learn how to reject all", "Do not accept only essential", "Accept only essential or accept all"]) {
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true }).intent, "unknown", label);
+  }
 });

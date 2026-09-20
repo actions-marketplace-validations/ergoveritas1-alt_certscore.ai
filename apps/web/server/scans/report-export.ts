@@ -1,5 +1,7 @@
+import type { FullSiteReportExport } from "./full-site-report";
 import {
   consentControlAssessmentSchema,
+  SITE_INTEGRITY_FINDING_ID,
   type CollectionSurfaceAssessment,
 } from "@certscore/contracts";
 import {
@@ -10,6 +12,7 @@ import {
 import type { ScanDetailResponse } from "./get-scan-by-id";
 import { getPersistedCanonicalReportProjection } from "./persisted-canonical-report-projection";
 import { isGdprTransparencyReportRowId } from "../../lib/scans/gdpr-transparency-report-contract";
+import { selectSiteIntegrityFinding } from "../../lib/scans/site-integrity-report";
 
 export const CANONICAL_REPORT_EXPORT_VERSION = "canonical-report-export-v5" as const;
 const MAX_APPENDIX_INVENTORY_ROWS = 500;
@@ -156,9 +159,11 @@ function buildRuntimeAppendix(scanRecord: ScanDetailResponse, normalizedConcerns
     presentationStatus: presentation.status,
     presentationMessage: presentation.message,
     summary: {
+      inventoryMetrics: projection.inventorySummary,
       totalRows: projection.ungroupedRows.length,
       includedRows: retainedRows.length,
       omittedRows: Math.max(0, projection.ungroupedRows.length - retainedRows.length),
+      storageRows: projection.storageRows.length,
       cookieRows: projection.ungroupedRows.filter((row) => row.type === "cookie").length,
       trackerRows: projection.ungroupedRows.filter((row) => row.type === "tracker").length,
       groupedEntities: projection.groupedRows.length,
@@ -173,6 +178,8 @@ function buildRuntimeAppendix(scanRecord: ScanDetailResponse, normalizedConcerns
       evidenceClassification: classifyInventoryEvidence(row),
       firstSeenMs: row.firstSeenMs,
       preConsent: row.preConsent,
+      storageDetails: row.storageDetails,
+      resourceNames: row.type === "cookie" ? row.cookieNames : row.rawProducts,
       cookieNames: row.cookieNames.slice(0, MAX_APPENDIX_ARRAY_ITEMS),
       domains: row.domains.slice(0, MAX_APPENDIX_ARRAY_ITEMS),
       confidence: row.confidence,
@@ -190,6 +197,7 @@ function buildRuntimeAppendix(scanRecord: ScanDetailResponse, normalizedConcerns
       attributionSignatures: row.attributionSignatures.slice(0, MAX_APPENDIX_ARRAY_ITEMS),
       regulatoryRelevance: row.regulatoryRelevance.slice(0, MAX_APPENDIX_ARRAY_ITEMS),
       requestDetails: (row.requestDetails ?? []).slice(0, 20).map((request) => ({
+        ...(request.resourceRole ? { resourceRole: request.resourceRole } : {}),
         method: request.method,
         hostname: request.hostname,
         path: request.path,
@@ -291,14 +299,16 @@ function buildDataCollectionSurfacesAppendix(
   };
 }
 
-export function buildCanonicalReportExport(scanRecord: ScanDetailResponse) {
+export function buildCanonicalReportExport(scanRecord: ScanDetailResponse, fullSite?: FullSiteReportExport) {
   const canonical = getPersistedCanonicalReportProjection(scanRecord);
   if (!canonical) return null;
   const assessment = consentAssessment(scanRecord);
   const findings = canonical.ownerUnifiedFindings as Array<Record<string, unknown>>;
+  const siteIntegrity = selectSiteIntegrityFinding(canonical.ownerUnifiedFindings);
   const normalizedConcerns = canonical.normalizedConcerns as Array<Record<string, unknown>>;
 
   return {
+    ...(fullSite ? { fullSite } : {}),
     artifactType: "certscore_canonical_report_export",
     artifactVersion: CANONICAL_REPORT_EXPORT_VERSION,
     generatedAt: new Date().toISOString(),
@@ -318,7 +328,7 @@ export function buildCanonicalReportExport(scanRecord: ScanDetailResponse) {
     executiveSummary: buildExecutiveSummary({
       assessment,
       checklistPresentation: canonical.checklistPresentation,
-      findings,
+      findings: findings.filter(finding => finding.unifiedFindingId !== SITE_INTEGRITY_FINDING_ID),
     }),
     gdprEprivacyReview: canonical.checklistPresentation
       ? {
@@ -355,6 +365,8 @@ export function buildCanonicalReportExport(scanRecord: ScanDetailResponse) {
       })),
     ],
     appendix: {
+      ...(siteIntegrity ? { siteIntegrity } : {}),
+      ...(fullSite?.score?.siteIntegrity ? { siteIntegritySite: fullSite.score.siteIntegrity } : {}),
       cookieAndTrackerInventory: buildRuntimeAppendix(scanRecord, normalizedConcerns),
       dataCollectionSurfaces: buildDataCollectionSurfacesAppendix(
         canonical.collectionSurfaceAssessment ?? null,

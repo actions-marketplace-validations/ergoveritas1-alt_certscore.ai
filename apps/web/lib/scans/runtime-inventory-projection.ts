@@ -1,6 +1,14 @@
+import { getPersistedCanonicalReportProjection } from "../../server/scans/persisted-canonical-report-projection";
+import { preConsentBrowserStorageProjectionSchema } from "@certscore/contracts";
+import { INVENTORY_METRIC_LABELS, inventoryMetricFamily } from "./inventory-resource-semantics";
 import { getDomain as getTldtsDomain, getHostname as getTldtsHostname } from "tldts";
+import { apiRuntimeEvidenceGraphProjectionSchema } from "@certscore/api-contracts";
+import { z } from "zod";
 import {
   isCanonicalIdSyncEndpoint,
+  resolveCanonicalServicePurpose,
+  resolveCanonicalVendorLabel,
+  resolveCanonicalResourceRole,
   resolveCanonicalVendorLegalContext
 } from "@certscore/vendor-resolver";
 import {
@@ -35,7 +43,7 @@ import type { ScanDetailResponse } from "../../server/scans/get-scan-by-id";
 export type ConsentReviewPriority = RuntimeCookieReviewPriority;
 export type InventoryConfidence = RuntimeCookieInventoryConfidence;
 export type InventoryMacroCategory = "Advertising" | "Analytics" | "Essential" | "Functional" | "Review";
-export type InventoryEvidenceClassification = "Contextual" | "Essential" | "Non-essential" | "Review";
+export type InventoryEvidenceClassification = "Contextual" | "Essential" | "Non-essential" | "Review" | "Unclassified";
 export type InventorySiteRelationship = "same_site" | "cross_site" | "mixed" | "unknown";
 export type InventoryEntityRelationship = "same_entity" | "affiliated_entity" | "external_entity" | "mixed" | "unknown";
 
@@ -62,6 +70,8 @@ export type PreConsentDataFlow = {
 };
 
 export type SanitizedRequestEvidenceRow = {
+  resourceType?: string | null;
+  resourceRole?: "video_ad_sdk";
   cookieNamesSent: string[];
   essentiality: "non_essential" | "unknown";
   hostname: string | null;
@@ -162,7 +172,9 @@ export type InventoryGroupRow = {
   setByThirdPartyScript: boolean;
   syncedIdentifiers?: string[];
   timingEvidence?: RuntimeCookieEvidenceRow["timingEvidence"] | "mixed";
-  type: "cookie" | "tracker";
+  type: "cookie" | "tracker" | "embed" | "storage";
+  storageDetails?: { storageType: "localStorage" | "sessionStorage"; key: string; origin: string | null; identityBasis: "retained_scan_type_key" | "origin_type_key"; sourceHash: string; evidenceRefs: string[] };
+  embedDetails?: Array<{ frameUrl: string; firstSeenMs: number; source: string }>;
   vendor: string;
 };
 
@@ -221,6 +233,13 @@ export function getInventoryGroupRowRenderKey(
   ]);
 }
 
+export function getInventoryObservationNames(
+  row: Pick<InventoryGroupRow, "cookieNames" | "rawProducts" | "type">
+) {
+  const retainedNames = row.type === "cookie" ? row.cookieNames : row.rawProducts;
+  return uniqueStrings(retainedNames.map((name) => name.trim()));
+}
+
 type ReportVendorSurfaceProjectionInput = {
   rawThirdPartyDomains: string[];
   resolvedVendorNames: string[];
@@ -274,7 +293,11 @@ export function buildSanitizedRequestEvidenceRows(
   return getObjectArray(
     hybridRuntimeEvidence?.requestPurposeClassificationConfidence ??
     hybridRuntimeEvidence?.request_purpose_classification_confidence
-  ).slice(0, 50).map((row) => ({
+  ).slice(0, 50).map((row): SanitizedRequestEvidenceRow => {
+    const resourceRole = resolveCanonicalResourceRole({ type: "request", url: getOptionalString(row, "requestUrl") ?? undefined });
+    return {
+    ...(resourceRole ? { resourceRole } : {}),
+    ...(getOptionalString(row, "resourceType") ? { resourceType: getOptionalString(row, "resourceType") } : {}),
     cookieNamesSent: getRecordStringArray(row, "cookieNamesSent").slice(0, 24),
     essentiality: row.essentiality === "non_essential" ? "non_essential" : "unknown",
     hostname: normalizeInventoryHostname(getOptionalString(row, "hostname") ?? getOptionalString(row, "requestUrl")),
@@ -286,7 +309,8 @@ export function buildSanitizedRequestEvidenceRows(
     responseObserved: row.responseObserved === true,
     responseStorageAttempted: row.responseStorageAttempted === true,
     vendor: getOptionalString(row, "vendor") ?? getOptionalString(row, "vendorName"),
-  }));
+    };
+  });
 }
 
 export function buildPreConsentDataFlows(
@@ -461,8 +485,10 @@ function canonicalTrackerGroupLabel(value: string, purpose: string, domains: str
   if (/^jsdelivr(?: cdn)?$/.test(normalized)) {
     return "jsDelivr CDN";
   }
-  if (/^cloudflare(?: bot management)?$/.test(normalized)) {
-    return "Cloudflare Bot Management";
+  if (normalized === "cloudflare") {
+    const products = uniqueStrings(domains.map((domain) => findRuntimeEntityOwner(domain)?.product));
+    // A corporate name is not a product identity. Use exact retained hosts only.
+    return products.length === 1 ? products[0]! : value;
   }
   if (/^(?:google publisher tag|google ads \/ doubleclick|doubleclick|google ads)$/.test(normalized) && /advertising/i.test(purpose)) {
     return "Google Ads / DoubleClick";
@@ -702,7 +728,12 @@ export function buildTrackerInventoryRows(input: {
     return "third_party";
   };
   const addRow = (row: TrackerInventoryRow) => {
-    const key = `${row.label.toLowerCase()}\u0000${row.category.toLowerCase()}\u0000${row.domains.join("|") || "no-domain"}`;
+    const key = [
+      row.label.toLowerCase(),
+      row.category.toLowerCase(),
+      row.domains.join("|") || "no-domain",
+      row.attributionEvidence?.signatureId ?? "no-retained-signature",
+    ].join("\u0000");
     const existing = rows.get(key);
     if (!existing) {
       rows.set(key, row);
@@ -778,8 +809,16 @@ export function buildTrackerInventoryRows(input: {
       "cookie_names"
     ]);
     const identity = resolveTrackerIdentity({ category: tracker.vendorCategory || "tracker", domains: matchedDomains, source: tracker.detectionSource, vendorName: tracker.vendorName });
+    const matchedSignatureId = getOptionalString(record, "matchedSignatureId") ??
+      getOptionalString(record, "matched_signature_id");
     addRow({
-      attributionEvidence: identity.attributionEvidence,
+      attributionEvidence: matchedSignatureId
+        ? {
+            matchedOn: "retained_signature",
+            matchedValue: matchedSignatureId,
+            signatureId: matchedSignatureId,
+          }
+        : identity.attributionEvidence,
       category: identity.category,
       confidence: identity.confidence ?? (typeof tracker.confidence === "number" && Number.isFinite(tracker.confidence) ? tracker.confidence : null),
       cookieNames: matchedCookieNames,
@@ -910,56 +949,10 @@ export function getInventoryCategoryLabel(
     return "Unknown";
   }
 
-  const label = vendorLabel.toLowerCase();
-  if (/google sign.?in|accounts\.google|gsi\/client/.test(label)) {
-    return "Authentication";
-  }
-  if (/stripe/.test(label)) {
-    return "Payment processors";
-  }
-  if (/cloudflare bot management|cf_chl|cf_clearance|__cf_bm|cloudflare/.test(label)) {
-    return "Security";
-  }
-  if (/doubleclick floodlight|floodlight|fls\.doubleclick/.test(label)) {
-    return "Advertising";
-  }
-  if (/google adsense|adsbygoogle|pagead2/.test(label)) {
-    return "Advertising";
-  }
-  if (/google publisher tag|googletag|gpt\.js|securepubads/.test(label)) {
-    return "Advertising";
-  }
-  if (/integral ad science|ias/.test(label)) {
-    return "Advertising";
-  }
-  if (/assets\.adobedtm\.com|adobe experience platform launch|adobe launch|adobe dtm/.test(label)) {
-    return "Tag management";
-  }
-  if (/jsdelivr|cdn\.jsdelivr\.net/.test(label)) {
-    return "CDN";
-  }
-  if (/cookieyes|cookielawinfo|viewed_cookie_policy/.test(label)) {
-    return "Consent management";
-  }
-  if (/onetrust|(?:^|\.)cookielaw\.org|optanon/.test(label)) {
-    return "Cookie compliance";
-  }
-  if (/optimizely/.test(label)) {
-    return "A/B Testing";
-  }
-  if (/piano|tinypass/.test(label)) {
-    return "Personalisation";
-  }
-  if (/cxense/.test(label)) {
-    return "Personalisation";
-  }
-  if (/quantcast/.test(label)) {
-    return "Analytics";
-  }
-  if (/gemius/.test(label)) return "Audience measurement";
-  if (/ad alliance/.test(label)) return "Advertising";
-  if (/green.?video/.test(label)) return "Embedded content";
-  if (/sourcepoint|privacy-mgmt/.test(label)) return "Cookie compliance";
+  // Precise identity and aliases belong to the registry. Substring guesses such
+  // as "ias" also classified unrelated labels (e.g. "Bias") as advertising.
+  const canonical = resolveCanonicalVendorLabel(vendorLabel);
+  if (canonical && canonical.displayCategory !== "Unknown") return canonical.displayCategory;
   return normalizeInventoryLabel(fallbackCategory || "unknown");
 }
 
@@ -982,7 +975,7 @@ export function deriveInventoryMacroCategory(input: {
   vendor?: string | null;
 }): InventoryMacroCategory {
   const purpose = normalizeInventoryPurpose(input.purpose);
-  const vendor = (input.vendor ?? "").toLowerCase();
+  const relevance = resolveCanonicalVendorLabel(input.vendor)?.regulatoryRelevance ?? [];
 
   if (/^(advertising|advertising_measurement|retargeting|fingerprinting|marketing_automation)$/.test(purpose)) {
     return "Advertising";
@@ -997,7 +990,7 @@ export function deriveInventoryMacroCategory(input: {
     return "Functional";
   }
   if (/^(cdn|cdn_static)$/.test(purpose)) {
-    return /instagram|vimeo|maps|font|sportradar|trustmary|iterate|medallia|piano|usable|jw player/.test(vendor)
+    return relevance.some(value => ["font_delivery", "embedded_content", "social_media", "video_player", "maps", "customer_experience", "personalization"].includes(value))
       ? "Functional"
       : "Essential";
   }
@@ -1008,12 +1001,42 @@ export function deriveInventoryMacroCategory(input: {
 }
 
 export function classifyInventoryEvidence(
-  row: Pick<InventoryGroupRow, "macroCategory" | "priority" | "purpose" | "purposes">
+  row: Pick<InventoryGroupRow, "macroCategory" | "priority" | "purpose" | "purposes"> &
+    Partial<Pick<InventoryGroupRow, "cookieDetails" | "requestCount" | "requestDetails" | "type" | "party">>
 ): InventoryEvidenceClassification {
+  // An observed frame is not proof of tracking, storage, or necessity.
+  if (row.type === "embed") return "Contextual";
+  if (row.type === "storage") return "Contextual";
+  const cookieEssentiality = new Set(
+    (row.cookieDetails ?? []).map((cookie) => cookie.essentiality ?? "unknown")
+  );
+  if (cookieEssentiality.size > 0) {
+    if (cookieEssentiality.size === 1 && cookieEssentiality.has("non_essential")) {
+      return "Non-essential";
+    }
+    if (cookieEssentiality.size === 1 && cookieEssentiality.has("essential")) {
+      return "Essential";
+    }
+    return "Review";
+  }
+  if (
+    row.type === "tracker" &&
+    (row.requestCount ?? 0) <= 0 &&
+    (row.requestDetails?.length ?? 0) === 0
+  ) {
+    // A retained product/library signature establishes context, not a concrete
+    // analytics collection event. Do not let purpose priority overstate the
+    // evidence as observed non-essential activity.
+    return "Review";
+  }
   if (row.priority === "high" || row.priority === "medium") {
     return "Non-essential";
   }
   if (row.priority === "review_needed" || row.macroCategory === "Review") {
+    // Retained first-party static resource types establish rendering context,
+    // not necessity. Scripts and incomplete request evidence remain reviewable.
+    if (row.party === "first_party" && row.requestDetails?.length && row.requestDetails.length >= (row.requestCount ?? 0) && row.requestDetails.every(request =>
+      ["stylesheet", "font", "image"].includes(request.resourceType ?? "") && request.essentiality !== "non_essential" && !request.identifierParameterNames.length && !request.responseStorageAttempted && !request.cookieNamesSent.length && !request.responseCookieNamesSet.length)) return "Contextual";
     return "Review";
   }
 
@@ -1036,6 +1059,58 @@ export function classifyInventoryEvidence(
   return "Contextual";
 }
 
+export function buildNonEssentialInventoryTallies(rows: InventoryGroupRow[]) {
+  return rows.reduce((tallies, row) => {
+    if (classifyInventoryEvidence(row) !== "Non-essential") {
+      return tallies;
+    }
+    if (row.type === "tracker") {
+      tallies.requests += 1;
+    } else {
+      tallies.cookiesStorage += 1;
+    }
+    return tallies;
+  }, { cookiesStorage: 0, requests: 0 });
+}
+
+export const retainedNetworkSummarySchema = z.object({
+  metricBasis: z.literal("retained_unique_request_events"),
+  preConsentRequestCount: z.number().int().nonnegative(),
+  retainedRequestEventCount: z.number().int().nonnegative(),
+  totalRequestCount: z.number().int().nonnegative(),
+}).refine(summary => summary.preConsentRequestCount <= summary.retainedRequestEventCount &&
+  summary.retainedRequestEventCount === summary.totalRequestCount);
+
+/** Keep retained request-event totals independent of vendor-presence inventory rows. */
+export function buildReportInventorySummary(rows: InventoryGroupRow[], networkSummary?: unknown) {
+  const retainedNetwork = retainedNetworkSummarySchema.safeParse(networkSummary);
+  return ([
+    { label: INVENTORY_METRIC_LABELS.storage, type: "cookie" },
+    { label: INVENTORY_METRIC_LABELS.requests, type: "tracker" },
+    { label: INVENTORY_METRIC_LABELS.frames, type: "embed" },
+  ] as const).map(({ label, type }) => {
+    const counts: { nonEssential: number; review: number; contextual: number; essential: number; unclassified?: number } = { nonEssential: 0, review: 0, contextual: 0, essential: 0 };
+    // A service signature is not a request count or a classification of every
+    // retained request. Never let it erase a separately retained event total.
+    if (type === "tracker" && retainedNetwork.success) {
+      return {
+        label, value: retainedNetwork.data.preConsentRequestCount, counts: undefined,
+
+      };
+    }
+    if (type === "tracker" && rows.some(row => row.type === type && row.requestCount === null)) {
+      return { label, value: null, counts: undefined, note: "Request counts were not retained for all service observations." };
+    }
+    for (const row of rows.filter(row => inventoryMetricFamily(row.type) === inventoryMetricFamily(type))) {
+      // A script-only service observation is not a network request event.
+      const count = type === "tracker" ? row.requestCount ?? 0 : row.observedRecordCount;
+      const key = { "Non-essential": "nonEssential", "Review": "review", "Unclassified": "unclassified", "Contextual": "contextual", "Essential": "essential" }[classifyInventoryEvidence(row)] as keyof typeof counts;
+      counts[key] = (counts[key] ?? 0) + count;
+    }
+    return { label, value: Object.values(counts).reduce((sum, count) => sum + count, 0), counts };
+  });
+}
+
 export function getTrackerConsentReviewPriority(row: TrackerInventoryRow): ConsentReviewPriority {
   const purposeLabels = [
     getInventoryCategoryLabel(row.label, row.vendorDisplayCategory ?? row.category, row.regulatoryRelevance),
@@ -1045,10 +1120,9 @@ export function getTrackerConsentReviewPriority(row: TrackerInventoryRow): Conse
   ];
   const purposeTokens = getInventoryPurposeTokens(purposeLabels);
   const confidence = getTrackerInventoryConfidence(row);
-  const normalizedLabel = row.label.toLowerCase();
+  const canonicalProducts = [findRuntimeVendorLabelOwner(row.label), ...row.domains.map(findRuntimeEntityOwner)];
   const isLinkedInAdsPixel =
-    /linkedin ads pixel/.test(normalizedLabel) ||
-    row.domains.some((domain) => /^px\.ads\.linkedin\.com$/i.test(domain.trim()));
+    canonicalProducts.some(owner => owner?.product === "LinkedIn Ads Pixel");
 
   if (isLinkedInAdsPixel) {
     return row.preConsent ? "high" : "review_needed";
@@ -1352,6 +1426,45 @@ export function suppressUnsupportedCmpAliasRows(rows: TrackerInventoryRow[]) {
   });
 }
 
+function inventoryProductIdentity(label: string) {
+  const owner = findRuntimeVendorLabelOwner(label);
+  return owner ? JSON.stringify([owner.entity, owner.product]) : label.trim().toLowerCase();
+}
+
+/** Attach evidence to a service, never merely to its owning company. A shared
+ * hostname is insufficient when the retained request names another product. */
+function requestMatchesInventoryService(row: TrackerInventoryGroupRow, request: SanitizedRequestEvidenceRow) {
+  const products = new Set(row.rawProducts.map(inventoryProductIdentity));
+  if (request.vendor) {
+    const requestProduct = findRuntimeVendorLabelOwner(request.vendor);
+    if (requestProduct || row.rawProducts.some(product => product.trim().toLowerCase() === request.vendor!.trim().toLowerCase())) {
+      return products.has(inventoryProductIdentity(request.vendor));
+    }
+  }
+  // Generic vendor labels can be disambiguated by an already-retained endpoint.
+  // Do not attach an unresolved request using host/company ownership alone.
+  if (!request.hostname || !request.path?.startsWith("/") || request.path.startsWith("//")) return false;
+  const owner = findRuntimeRequestOwner(`https://${request.hostname}${request.path}`);
+  return Boolean(owner && products.has(inventoryProductIdentity(owner.product)));
+}
+
+function requestMatchesInventoryCookie(row: CookieInventoryGroupRow, request: SanitizedRequestEvidenceRow) {
+  const hostname = request.hostname?.trim().toLowerCase();
+  if (!hostname || !isInventoryDisplayHostname(hostname)) return false;
+  return row.cookieDetails.some(cookie => {
+    // Cookie Domain permits a leading dot. Do not collapse subdomains using a
+    // display-name normalizer when matching retained request context.
+    const domain = cookie.domain?.trim().replace(/^\./, "").toLowerCase();
+    return domain && isInventoryDisplayHostname(domain) && (hostname === domain || hostname.endsWith(`.${domain}`)) &&
+      (request.cookieNamesSent.includes(cookie.cookieName) || request.responseCookieNamesSet.includes(cookie.cookieName));
+  });
+}
+
+function inventoryEndpointFlows(flows: PreConsentDataFlow[], domains: string[]) {
+  const hosts = new Set(domains.map(normalizeInventoryHostname).filter(Boolean));
+  return flows.filter(flow => hosts.has(normalizeInventoryHostname(flow.endpoint)));
+}
+
 export function buildRuntimeInventoryGroupRows(input: {
   cookieRows: RuntimeCookieEvidenceRow[];
   dataFlows?: PreConsentDataFlow[];
@@ -1375,16 +1488,12 @@ export function buildRuntimeInventoryGroupRows(input: {
         ...row,
         attributionSignatures: row.attributionEvidence?.signatureId ? [row.attributionEvidence.signatureId] : [],
         canonicalEntity: owner?.entity ?? null,
-        dataFlows: (input.dataFlows ?? []).filter((flow) =>
-          flow.controllingEntity.legalEntity && flow.controllingEntity.legalEntity === owner?.entity
-        ),
+        dataFlows: inventoryEndpointFlows(input.dataFlows ?? [], row.domains),
         observedRecordCount: row.cookieDetails.length,
         preConsent: row.cookieDetails.some((detail) => detail.observedBeforeConsent === true),
         purposes: [row.purpose],
         rawProducts: [owner?.product ?? row.vendor],
-        requestDetails: (input.requestRows ?? []).filter((request) =>
-          request.vendor === row.vendor || Boolean(owner?.entity && findRuntimeVendorLabelOwner(request.vendor)?.entity === owner.entity)
-        ),
+        requestDetails: (input.requestRows ?? []).filter(request => requestMatchesInventoryCookie(row, request)),
         regulatoryRelevance: owner?.regulatoryRelevance ?? [],
         requestCount: null,
         type: "cookie",
@@ -1394,23 +1503,21 @@ export function buildRuntimeInventoryGroupRows(input: {
     ...groupedTrackerRows.map((row): InventoryGroupRow => {
       const owner = findRuntimeVendorLabelOwner(row.vendor) ??
         row.domains.map(findRuntimeEntityOwner).find((candidate) => candidate !== null);
+      const rawProducts = row.rawProducts.length
+        ? uniqueStrings(row.rawProducts.map(product => findRuntimeVendorLabelOwner(product)?.product ??
+          (product === owner?.vendor ? owner.product : product)))
+        : [owner?.product ?? row.vendor];
+      const requestDetails = (input.requestRows ?? []).filter(request => requestMatchesInventoryService({ ...row, rawProducts }, request));
       return {
         ...row,
         canonicalEntity: owner?.entity ?? null,
         cookieDetails: [],
         cookieNames: row.cookieNames.filter((name) => !canonicalCookieNames.has(name.trim().toLowerCase())),
-        dataFlows: (input.dataFlows ?? []).filter((flow) =>
-          flow.controllingEntity.legalEntity && flow.controllingEntity.legalEntity === owner?.entity ||
-          row.domains.includes(flow.endpoint)
-        ),
+        dataFlows: inventoryEndpointFlows(input.dataFlows ?? [], [...row.domains, ...requestDetails.flatMap(request => request.hostname ? [request.hostname] : [])]),
         observedRecordCount: row.requestCount ?? 1,
         purposes: [row.purpose],
-        rawProducts: [owner?.product ?? row.rawProducts[0] ?? row.vendor],
-        requestDetails: (input.requestRows ?? []).filter((request) =>
-          request.vendor === row.vendor ||
-          row.domains.includes(request.hostname ?? "") ||
-          Boolean(owner?.entity && findRuntimeVendorLabelOwner(request.vendor)?.entity === owner.entity)
-        ),
+        rawProducts,
+        requestDetails,
         setByThirdPartyScript: false,
         type: "tracker",
         vendor: owner?.vendor ?? row.vendor,
@@ -1483,7 +1590,21 @@ export function buildRuntimeInventoryGroupRows(input: {
       type: existing.type === "tracker" || candidate.type === "tracker" ? "tracker" : "cookie",
     });
   }
-  return [...compatibleRows.values()].sort(compareInventoryPriorityRows);
+  return [...compatibleRows.values()].map((row) => {
+    // Service descriptions are independent of resource type, policy category,
+    // priority and observed evidence. Resolve them only after those decisions;
+    // never replace a cookie's specific storage purpose with its vendor's role.
+    if (row.type !== "tracker" || row.cookieDetails.length > 0) return row;
+    const servicePurposes = uniqueStrings(row.rawProducts.map((product) =>
+      resolveCanonicalServicePurpose({ product, vendor: row.vendor, entity: row.canonicalEntity })
+    ));
+    if (servicePurposes.length === 0 || servicePurposes.includes("Unknown")) return row;
+    return {
+      ...row,
+      purpose: servicePurposes.length === 1 ? servicePurposes[0]! : "Multiple purposes",
+      purposes: servicePurposes,
+    };
+  }).sort(compareInventoryPriorityRows);
 }
 
 /**
@@ -1520,8 +1641,83 @@ export function buildRuntimeInventoryUngroupedRows(input: {
   return [...cookieRows, ...trackerRows].sort(compareInventoryPriorityRows);
 }
 
+const retainedIframeInventorySchema = z.object({
+  frameUrl: z.string().max(8192),
+  preConsent: z.literal(true),
+  timestampMs: z.number().finite().nonnegative(),
+});
+
+/** Consume the bounded iframeSummary projection already retained by materialization.
+ * Keep these observations separate from request/cookie findings and counts. */
+export function buildIframeInventoryRows(hybridRuntimeEvidence: unknown, firstPartyDomain?: string | null): InventoryGroupRow[] {
+  const summary = getRecord(getRecord(hybridRuntimeEvidence)?.iframeSummary);
+  const events = Array.isArray(summary?.iframeEvents) ? summary.iframeEvents.slice(0, 75) : [];
+  const rows = new Map<string, InventoryGroupRow>();
+  for (const event of events) {
+    const parsed = retainedIframeInventorySchema.safeParse(event);
+    if (!parsed.success) continue;
+    let url: URL;
+    try { url = new URL(parsed.data.frameUrl); } catch { continue; }
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) continue;
+    // Query values and fragments are not needed for inventory attribution/display.
+    const frameUrl = `${url.origin}${url.pathname}`;
+    if (rows.has(frameUrl)) {
+      const previous = rows.get(frameUrl)!;
+      previous.firstSeenMs = Math.min(previous.firstSeenMs!, parsed.data.timestampMs);
+      previous.embedDetails![0]!.firstSeenMs = previous.firstSeenMs;
+      continue;
+    }
+    const owner = findRuntimeRequestOwner(frameUrl);
+    const purpose = owner?.servicePurpose && owner.servicePurpose !== "Unknown"
+      ? owner.servicePurpose : "Embedded content";
+    const domains = [url.hostname];
+    const siteRelationship = siteRelationshipForDomains(domains, firstPartyDomain);
+    rows.set(frameUrl, {
+      type: "embed", vendor: owner?.vendor ?? url.hostname,
+      canonicalEntity: owner?.entity ?? null,
+      attributionEvidence: owner?.attributionEvidence ?? null,
+      attributionSignatures: owner?.attributionEvidence ? [owner.attributionEvidence.signatureId] : [],
+      confidence: owner ? (owner.confidence >= 0.9 ? "high" : owner.confidence >= 0.7 ? "medium" : "low") : "low",
+      domains, siteRelationship,
+      entityRelationship: entityRelationshipForDomains(domains, firstPartyDomain),
+      party: legacyPartyFromSiteRelationship(siteRelationship),
+      firstSeenMs: parsed.data.timestampMs, preConsent: true,
+      rawProducts: [owner?.product ?? `${url.hostname}${url.pathname}`],
+      purpose, purposes: [purpose],
+      macroCategory: "Functional", priority: "contextual", observedRecordCount: 1,
+      cookieDetails: [], cookieNames: [], dataFlows: [], requestDetails: [],
+      regulatoryRelevance: owner?.regulatoryRelevance ?? [], requestCount: null, setByThirdPartyScript: false,
+      embedDetails: [{ frameUrl, firstSeenMs: parsed.data.timestampMs, source: "hybridRuntimeEvidence.iframeSummary.iframeEvents" }],
+    });
+  }
+  return [...rows.values()];
+}
+
+/** Consume only the persisted typed storage projection. V1 retains names but no
+ * origin: preserve that limitation rather than manufacture an exact origin or
+ * infer a storage write/necessity finding from a snapshot. */
+export function buildBrowserStorageInventoryRows(projection: unknown, scanId: string, firstPartyDomain?: string | null): InventoryGroupRow[] {
+  const parsed = preConsentBrowserStorageProjectionSchema.safeParse(projection);
+  if (!parsed.success || parsed.data.scanId !== scanId || parsed.data.assessmentStatus !== "observed") return [];
+  const data = parsed.data;
+  const entries = data.contractVersion === "certscore.pre-consent-browser-storage-projection.v2" ? data.entries :
+    (["localStorage", "sessionStorage"] as const).flatMap(storageType => [...new Set(data[`${storageType}Keys`])].map(key => ({ storageType, key, origin: null, capturedAtMs: data.storageFirstObservedAtMs, evidenceRefs: data.evidenceRefs })));
+  return entries.map(({ storageType, key, origin, capturedAtMs, evidenceRefs }) => ({
+      type: "storage" as const, vendor: "Unattributed browser storage", canonicalEntity: null,
+      attributionSignatures: [], confidence: "low" as const, cookieDetails: [], cookieNames: [],
+      dataFlows: [], domains: origin ? [new URL(origin).hostname] : [], firstSeenMs: capturedAtMs,
+      macroCategory: "Review" as const, observedRecordCount: 1, party: legacyPartyFromSiteRelationship(siteRelationshipForDomains(origin ? [new URL(origin).hostname] : [], firstPartyDomain)),
+      siteRelationship: siteRelationshipForDomains(origin ? [new URL(origin).hostname] : [], firstPartyDomain), entityRelationship: "unknown" as const,
+      preConsent: true, priority: "review_needed" as const, purpose: "Unknown purpose", purposes: ["Unknown purpose"],
+      rawProducts: [key], regulatoryRelevance: [], requestCount: null, setByThirdPartyScript: false,
+      storageDetails: { storageType, key, origin, identityBasis: origin ? "origin_type_key" as const : "retained_scan_type_key" as const,
+        sourceHash: data.sourceHash, evidenceRefs },
+    }));
+}
+
 export function buildRuntimeInventoryProjectionFromScan(scanRecord: ScanDetailResponse) {
   const runtimeArtifacts = scanRecord.runtimeArtifacts;
+  const graphProjection = apiRuntimeEvidenceGraphProjectionSchema.safeParse(runtimeArtifacts?.runtimeEvidenceGraphProjection);
   const hybridRuntimeEvidence = getHybridRuntimeEvidence(runtimeArtifacts);
   const hybridVendorSummary = getRecord(hybridRuntimeEvidence?.vendorSummary ?? hybridRuntimeEvidence?.vendor_summary);
   const certScoreSummary = deriveCertScoreFindings(scanRecord);
@@ -1551,26 +1747,32 @@ export function buildRuntimeInventoryProjectionFromScan(scanRecord: ScanDetailRe
     .filter(isTimedPreConsentInventoryRow);
   const dataFlows = buildPreConsentDataFlows(hybridRuntimeEvidence);
   const requestRows = buildSanitizedRequestEvidenceRows(hybridRuntimeEvidence);
+  const embedRows = buildIframeInventoryRows(hybridRuntimeEvidence, scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost);
+
+  const storageRows = buildBrowserStorageInventoryRows(getPersistedCanonicalReportProjection(scanRecord)?.preConsentBrowserStorageProjection, scanRecord.scan.id, scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost);
+  const ungroupedRows = [...buildRuntimeInventoryUngroupedRows({
+    cookieRows, dataFlows,
+    firstPartyDomain: scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost,
+    requestRows, trackerRows,
+  }), ...embedRows, ...storageRows];
 
   return {
+    runtimeEvidenceGraph: graphProjection.success && graphProjection.data.scanId === scanRecord.scan.id ? graphProjection.data : undefined,
     cookieRows,
     dataFlows,
     requestRows,
     trackerRows,
     vendorSurfaceProjection,
-    groupedRows: buildRuntimeInventoryGroupRows({
+    embedRows,
+    storageRows,
+    groupedRows: [...buildRuntimeInventoryGroupRows({
       cookieRows,
       dataFlows,
       firstPartyDomain: scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost,
       requestRows,
       trackerRows
-    }),
-    ungroupedRows: buildRuntimeInventoryUngroupedRows({
-      cookieRows,
-      dataFlows,
-      firstPartyDomain: scanRecord.scan.domainHostname ?? certScoreSummary.requestedHost,
-      requestRows,
-      trackerRows
-    })
+    }), ...embedRows, ...storageRows],
+    ungroupedRows,
+    inventorySummary: buildReportInventorySummary(ungroupedRows, hybridRuntimeEvidence?.networkSummary),
   };
 }

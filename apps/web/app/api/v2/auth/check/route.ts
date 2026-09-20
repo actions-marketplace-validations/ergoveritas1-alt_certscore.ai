@@ -1,5 +1,7 @@
+import { connectionRecovery } from "../../../../../server/integrations/connection-recovery";
+import { queryOne } from "@website-signal-risk-scanner/db";
 import { apiV2JsonResponse, buildApiV2Error } from "../../../../../lib/api-v2/scan-resource";
-import { parseBearerToken, validateCertScoreBearerToken } from "../../../../../server/integrations/api-keys";
+import { checkIntegrationApiKeyUsageLimit, integrationOrganizationScanCreateLimits, parseBearerToken, validateCertScoreBearerToken } from "../../../../../server/integrations/api-keys";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -41,10 +43,38 @@ export async function GET(request: Request) {
       });
     }
 
+    let diagnostics: Record<string, unknown> | undefined;
+    if (new URL(request.url).searchParams.get("diagnostics") === "1") {
+      const workspace = auth.key.organizationId && auth.key.ownerUserId ? await queryOne<{ active: boolean }>(
+        `select (org.plan_status = 'active') as active from organizations org
+         join organization_members member on member.organization_id = org.id
+         where org.id = $1 and member.user_id::text = $2 limit 1`,
+        [auth.key.organizationId, auth.key.ownerUserId]
+      ) : null;
+      const scopeAllowsCreate = auth.key.scopes.includes("pulse:scan");
+      const quota = scopeAllowsCreate && workspace?.active ? await checkIntegrationApiKeyUsageLimit({key:auth.key}) : null;
+      const orgLimits = integrationOrganizationScanCreateLimits(auth.key.publicId);
+      diagnostics = {
+        mode: auth.key.publicId.startsWith("oauth_") ? "hosted_oauth" : "scoped_api_key",
+        oauthScopesGranted: auth.key.publicId.startsWith("oauth_") ? auth.key.scopes.map(scope => scope === "pulse:read" ? "scan:read" : scope === "pulse:scan" ? "scan:create" : scope) : null,
+        checkedAt: new Date().toISOString(), workspaceAccess: workspace?.active ? "active" : "unavailable",
+        createAllowedByScope: scopeAllowsCreate,
+        ...connectionRecovery(Boolean(workspace?.active), scopeAllowsCreate, quota?.allowed ?? null),
+        quota: quota ? {
+          hourlyRemaining: Math.max(0, Math.min(auth.key.hourlyLimit - quota.usage.keyHourlyCount, orgLimits.hourlyLimit - quota.usage.organizationHourlyCount)),
+          dailyRemaining: Math.max(0, Math.min(auth.key.dailyLimit - quota.usage.keyDailyCount, orgLimits.dailyLimit - quota.usage.organizationDailyCount)),
+          retryAfterSeconds: quota.retryAfterSeconds,
+          note: "Snapshot of rolling creation limits, not a reservation. Target and concurrency checks still apply."
+        } : null,
+        reconnectUrl: "https://certscore.ai/developers/mcp#reconnect",
+      };
+    }
+
     return apiV2JsonResponse({
       body: {
         type: "certscore_auth_check",
         authenticated: true,
+        ...(diagnostics ? { diagnostics } : {}),
         scopes: auth.key.scopes,
         expiresAt: auth.key.expiresAt,
         disclaimer: "Credential validity only; this endpoint does not create scans or expose report data."

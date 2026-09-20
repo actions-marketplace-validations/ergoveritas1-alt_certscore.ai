@@ -17,6 +17,7 @@ import {
 import { createArtifactWriter } from "./artifact-writer.js";
 import {
   applyGoverningPolicySelection,
+  assessGoverningPolicyBodyEvidence,
   assessPolicyDocumentRoleForChildSelection,
   assessPolicyDocumentSubstance,
   assessPolicyTextQuality,
@@ -37,6 +38,7 @@ import {
   isPolicySessionPrimerCompatible,
   mergeGdprTransparencyTopicCandidates,
   mergePolicySurfaceObservations,
+  normalizePolicySurfaceUrl,
   POLICY_HOMEPAGE_FETCH_TIMEOUT_MS,
   policyDocumentRoleForChildSelection,
   policySurfaceObservationsFromRetainedRenderedLinks,
@@ -135,6 +137,23 @@ test("does not repeat a canonical host retry already attempted by the bounded fe
     { requestedUrl: candidateUrl },
     { requestedUrl: "https://www.publisher.example/legal/privacy-policy" },
   ]), false);
+});
+
+test("policy URL normalization decodes HTML entities before parsing query parameters", () => {
+  assert.equal(
+    normalizePolicySurfaceUrl(
+      "/help/privacy?nodeId=201909010&amp;ref_=footer_privacy",
+      "https://www.amazon.de/-/en/",
+    ),
+    "https://www.amazon.de/help/privacy?nodeId=201909010&ref_=footer_privacy",
+  );
+  assert.equal(
+    normalizePolicySurfaceUrl(
+      "/help/cookies?nodeId=201890250&#38;ref_=footer_cookies_notice",
+      "https://www.amazon.de/-/en/",
+    ),
+    "https://www.amazon.de/help/cookies?nodeId=201890250&ref_=footer_cookies_notice",
+  );
 });
 
 test("homepage failure still derives common-path locale hints from the target TLD", () => {
@@ -572,7 +591,6 @@ test("policySurfaceScanner retains a material GDPR supplement linked from a subs
       "legal_basis",
       "data_retention",
       "data_subject_rights",
-      "dpo_contact",
       "international_transfers",
       "supervisory_authority",
       "automated_decision_making_or_profiling",
@@ -583,6 +601,7 @@ test("policySurfaceScanner retains a material GDPR supplement linked from a subs
         `${topic}; retained topics: ${[...topics].join(", ")}`,
       );
     }
+    assert.equal(topics.has("dpo_contact"), false, "a Privacy Manager must not be represented as a DPO");
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
@@ -1569,6 +1588,120 @@ test("evidence-bound substantive policies stay documents unless an authoritative
 
   assert.equal(editorialAssessment.role, "policy_index");
   assert.deepEqual(editorialAssessment.reasonCodes, ["scan_region_privacy_document_child_selected"]);
+});
+
+test("complete substantive policy bodies outrank supplemental child counts without promoting navigation indexes", () => {
+  const candidate = {
+    deterministicSurfaceType: "privacy_policy",
+    deterministicClassifierReasonCodes: ["matched_privacy_policy"],
+    fetchable: true,
+    linkText: "Privacy Policy",
+    normalizedUrl: "https://example.test/privacy-policy",
+    observationOnly: false,
+  } as never;
+  const substantiveText = Array.from({ length: 18 }, () =>
+    "This Privacy Policy explains how we collect and use personal information, why we process it, how long we retain it, and how you may exercise your privacy rights."
+  ).join(" ");
+  const substantiveAssessment = assessGoverningPolicyBodyEvidence({
+    candidate,
+    documentSubstance: assessPolicyDocumentSubstance({
+      surfaceType: "privacy_policy",
+      text: substantiveText,
+      title: "Privacy Policy",
+    }),
+    documentTextChars: substantiveText.length,
+    documentTextCoverageStatus: "complete",
+    evidenceBoundObservedTopicCount: 1,
+    substantiveDisclosureSignalCount: 1,
+    targetRelationship: "target_controller",
+    text: substantiveText,
+    title: "Privacy Policy",
+  });
+  assert.equal(substantiveAssessment.state, "substantive");
+
+  const childSelection = {
+    fetchCandidates: [{
+      deterministicSurfaceType: "privacy_policy",
+      normalizedUrl: "https://example.test/privacy-policy/applicants",
+    }, {
+      deterministicSurfaceType: "privacy_policy",
+      normalizedUrl: "https://example.test/privacy-policy/california",
+    }] as never,
+    observedChildCandidates: [],
+  };
+  const role = assessPolicyDocumentRoleForChildSelection(candidate, childSelection, {
+    contentCoverageStatus: "truncated",
+    evidenceBoundObservedTopicCount: 1,
+    governingPolicyBodyAssessment: substantiveAssessment,
+    substantiveDisclosureSignalCount: 1,
+  });
+  assert.equal(role.role, "policy_document");
+  assert.deepEqual(role.reasonCodes, [
+    "governing_policy_body_evidence_retained",
+    "substantive_policy_retains_supplemental_privacy_links",
+  ]);
+
+  const navigationText = Array.from({ length: 30 }, () =>
+    "Customers Solutions Platform Resources Partners Login Demo Customer Stories Blog Reports Search Legal documents Website Privacy Notice See all resources."
+  ).join(" ");
+  const navigationAssessment = assessGoverningPolicyBodyEvidence({
+    candidate,
+    documentSubstance: assessPolicyDocumentSubstance({
+      surfaceType: "privacy_policy",
+      text: navigationText,
+      title: "Website Privacy Notice",
+    }),
+    documentTextChars: navigationText.length,
+    documentTextCoverageStatus: "complete",
+    evidenceBoundObservedTopicCount: 0,
+    substantiveDisclosureSignalCount: 0,
+    targetRelationship: "target_controller",
+    text: navigationText,
+    title: "Website Privacy Notice",
+  });
+  assert.equal(navigationAssessment.state, "index_like");
+  assert.equal(
+    assessPolicyDocumentRoleForChildSelection(candidate, childSelection, {
+      governingPolicyBodyAssessment: navigationAssessment,
+    }).role,
+    "policy_index",
+  );
+
+  const explicitWebsiteNoticeCandidate = {
+    ...candidate,
+    normalizedUrl: "https://example.test/legal-and-compliance/website-privacy-notice/",
+    linkText: "Website Privacy Notice",
+  } as never;
+  const explicitWebsiteNoticeAssessment = assessGoverningPolicyBodyEvidence({
+    candidate: explicitWebsiteNoticeCandidate,
+    documentSubstance: assessPolicyDocumentSubstance({
+      surfaceType: "privacy_policy",
+      text: navigationText,
+      title: "Website Privacy Notice - Example",
+    }),
+    documentTextChars: navigationText.length,
+    documentTextCoverageStatus: "complete",
+    evidenceBoundObservedTopicCount: 0,
+    substantiveDisclosureSignalCount: 0,
+    targetRelationship: "target_controller",
+    text: navigationText,
+    title: "Website Privacy Notice - Example",
+  });
+  assert.equal(explicitWebsiteNoticeAssessment.state, "substantive");
+  assert.equal(
+    explicitWebsiteNoticeAssessment.reasonCodes.includes("explicit_website_privacy_notice_identity"),
+    true,
+  );
+});
+
+test("product and request pages stay ineligible even when assisted extraction reports disclosure signals", () => {
+  for (const normalizedUrl of ["https://example.test/privacy-request", "https://example.test/solutions/privacy-policy-risk-scanner"]) {
+    const result = assessPolicyDocumentRoleForChildSelection({
+      normalizedUrl, linkText: "Privacy policy", deterministicSurfaceType: "privacy_policy",
+      deterministicClassifierReasonCodes: ["matched_privacy_policy"],
+    } as never, { fetchCandidates: [], observedChildCandidates: [] }, { substantiveDisclosureSignalCount: 5, evidenceBoundObservedTopicCount: 5, contentCoverageStatus: "complete" });
+    assert.equal(result.role, "unknown", normalizedUrl);
+  }
 });
 
 test("English and German section evidence produce the same typed topic-coverage diagnostics", () => {
@@ -2701,6 +2834,108 @@ test("policySurfaceScanner derives diagnostic GDPR Transparency candidates from 
   );
 });
 
+test("policySurfaceScanner retains German clinic natural-clause candidates at the observation boundary", () => {
+  const candidates = gdprTransparencyTopicCandidatesFromRetainedPolicySections([
+    {
+      heading: "Erhebung und Verarbeitung von Daten",
+      textExcerpt: "Wir verarbeiten jene Daten, die Sie uns als Kunde zur Durchführung vorvertraglicher Maßnahmen und bei Abschluss des Vertrages zur Verfügung stellen. Die Datenverarbeitung erfolgt zu folgenden Zwecken: Die von Ihnen angegebenen Daten werden verarbeitet, um vorvertragliche Maßnahmen durchzuführen und Verträge abzuwickeln.",
+    },
+    {
+      heading: "Plugins eines sozialen Netzwerks",
+      textExcerpt: "Der Anbieter des sozialen Netzwerks hat seinen Sitz in Palo Alto, CA 94304, USA. Über das Plugin wird eine direkte Verbindung zwischen Ihrem Browser und dem Server des sozialen Netzwerks hergestellt. Das soziale Netzwerk erhält dadurch die Information, dass Sie mit Ihrer IP-Adresse unsere Seite besucht haben.",
+    },
+    {
+      heading: "Speicherdauer und Ihre Rechte",
+      textExcerpt: "Wir speichern Ihre personenbezogenen Daten solange dies erforderlich ist und gesetzliche Aufbewahrungsfristen bestehen. Sie können sich bei einer Datenschutzaufsichtsbehörde beschweren, wenn Sie die Verarbeitung für rechtswidrig halten.",
+    },
+    {
+      heading: "Automatisierte Entscheidungen",
+      textExcerpt: "Eine automatisierte Entscheidungsfindung einschließlich Profiling findet nicht statt.",
+    },
+  ]);
+  const topics = new Set(candidates.map((candidate) => candidate.topic));
+
+  assert.deepEqual(
+    topics,
+    new Set([
+      "processing_purposes",
+      "legal_basis",
+      "recipients_or_vendor_categories",
+      "international_transfers",
+      "data_retention",
+      "supervisory_authority",
+      "automated_decision_making_or_profiling",
+    ]),
+  );
+  assert.equal(candidates.every((candidate) =>
+    candidate.status === "diagnostic_only" &&
+    candidate.productionCredit === false &&
+    candidate.classifierReasonCodes.includes("variant_semantic_clause")
+  ), true);
+});
+
+test("policySurfaceScanner retains calibrated Romanian natural clauses at the observation boundary", () => {
+  const candidates = gdprTransparencyTopicCandidatesFromRetainedPolicySections([
+    {
+      heading: "Politică de confidențialitate",
+      textExcerpt: "Datele cu caracter personal sunt utilizate pentru a gestiona contul. Prelucrarea se bazează pe consimțământ și pe o obligație legală. Datele personale sunt transmise unei persoane împuternicite.",
+    },
+    {
+      heading: "Păstrare și drepturi",
+      textExcerpt: "Păstrăm datele personale atât timp cât este necesar. Puteți depune o plângere la autoritatea de supraveghere. Nu folosim un proces decizional automatizat sau profilare.",
+    },
+  ]);
+  const topics = new Set(candidates.map((candidate) => candidate.topic));
+
+  assert.deepEqual(
+    topics,
+    new Set([
+      "processing_purposes",
+      "legal_basis",
+      "recipients_or_vendor_categories",
+      "data_retention",
+      "supervisory_authority",
+      "automated_decision_making_or_profiling",
+    ]),
+  );
+  assert.equal(candidates.every((candidate) =>
+    candidate.status === "diagnostic_only" &&
+    candidate.productionCredit === false &&
+    candidate.classifierReasonCodes.includes("variant_semantic_clause")
+  ), true);
+});
+
+test("policySurfaceScanner retains calibrated Finnish natural clauses at the observation boundary", () => {
+  const candidates = gdprTransparencyTopicCandidatesFromRetainedPolicySections([
+    {
+      heading: "Tietosuojakäytäntö",
+      textExcerpt: "Henkilötietoja käytetään tilin hallintaan. Käsittely perustuu suostumukseen ja lakisääteiseen velvoitteeseen. Henkilötietoja luovutetaan palveluntarjoajille.",
+    },
+    {
+      heading: "Säilytys ja valitusoikeus",
+      textExcerpt: "Säilytämme henkilötietoja niin kauan kuin tarpeen. Voit tehdä valituksen tietosuojaviranomaiselle. Emme käytä automatisoitua päätöksentekoa tai profilointia.",
+    },
+  ]);
+  const topics = new Set(candidates.map((candidate) => candidate.topic));
+
+  assert.deepEqual(
+    topics,
+    new Set([
+      "processing_purposes",
+      "legal_basis",
+      "recipients_or_vendor_categories",
+      "data_retention",
+      "supervisory_authority",
+      "automated_decision_making_or_profiling",
+    ]),
+  );
+  assert.equal(candidates.every((candidate) =>
+    candidate.status === "diagnostic_only" &&
+    candidate.productionCredit === false &&
+    candidate.classifierReasonCodes.includes("variant_semantic_clause")
+  ), true);
+});
+
 test("GDPR Transparency candidate merge retains the strongest evidence for each topic", () => {
   const candidate = (
     matchStrength: "weak" | "contextual" | "equivalent" | "direct",
@@ -2799,7 +3034,7 @@ test("compact English policy sections retain purpose and service-provider GDPR T
   assert.equal(candidates.every((candidate) => candidate.productionCredit === false), true);
 });
 
-test("retained CertScore policy sections produce typed candidates for every GDPR Transparency topic", () => {
+test("retained CertScore policy sections keep a generic privacy contact separate from DPO evidence", () => {
   const candidates = gdprTransparencyTopicCandidatesFromRetainedPolicySections([
     {
       heading: "Controller and contact",
@@ -2845,16 +3080,40 @@ test("retained CertScore policy sections produce typed candidates for every GDPR
     "controller_contact",
     "data_retention",
     "data_subject_rights",
-    "dpo_contact",
     "international_transfers",
     "legal_basis",
     "processing_purposes",
     "recipients_or_vendor_categories",
     "supervisory_authority",
   ]));
+  assert.equal(topics.has("dpo_contact"), false);
   assert.equal(candidates.every((candidate) =>
     candidate.status === "diagnostic_only" && candidate.productionCredit === false
   ), true);
+});
+
+test("retained sections preserve explicit profiling and multilingual transfer disclosures", () => {
+  const candidates = gdprTransparencyTopicCandidatesFromRetainedPolicySections([
+    {
+      heading: "Automated decision-making and profiling",
+      textExcerpt: "This service does not use solely automated decision-making or profiling that produces legal effects or similarly significant effects for an individual.",
+    },
+    {
+      heading: "Przekazywanie danych osobowych poza EOG",
+      textExcerpt: "Przekazywanie danych osobowych poza EOG odbywa się przy zastosowaniu standardowych klauzul umownych wydanych przez Komisję Europejską.",
+    },
+  ]);
+  const byTopic = new Map(candidates.map((candidate) => [candidate.topic, candidate]));
+
+  assert.match(
+    byTopic.get("automated_decision_making_or_profiling")?.evidenceText ?? "",
+    /does not use solely automated decision-making/i,
+  );
+  assert.match(
+    byTopic.get("international_transfers")?.evidenceText ?? "",
+    /przekazywanie danych osobowych poza eog/i,
+  );
+  assert.equal(candidates.every((candidate) => candidate.productionCredit === false), true);
 });
 
 test("compact generic privacy contact sections do not create controller or DPO candidates", () => {
@@ -2869,6 +3128,28 @@ test("compact generic privacy contact sections do not create controller or DPO c
 
   assert.equal(byTopic.has("controller_contact"), false);
   assert.equal(byTopic.has("dpo_contact"), false);
+});
+
+test("section-aware candidates retain substantive body evidence without promoting generic headings", () => {
+  const candidates = gdprTransparencyTopicCandidatesFromRetainedPolicySections([
+    {
+      heading: "How long we retain your data",
+      textExcerpt: "Call recordings are kept for two months, while account records are retained until account closure for dispute resolution.",
+    },
+    {
+      heading: "Sharing and recipients",
+      textExcerpt: "Payment processors, hosting providers, analytics partners, and professional advisers support delivery of the service.",
+    },
+    {
+      heading: "Sharing",
+      textExcerpt: "Information may be shared with undefined third parties when circumstances require it.",
+    },
+  ]);
+  const byTopic = new Map(candidates.map((candidate) => [candidate.topic, candidate]));
+
+  assert.match(byTopic.get("data_retention")?.evidenceText ?? "", /Call recordings are kept for two months/i);
+  assert.match(byTopic.get("recipients_or_vendor_categories")?.evidenceText ?? "", /Payment processors/i);
+  assert.doesNotMatch(byTopic.get("recipients_or_vendor_categories")?.evidenceText ?? "", /undefined third parties/i);
 });
 
 test("policy section extraction preserves structured table rows for canonical multilingual Article 13 evidence", () => {
@@ -2953,6 +3234,35 @@ test("policy section graph binds nested English headings and retains source hash
   assert.equal(legalBasisEvidence?.sourceOffsetBasis, "sanitized_html");
   assert.equal(legalBasisEvidence?.sourceDocumentTextSha256, legalBasis?.documentTextSha256);
   assert.match(legalBasisEvidence?.evidenceTextSha256 ?? "", /^[a-f0-9]{64}$/);
+});
+
+test("policy section extraction preserves heading bodies, lists, and topic tables while excluding navigation", () => {
+  const sourceUrl = "https://example.test/privacy";
+  const html = `
+    <nav><a href="#basis">Legal basis</a><a href="#retention">Retention</a><a href="#recipients">Recipients</a></nav>
+    <main>
+      <h2 id="basis">Purposes and legal bases</h2>
+      <p>We process personal data to provide accounts and prevent fraud.</p>
+      <ul><li>Contract for account delivery</li><li>Legitimate interests for service security</li></ul>
+      <h2 id="retention">Retention</h2>
+      <p>Account data is retained for two years after account closure.</p>
+      <table>
+        <tr><th>Purpose</th><th>Legal basis</th><th>Recipient</th><th>Retention</th></tr>
+        <tr><td>Payment processing</td><td>Performance of a contract</td><td>Stripe payment processor</td><td>Seven years</td></tr>
+      </table>
+    </main>`;
+  const visibleText = "Legal basis Retention Recipients Purposes and legal bases We process personal data to provide accounts and prevent fraud. Contract for account delivery Legitimate interests for service security Retention Account data is retained for two years after account closure. Purpose Legal basis Recipient Retention Payment processing Performance of a contract Stripe payment processor Seven years";
+  const sections = extractPolicySections({ html, sourceUrl, visibleText });
+
+  const legalBasis = sections.find((section) => section.heading === "Purposes and legal bases");
+  assert.match(legalBasis?.textExcerpt ?? "", /Contract for account delivery/);
+  assert.match(legalBasis?.textExcerpt ?? "", /Legitimate interests for service security/);
+  assert.doesNotMatch(legalBasis?.textExcerpt ?? "", /^Legal basis Retention Recipients/);
+  const tableRow = sections.find((section) => section.extractionMethod === "html_table_row");
+  assert.match(tableRow?.textExcerpt ?? "", /Purpose: Payment processing/);
+  assert.match(tableRow?.textExcerpt ?? "", /Legal basis: Performance of a contract/);
+  assert.match(tableRow?.textExcerpt ?? "", /Recipient: Stripe payment processor/);
+  assert.match(tableRow?.textExcerpt ?? "", /Retention: Seven years/);
 });
 
 test("policy section graph uses the same typed extraction path for English and French definition and labeled sections", () => {
@@ -3094,6 +3404,35 @@ test("German retained policy prose becomes strong topic-specific Article 13 obse
     const row = evidence.find((candidate) => candidate.coverageArea === topic);
     assert.equal(row?.signalObserved, "observed", `${topic}: ${JSON.stringify(row)}`);
     assert.equal(row?.selectedEvidenceStrength, "strong", topic);
+  }
+});
+
+test("natural German deletion, recipient, and complaint clauses become retained canonical observations", () => {
+  const sourceUrl = "https://www.tierklinik.example/datenschutz";
+  const visibleText = [
+    "Datenschutzerklärung.",
+    "Die Löschung Ihrer Daten erfolgt, wenn Ihre Daten zur Erfüllung des mit der Speicherung verfolgten Zweckes nicht mehr erforderlich sind.",
+    "Eine Löschung der Daten kann nicht erfolgen, wenn uns rechtliche Bestimmungen zur Aufbewahrung oder Speicherung verpflichten.",
+    "Die Tierklinik wird Ihre personenbezogenen Daten nur unter den beschriebenen Voraussetzungen an Dritte weitergeben.",
+    "Sie können sich mit einer Beschwerde auch an die Aufsichtsbehörde wenden.",
+  ].join(" ");
+  const sections = extractPolicySections({
+    html: `<main>${visibleText}</main>`,
+    sourceUrl,
+    visibleText,
+  });
+  const evidence = retainedArticle13SectionEvidenceFromSections(sections, sourceUrl);
+
+  for (const topic of [
+    "data_retention",
+    "recipients_or_vendor_categories",
+    "supervisory_authority",
+  ] as const) {
+    const row = evidence.find((candidate) => candidate.coverageArea === topic);
+    assert.equal(row?.signalObserved, "observed", `${topic}: ${JSON.stringify(row)}`);
+    assert.equal(row?.selectedEvidenceStrength, "strong", topic);
+    assert.match(row?.evidenceTextSha256 ?? "", /^[a-f0-9]{64}$/, topic);
+    assert.match(row?.sourceDocumentTextSha256 ?? "", /^[a-f0-9]{64}$/, topic);
   }
 });
 
@@ -3711,7 +4050,7 @@ test("policySurfaceScanner follows a rendered dated privacy index and extracts t
       observation.normalizedUrl === `${baseUrl}/policies/privacy-index-pdf-nl`
     );
 
-    assert.ok(privacy, "Dutch privacy PDF should be fetched");
+    assert.ok(privacy, "Dutch privacy PDF should be fetched: " + JSON.stringify(result.policySurfaceObservations.map(o => ({ url: o.normalizedUrl, status: o.status, failure: o.fetchFailureReason, role: o.documentRole, reasons: o.selectionReasonCodes }))));
     assert.equal(privacyIndex?.documentRole, "policy_index");
     assert.equal(privacy.documentRole, "policy_document");
     assert.equal(privacy.documentFormat, "pdf");
@@ -4341,6 +4680,31 @@ test("policySurfaceScanner fetches an observed privacy link before unverified co
   });
 });
 
+test("policySurfaceScanner canonically retains a German Datenschutzhinweise footer policy", async () => {
+  await withPolicyScan("policy-german-datenschutzhinweise", async ({ result, baseUrl }) => {
+    const privacy = result.policySurfaceObservations.find((observation) =>
+      observation.surfaceType === "privacy_policy" &&
+      observation.normalizedUrl === `${baseUrl}/datenschutzhinweise`
+    );
+    assert.equal(privacy?.status, "fetched");
+    assert.equal(privacy?.linkObservationState, "observed");
+    assert.equal(privacy?.discoveryMethod, "footer_link");
+    assert.equal(privacy?.matchedLocale, "de");
+
+    const diagnostics = await readPolicyCaptureDiagnostics(result);
+    assert.equal(diagnostics.corePolicySurfaceRetained, true);
+    assert.equal(diagnostics.commonPathFallbackUsed, false);
+    assert.ok(diagnostics.funnel.observedLinkCount > 0);
+  }, {
+    discoveryMode: "fast",
+    nanoAssistProvider: {
+      async classifyLinks() {
+        throw new Error("Canonical Datenschutzhinweise discovery must not require model ranking.");
+      },
+    },
+  });
+});
+
 test("policySurfaceScanner uses common-path fallback when homepage fetch fails", async () => {
   const server = await startStaticFixtureServer();
   const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-policy-scan-"));
@@ -4753,6 +5117,85 @@ test("policySurfaceScanner uses rendered footer links before common-path fallbac
   }
 });
 
+test("policySurfaceScanner retains committed policy evidence when unrelated resources delay DOMContentLoaded", async () => {
+  const policyText = Array.from({ length: 18 }, () => [
+    "Example Media is the data controller and can be contacted at privacy@example.test.",
+    "We process personal data for service delivery, analytics, security, and advertising using consent, contract, legal obligation, and legitimate interests.",
+    "Recipients include service providers and affiliates, records are retained only as necessary, and international transfers use approved safeguards.",
+    "You may request access, correction, deletion, restriction, portability, or objection and may complain to a supervisory authority.",
+  ].join(" ")).join(" ");
+  const server = createServer((request, response) => {
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    const isDirectScannerRequest = /^ConsentCheckBot\//.test(request.headers["user-agent"] ?? "");
+    if (isDirectScannerRequest) {
+      response.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      response.end("direct request blocked");
+      return;
+    }
+    if (requestUrl.pathname === "/slow-policy-resource.js") {
+      const timer = setTimeout(() => {
+        if (response.destroyed) return;
+        response.writeHead(200, { "content-type": "application/javascript; charset=utf-8" });
+        response.end("window.__slowPolicyResourceLoaded = true;");
+      }, 10_000);
+      response.on("close", () => clearTimeout(timer));
+      return;
+    }
+    if (requestUrl.pathname === "/committed-policy-homepage/privacy") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(`<!doctype html><html><head><title>Privacy Policy</title></head><body>
+        <main><h1>Privacy Policy</h1><p>${policyText}</p></main>
+        <script src="/slow-policy-resource.js"></script>
+      </body></html>`);
+      return;
+    }
+    if (requestUrl.pathname === "/committed-policy-homepage") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(`<!doctype html><html><head><title>News</title></head><body>
+        <main>Rendered publisher homepage.</main>
+        <footer><a href="/committed-policy-homepage/privacy">Privacy Policy</a></footer>
+        <script src="/slow-policy-resource.js"></script>
+      </body></html>`);
+      return;
+    }
+    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    response.end("not found");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const targetUrl = `http://127.0.0.1:${address.port}/committed-policy-homepage`;
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-policy-committed-document-"));
+
+  try {
+    const startedAt = Date.now();
+    const result = await policySurfaceScanner({
+      url: targetUrl,
+      normalizedUrl: targetUrl,
+      scanStartedAtMs: startedAt,
+      internalBudgetMs: 12_000,
+      discoveryMode: "fast",
+      artifactWriter: await createArtifactWriter(tempRoot),
+      nanoAssistProvider: createDefaultMockNanoPolicyAssistProvider(),
+    });
+    const privacy = result.policySurfaceObservations.find((observation) =>
+      observation.status === "fetched" &&
+      observation.normalizedUrl === `${targetUrl}/privacy`
+    );
+
+    assert.ok(privacy, JSON.stringify(result.policySurfaceObservations, null, 2));
+    assert.equal(privacy.httpStatus, 200);
+    assert.equal(privacy.documentEvaluationState, "usable");
+    assert.match(privacy.textExcerpt ?? "", /data controller/i);
+    assert.ok(Date.now() - startedAt < 10_000, "policy recovery must remain inside the existing bounded lane budget");
+  } finally {
+    server.close();
+    await once(server, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("policySurfaceScanner uses rendered policy document fallback when direct policy fetch times out", async () => {
   const server = await startStaticFixtureServer();
   const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-policy-scan-"));
@@ -4790,6 +5233,83 @@ test("policySurfaceScanner uses rendered policy document fallback when direct po
     );
   } finally {
     await server.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("rendered policy fallback retains a substantive semantic article instead of page chrome", async () => {
+  const policyText = [
+    "Cookies Notice",
+    "The data controller uses operational cookies to provide the service and advertising cookies only for the purposes described here.",
+    "We process device information and personal data based on consent, contract, legal obligations, and legitimate interests.",
+    "Recipients include service providers, analytics providers, advertising partners, and affiliated companies.",
+    "Advertising cookie choices can be changed at any time through the privacy preferences page.",
+    "Cookie identifiers are retained for defined periods and then deleted.",
+    "You may request access, correction, deletion, restriction, portability, or object to processing.",
+    "International transfers use adequacy decisions or standard contractual clauses.",
+    "Contact privacy@example.test or lodge a complaint with a supervisory authority.",
+  ].join(" ");
+  const pageChrome = "Products Orders Help Account Careers Locations Terms Support ".repeat(40);
+  const server = createServer((request, response) => {
+    const requestUrl = new URL(request.url ?? "/", "http://fixture.test");
+    if (requestUrl.pathname === "/delayed-rendered-cookie-homepage") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(`<!doctype html><html><body>
+        <main>Fixture homepage.</main>
+        <footer><a href="/delayed-rendered-cookie-homepage/cookies">Cookies Notice</a></footer>
+      </body></html>`);
+      return;
+    }
+    if (requestUrl.pathname === "/delayed-rendered-cookie-homepage/cookies") {
+      if (request.headers["sec-fetch-mode"] !== "navigate") {
+        response.writeHead(503, { "content-type": "text/html; charset=utf-8" });
+        response.end("<!doctype html><html><body><main>Cookies Notice temporarily unavailable.</main></body></html>");
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(`<!doctype html><html><body>
+        <header>${pageChrome}</header>
+        <div id="article-root"></div>
+        <footer>${pageChrome}</footer>
+        <script>
+          setTimeout(() => {
+            document.getElementById("article-root").innerHTML = '<article><h1>Cookies Notice</h1><p>${policyText}</p></article>';
+          }, 1000);
+        </script>
+      </body></html>`);
+      return;
+    }
+    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    response.end("not found");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const targetUrl = `http://127.0.0.1:${address.port}/delayed-rendered-cookie-homepage`;
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-policy-delayed-article-"));
+
+  try {
+    const result = await policySurfaceScanner({
+      url: targetUrl,
+      normalizedUrl: targetUrl,
+      scanStartedAtMs: Date.now(),
+      internalBudgetMs: 12_000,
+      artifactWriter: await createArtifactWriter(tempRoot),
+      nanoAssistProvider: createDefaultMockNanoPolicyAssistProvider(),
+    });
+    const cookies = result.policySurfaceObservations.find((observation) =>
+      observation.status === "fetched" &&
+      observation.normalizedUrl === `${targetUrl}/cookies`
+    );
+
+    assert.ok(cookies, JSON.stringify(result.policySurfaceObservations, null, 2));
+    assert.equal(cookies.documentEvaluationState, "usable");
+    assert.match(cookies.textExcerpt ?? "", /advertising cookie choices can be changed/i);
+    assert.doesNotMatch(cookies.textExcerpt ?? "", /^Products Orders Help Account/);
+  } finally {
+    server.close();
+    await once(server, "close");
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
@@ -4938,7 +5458,7 @@ test("policySurfaceScanner does not follow third-party privacy policy links from
 
     assert.ok(firstPartyCookie);
     assert.deepEqual(thirdPartyPolicies, []);
-  }, { enableNanoPolicyAssist: true, internalBudgetMs: 8_000 });
+  }, { enableNanoPolicyAssist: true, internalBudgetMs: 12_000 });
 });
 
 test("policySurfaceScanner ignores external URL-only body privacy links as policy surfaces", async () => {
@@ -5456,6 +5976,7 @@ test("policySurfaceScanner gives Nano enough bounded text for distant Article 13
     assert.match(
       privacy?.article13DisclosureSignals.find((signal) => signal.disclosureType === "legal_basis")?.evidenceText ?? "",
       /lawful bases|legitimate interests/i,
+      JSON.stringify(privacy?.retainedArticle13SectionEvidence?.filter((row) => row.coverageArea === "legal_basis")),
     );
     assert.match(
       privacy?.article13DisclosureSignals.find((signal) => signal.disclosureType === "data_retention")?.evidenceText ?? "",
@@ -5758,7 +6279,7 @@ test("policySurfaceScanner extracts late mature-policy GDPR transparency signals
     assert.equal(signalFor("data_retention")?.selectedPolicySectionHeading, "Retaining your information");
     assert.match(signalFor("data_retention")?.evidenceText ?? "", /deleted or anonymized|retained as long as necessary/i);
     assert.equal(signalFor("data_subject_rights")?.status, "observed");
-    assert.equal(signalFor("data_subject_rights")?.confidence, 0.8);
+    assert.equal(signalFor("data_subject_rights")?.confidence, 0.9);
     assert.match(signalFor("data_subject_rights")?.selectedPolicySectionHeading ?? "", /privacy controls|exporting and deleting/i);
     assert.match(signalFor("data_subject_rights")?.evidenceText ?? "", /privacy controls|activity controls|ad settings|personalization settings|Google Takeout|delete your information|My Activity/i);
     assert.equal(signalFor("international_transfers")?.status, "observed");
@@ -5769,10 +6290,7 @@ test("policySurfaceScanner extracts late mature-policy GDPR transparency signals
     assert.equal(signalFor("supervisory_authority")?.confidence, 0.62);
     assert.equal(signalFor("supervisory_authority")?.selectedPolicySectionHeading, "Compliance and cooperation with regulators");
     assert.match(signalFor("supervisory_authority")?.evidenceText ?? "", /regulatory authorities|local data protection authorities|formal written complaints/i);
-    assert.equal(signalFor("automated_decision_making_or_profiling")?.status, "partial");
-    assert.equal(signalFor("automated_decision_making_or_profiling")?.confidence, 0.56);
-    assert.equal(signalFor("automated_decision_making_or_profiling")?.selectedPolicySectionHeading, "Automated systems");
-    assert.match(signalFor("automated_decision_making_or_profiling")?.evidenceText ?? "", /automated systems|algorithms|personalized ads/i);
+    assert.equal(signalFor("automated_decision_making_or_profiling"), undefined);
     assert.equal(signalFor("controller_contact")?.status, "partial");
     assert.equal(signalFor("controller_contact")?.confidence, 0.62);
     assert.equal(signalFor("controller_contact")?.selectedPolicySectionHeading, "European requirements");

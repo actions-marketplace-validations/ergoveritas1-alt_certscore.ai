@@ -1,3 +1,5 @@
+import { projectPreconsentTrackingTiming, describePreconsentTrackingTiming } from "./preconsent-tracking-timing";
+import { canonicalEvidenceVendorName as normalizeEvidenceVendor } from "./canonical-evidence-vendor-name";
 import type { CertScoreFindingEvidenceDetails } from "./finding-registry";
 import { inferDirectEndpointVendorFromUrl } from "./preconsent-public-evidence";
 
@@ -112,19 +114,6 @@ function uniqueStrings(values: string[]) {
   return result;
 }
 
-function normalizeEvidenceVendor(value: string) {
-  if (/cloudflare/i.test(value)) {
-    return null;
-  }
-  if (/linkedin insight|linkedin ads|px\.ads\.linkedin|snap\.licdn/i.test(value)) return "LinkedIn Insight Tag";
-  if (/meta pixel|facebook pixel|connect\.facebook|facebook\.com\/tr/i.test(value)) return "Meta Pixel";
-  if (/google tag manager|googletagmanager|\bgtm\b/i.test(value)) return "Google Tag Manager";
-  if (/google analytics|google-analytics|analytics\.google|google\.com\/g\/collect|^_ga/i.test(value)) return "Google Analytics";
-  if (/reddit/i.test(value)) return "Reddit Pixel";
-  if (/heap/i.test(value)) return "Heap";
-  if (/zoominfo|zi-scripts/i.test(value)) return "ZoomInfo";
-  return value.trim();
-}
 
 function formatList(values: string[]) {
   if (values.length <= 1) return values[0] ?? "";
@@ -207,68 +196,17 @@ function formatPrimitiveEvidence(record: Record<string, unknown>, nameKeys: stri
 function buildPreConsentTrackingHighlights(finding: ExecutiveEvidenceFinding) {
   const details = finding.evidenceDetails;
   const trackingEvidence = getRecord(details?.trackingEvidence);
-  const timing = getRecord(details?.timingAnalysis) ?? getRecord((details as Record<string, unknown> | undefined)?.timing);
-  const fallbackFirstSeenMs = getFirstRuntimeElapsedMs(timing, [
-    "firstThirdPartyTrackingRequestMs",
-    "firstThirdPartyRequestMs",
-    "firstSeenMs",
-    "first_seen_ms"
-  ]);
-  const rows = [
+  const timing = projectPreconsentTrackingTiming([
     ...asRecordRows(details?.vendors),
     ...asRecordRows(details?.runtimeVendors),
     ...asRecordRows(trackingEvidence?.vendors),
     ...asRecordRows(trackingEvidence?.representativeRequests),
     ...asRecordRows(details?.representativeRequests)
-  ].sort((left, right) => {
-    const leftPreConsent = getFirstBooleanValue(left, ["preConsent", "pre_consent", "beforeConsent", "before_consent"]);
-    const rightPreConsent = getFirstBooleanValue(right, ["preConsent", "pre_consent", "beforeConsent", "before_consent"]);
-    return Number(rightPreConsent === true) - Number(leftPreConsent === true);
-  });
-  const highlights: string[] = [];
-  const summaryVendors = uniqueStrings(rows.flatMap((row) => {
-    const name = getFirstStringValue(row, ["name", "vendor", "label"]);
-    const url = getFirstStringValue(row, ["representativeUrl", "representative_url", "requestUrl", "request_url", "url"]);
-    const normalized = normalizeEvidenceVendor(name ?? url ?? "");
-    return normalized ? [normalized] : [];
-  })).slice(0, 7);
-  if (summaryVendors.length > 0) {
-    const firstSeenMs = rows
-      .map((row) => getFirstRuntimeElapsedMs(row, ["firstSeenMs", "first_seen_ms", "firstRequestMs", "first_request_ms"]) ?? fallbackFirstSeenMs)
-      .find((value): value is number => typeof value === "number");
-    highlights.push(
-      `Tracking requests observed before consent: ${formatList(summaryVendors)}${typeof firstSeenMs === "number" ? `; first seen ${formatElapsedSeconds(firstSeenMs)} after scan start` : ""}.`
-    );
-  }
-
-  for (const row of rows) {
-    const name = getFirstStringValue(row, ["name", "vendor", "label"]);
-    if (!name) {
-      continue;
-    }
-    const preConsent = getFirstBooleanValue(row, ["preConsent", "pre_consent", "beforeConsent", "before_consent"]) ?? true;
-    const firstSeenMs = getFirstRuntimeElapsedMs(row, ["firstSeenMs", "first_seen_ms", "firstRequestMs", "first_request_ms"]) ?? fallbackFirstSeenMs;
-    const retainedCategory = getFirstStringValue(row, ["category", "vendorCategory", "vendor_category", "requestCategory", "request_category"]);
-    const url = getFirstStringValue(row, ["representativeUrl", "representative_url", "requestUrl", "request_url", "url"]);
-    const category = normalizeVendorCategory({ category: retainedCategory, name, url });
-    const consentState = getFirstStringValue(row, ["consentState", "consent_state", "runtimePhase", "runtime_phase"]);
-    const normalizedName = normalizeEvidenceVendor(name);
-    if (!normalizedName) {
-      continue;
-    }
-    highlights.push([
-      quote(normalizedName),
-      `${quote("preConsent")}: ${preConsent}`,
-      typeof firstSeenMs === "number" ? `${quote("firstSeenMs")}: ${Math.round(firstSeenMs)}` : null,
-      consentState ? `${quote("consentState")}: ${quote(consentState)}` : null,
-      category ? `${quote("category")}: ${quote(category)}` : null
-    ].filter((value): value is string => Boolean(value)).join(", "));
-    if (highlights.length >= 3) {
-      break;
-    }
-  }
-
-  return highlights;
+  ]);
+  if (!timing.requests.length) return [];
+  return [describePreconsentTrackingTiming(timing), ...timing.requests.slice(0, 2).map(request =>
+    JSON.stringify({ vendor: request.vendorName, requestUrl: request.requestUrl, category: request.vendorCategory,
+      runtimePhase: request.runtimePhase, firstSeenMs: request.firstSeenMs, evidenceRefs: request.evidenceRefs }))];
 }
 
 function buildPreConsentCookieStorageHighlights(finding: ExecutiveEvidenceFinding) {
@@ -424,12 +362,10 @@ function buildGenericEvidenceHighlights(finding: ExecutiveEvidenceFinding) {
 }
 
 export function buildRegulatoryChecklistEvidenceHighlights(finding: ExecutiveEvidenceFinding) {
-  const highlights =
-    finding.id === "preconsent_tracking" ||
-    finding.id === "pre_consent_tracking_detected" ||
-    finding.id === "third_party_tracking_pre_consent"
-      ? buildPreConsentTrackingHighlights(finding)
-      : finding.id === "adtech_cookie_pre_consent" ||
+  if (["preconsent_tracking", "pre_consent_tracking_detected", "third_party_tracking_pre_consent"].includes(finding.id)) {
+    return uniqueStrings(buildPreConsentTrackingHighlights(finding)).slice(0, 3);
+  }
+  const highlights = finding.id === "adtech_cookie_pre_consent" ||
           finding.id === "analytics_cookie_pre_consent" ||
           finding.id === "third_party_cookie_pre_consent"
         ? buildPreConsentCookieStorageHighlights(finding)

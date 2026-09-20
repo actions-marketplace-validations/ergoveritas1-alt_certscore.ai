@@ -128,6 +128,64 @@ test("simulated Lambda carries the exact typed Reject observation configuration 
   );
 });
 
+test("simulated Lambda carries the exact typed Accept observation configuration into the parity process", () => {
+  const postAcceptObservation = {
+    actionSearchTimeoutMs: 10_000,
+    confirmationTimeoutMs: 2_000,
+    dispatchDelayMs: 1_000,
+    enabled: true as const,
+    interactionAuthorization: {
+      authorizationId: "ergoveritas_owned_post_refusal_canary.v1" as const,
+      kind: "owned_canary" as const,
+    },
+    observationWindowMs: 8_000,
+    rolloutMode: "owned_canary" as const,
+    resolver: {
+      kind: "canonical_cmp_registry" as const,
+      recipeSetId: "canonical-consent-control-accept-v2" as const,
+    },
+  };
+  const args = buildLocalV2DagSimulatedLambdaArgs({
+    artifactDir: "artifacts/local-v2-dag-lambda-simulated",
+    outPath: "artifacts/local-v2-dag-lambda-simulated/scan-accept/summary.json",
+    payload: {
+      awsRegion: "eu-central-1",
+      postAcceptObservation,
+      profile: "standard",
+      scanId: "scan-accept",
+      targetUrl: "https://ergoveritas.com/testar1.html",
+    },
+  });
+  const configIndex = args.indexOf("--post-accept-config");
+
+  assert.ok(configIndex > 0);
+  assert.deepEqual(JSON.parse(args[configIndex + 1] ?? "null"), postAcceptObservation);
+});
+
+test("simulated Lambda carries the exact typed GPC observation configuration into the parity process", () => {
+  const gpcObservation = {
+    contractVersion: "certscore.gpc-observation-dispatch.v1" as const,
+    enabled: true as const,
+    pairWithLane: "runtime_evidence" as const,
+    protocol: "passive_baseline_with_sec_gpc" as const,
+  };
+  const args = buildLocalV2DagSimulatedLambdaArgs({
+    artifactDir: "artifacts/local-v2-dag-lambda-simulated",
+    outPath: "artifacts/local-v2-dag-lambda-simulated/scan-gpc/summary.json",
+    payload: {
+      awsRegion: "eu-west-1",
+      gpcObservation,
+      profile: "standard",
+      scanId: "scan-gpc",
+      targetUrl: "https://example.com/",
+    },
+  });
+  const configIndex = args.indexOf("--gpc-config");
+
+  assert.ok(configIndex > 0);
+  assert.deepEqual(JSON.parse(args[configIndex + 1] ?? "null"), gpcObservation);
+});
+
 test("local Lambda executables exit after their durable handoffs are awaited", async () => {
   for (const path of [
     "scripts/run-local-v2-dag-lambda-parity.ts",

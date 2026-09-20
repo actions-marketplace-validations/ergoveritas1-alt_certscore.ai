@@ -7,6 +7,7 @@ import { signCertScoreAccessToken } from "../packages/certscore-mcp-auth/src/ind
 const DEFAULT_MCP_URL = "https://mcp.certscore.ai/mcp";
 const DEFAULT_ISSUER = "https://certscore.ai";
 const LIGHT_TOOL_NAMES = new Set([
+  "certscore_get_report_evidence_page",
   "certscore_get_scan_bundle",
   "certscore_get_scan_status",
   "certscore_scan_site"

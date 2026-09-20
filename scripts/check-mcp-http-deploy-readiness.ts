@@ -52,9 +52,6 @@ function scopesInclude(scopes: string[] | undefined, expected: string[]) {
   return expected.every((scope) => scopes?.includes(scope));
 }
 
-function scopesExclude(scopes: string[] | undefined, excluded: string[]) {
-  return excluded.every((scope) => !scopes?.includes(scope));
-}
 
 async function fetchJson(url: string) {
   const response = await fetch(url, {
@@ -138,9 +135,9 @@ async function checkLive(mcpPublicUrl: string, oauthIssuer: string, requireScanC
         ? ok("protected resource points at OAuth issuer")
         : fail("protected resource points at OAuth issuer", JSON.stringify(metadata.authorization_servers ?? []))
     );
-    const expectedScopes = ["scan:read", "mcp"];
+    const expectedScopes = ["scan:read", "scan:create", "mcp"];
     results.push(
-      scopesInclude(metadata.scopes_supported, expectedScopes) && scopesExclude(metadata.scopes_supported, ["scan:create"])
+      scopesInclude(metadata.scopes_supported, expectedScopes)
         ? ok("protected resource scopes supported", JSON.stringify(metadata.scopes_supported ?? []))
         : fail("protected resource scopes supported", JSON.stringify(metadata.scopes_supported ?? []))
     );
@@ -167,9 +164,9 @@ async function checkLive(mcpPublicUrl: string, oauthIssuer: string, requireScanC
         ? ok("PKCE S256 advertised")
         : fail("PKCE S256 advertised", JSON.stringify(metadata.code_challenge_methods_supported ?? []))
     );
-    const expectedScopes = ["scan:read", "mcp"];
+    const expectedScopes = ["scan:read", "scan:create", "mcp"];
     results.push(
-      scopesInclude(metadata.scopes_supported, expectedScopes) && scopesExclude(metadata.scopes_supported, ["scan:create"])
+      scopesInclude(metadata.scopes_supported, expectedScopes)
         ? ok("authorization metadata scopes supported", JSON.stringify(metadata.scopes_supported ?? []))
         : fail("authorization metadata scopes supported", JSON.stringify(metadata.scopes_supported ?? []))
     );

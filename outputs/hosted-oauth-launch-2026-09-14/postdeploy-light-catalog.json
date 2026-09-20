@@ -1,0 +1,13 @@
+{
+  "at": "2026-09-14T18:22:29.603Z",
+  "server": {
+    "name": "certscore",
+    "version": "0.2.21"
+  },
+  "tools": [
+    "certscore_get_report_evidence_page",
+    "certscore_get_scan_bundle",
+    "certscore_get_scan_status",
+    "certscore_scan_site"
+  ]
+}

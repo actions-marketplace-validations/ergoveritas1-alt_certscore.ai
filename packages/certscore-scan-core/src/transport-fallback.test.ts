@@ -43,6 +43,9 @@ test("transport failure classification is bounded to navigation/network failures
   assert.equal(isNavigationTransportFailure(new Error("net::ERR_TUNNEL_CONNECTION_FAILED")), true);
   assert.equal(isNavigationTransportFailure(new Error("net::ERR_INVALID_AUTH_CREDENTIALS")), true);
   assert.equal(isNavigationTransportFailure(new Error("net::ERR_HTTP_RESPONSE_CODE_FAILURE")), true);
+  assert.equal(isNavigationTransportFailure(new Error("page.goto: net::ERR_EMPTY_RESPONSE at https://example.com/")), true);
+  assert.equal(isNavigationTransportFailure(new Error("net::ERR_BLOCKED_BY_CLIENT")), false);
+  assert.equal(isNavigationTransportFailure(new Error("net::ERR_NAME_NOT_RESOLVED")), false);
   assert.equal(isNavigationTransportFailure(new Error("HTTP 403 Forbidden")), false);
   assert.equal(isNavigationTransportFailure(new Error("Consent banner was not detected")), false);
 });

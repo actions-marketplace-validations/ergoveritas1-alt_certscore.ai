@@ -51,6 +51,9 @@ import {
 } from "./admin-query-cache";
 import { query } from "@website-signal-risk-scanner/db";
 import { resolveAdminPageUrl, type AdminPageUrlSource } from "../../lib/admin/admin-page-url";
+import { type ScanCreationAttribution, type ScanCreationSource } from "../../lib/admin/scan-creation-source";
+import { loadAdminScanCreationAttributions } from "./repository";
+import { projectAdminScanInventory, type AdminScanInventory } from "./admin-scan-inventory";
 
 function scannerEgressFromScanConfig(scanConfig: Record<string, unknown> | null | undefined) {
   if (shouldUseLocalV2DagScanTool()) {
@@ -80,6 +83,7 @@ function adminRequesterIpAttribution(values: RequesterIpAttribution[]) {
 }
 
 export type AdminScanListItem = {
+  createdVia?: ScanCreationAttribution;
   accessPostureClass: AccessPostureClass | null;
   adminSummaryGeneratedAt: string | null;
   activityAt: string;
@@ -100,6 +104,7 @@ export type AdminScanListItem = {
   cmpVendorName: string | null;
   consentAro: AdminConsentAro | null;
   evidenceMatrix: AdminEvidenceMatrix | null;
+  inventory?: AdminScanInventory;
   completedAt: string | null;
   createdAt: string;
   domainHostname: string | null;
@@ -225,7 +230,9 @@ export async function listAdminOverviewScans(limit = 10): Promise<AdminOverviewR
     top_finding_count: number | null;
     privacy_policy_present: boolean | null;
   }>(
-    `select s.id as scan_id,
+    `with recent_scans as materialized (
+       select * from public.scans order by coalesce(completed_at, started_at, created_at) desc, created_at desc, id desc limit $1
+     ) select s.id as scan_id,
             s.status,
             s.scan_type,
             s.started_at,
@@ -239,12 +246,11 @@ export async function listAdminOverviewScans(limit = 10): Promise<AdminOverviewR
             ss.cmp_vendor_name,
             ss.scan_outcome,
             ss.score_source
-       from public.scans s
+       from recent_scans s
        left join public.domains d on d.id = s.domain_id
        left join public.organizations org on org.id = s.organization_id
        left join public.scan_snapshots ss on ss.scan_id = s.id
-      order by coalesce(s.completed_at, s.started_at, s.created_at) desc, s.created_at desc
-      limit $1`,
+      order by coalesce(s.completed_at, s.started_at, s.created_at) desc, s.created_at desc, s.id desc`,
     [Math.min(Math.max(limit, 1), 25)],
     { readOnly: true }
   );
@@ -274,7 +280,7 @@ export async function listAdminOverviewScans(limit = 10): Promise<AdminOverviewR
 export async function listAdminScansPage(
   limit = 50,
   offset = 0,
-  filters?: { email?: string | null; excludeMacMiniScanBot?: boolean; includeCanary?: boolean; query?: string | null; status?: AdminScanListStatus; freshness?: AdminScanListFreshness; access?: AdminScanListAccess; outcome?: string | null; language?: string | null; industry?: string | null; scanFrom?: string | null; timeSpan?: AdminScanListTimeSpan }
+  filters?: { createdVia?: ScanCreationSource | null; email?: string | null; excludeMacMiniScanBot?: boolean; includeCanary?: boolean; query?: string | null; status?: AdminScanListStatus; freshness?: AdminScanListFreshness; access?: AdminScanListAccess; outcome?: string | null; language?: string | null; industry?: string | null; scanFrom?: string | null; timeSpan?: AdminScanListTimeSpan }
 ): Promise<{ items: AdminScanListItem[]; totalCount: number }> {
   await requirePlatformAdminContext();
   const requesterEmail = filters?.email?.trim().slice(0, 160) || null;
@@ -282,6 +288,7 @@ export async function listAdminScansPage(
     "app.admin.scans.activity-page",
     () => loadAdminScanActivityPageRefs(limit, offset, {
       query: filters?.query ?? requesterEmail,
+      createdVia: filters?.createdVia,
       status: filters?.status,
       freshness: filters?.freshness,
       access: filters?.access,
@@ -296,13 +303,14 @@ export async function listAdminScansPage(
   );
   const selectedScanIds = [...new Set(page.rows.flatMap((row) => row.scan_id ? [row.scan_id] : []))];
   const selectedRequestIds = page.rows.flatMap((row) => row.request_public_id ? [row.request_public_id] : []);
-  const [scanPageData, scanRequestRows] = await withServerTiming(
+  const [scanPageData, scanRequestRows, creationAttributions] = await withServerTiming(
     "app.admin.scans.row-enrichment",
     () => Promise.all([
       loadAdminScanListPageData(Math.max(selectedScanIds.length, 1), 0, null, selectedScanIds),
       selectedScanIds.length || selectedRequestIds.length
         ? loadAdminScanRequestRows(100_000, null, { publicIds: selectedRequestIds, scanIds: selectedScanIds })
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      loadAdminScanCreationAttributions(selectedScanIds)
     ])
   );
   const {
@@ -468,6 +476,7 @@ export async function listAdminScansPage(
       }),
       consentAro: canonicalSummary.consentAro,
       evidenceMatrix: parseAdminEvidenceMatrix(overviewSnapshot?.admin_evidence_matrix),
+      inventory: projectAdminScanInventory(scan.id, overviewSnapshot, noGo.isNoGo),
       scannerEgressId: scannerEgress.id,
       scannerEgressProvider: scannerEgress.provider,
       trancoRank: overviewSnapshot?.tranco_rank ?? null,
@@ -526,6 +535,10 @@ export async function listAdminScansPage(
       return mapScanRequestRow(request, linkedScanId ? scansById.get(linkedScanId) ?? null : null);
     });
 
+  const creationMap = new Map(creationAttributions.map((item) => [item.scanId, item]));
+  for (const item of [...scanItems, ...requestItems]) {
+    item.createdVia = creationMap.get(item.linkedScanId ?? item.scanId) ?? { kind: "unknown", requestId: null, requestedAt: null };
+  }
   const scanItemMap = new Map(scanItems.map((item) => [item.scanId, item] as const));
   const requestItemMap = new Map(requestItems.map((item) => [item.requestPublicId, item] as const));
   const items = page.rows.flatMap((row) => {
@@ -603,6 +616,7 @@ function mapScanRequestRow(request: ScanRequestRow, linkedScan: AdminScanListIte
     cmpVendorName: linkedScan?.cmpVendorName ?? null,
     consentAro: linkedScan?.consentAro ?? null,
     evidenceMatrix: linkedScan?.evidenceMatrix ?? null,
+    inventory: linkedScan?.inventory,
     completedAt: linkedScan?.completedAt ?? request.reused_completed_at,
     createdAt: request.requested_at,
     domainHostname: request.scan_domain_hostname ?? request.normalized_domain,

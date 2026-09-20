@@ -1,0 +1,42 @@
+import { z } from "zod";
+
+const token = z.string().regex(/^[a-zA-Z0-9_.:-]{1,80}$/);
+export const mcpResponseSummarySchema = z.object({
+  version: z.literal(1),
+  captureBasis: z.literal("response_generated"),
+  templateVersion: z.literal("2026-09-11.1"),
+  kind: z.enum(["tool_result", "protocol_error"]),
+  isError: z.boolean(),
+  type: token.optional(),
+  status: token.optional(),
+  errorCode: token.optional(),
+  reasonCode: token.optional(),
+  mcpCode: z.number().int().optional(),
+  retryable: z.boolean().optional(),
+  retryAfterSeconds: z.number().int().min(0).max(86400).nullable().optional(),
+  recommendedNextTool: token.nullable().optional(),
+  actionCategory: z.enum(["poll_status", "get_bundle", "get_next_page", "create_if_requested", "summarize", "review_connection", "stop_review"]).optional(),
+  retryDisposition: z.enum(["not_needed", "follow_guidance", "not_recorded"]).optional(),
+  scanAssociation: z.enum(["linked", "no_eligible_scan", "not_applicable", "not_recorded"]).optional(),
+  quotaConsumed: z.boolean().nullable().optional(),
+  creationDecision: z.enum(["new_scan", "reused_scan", "not_requested", "unknown"]).optional(),
+  pagination: z.object({ nextOffset: z.number().int().min(0).nullable(), complete: z.boolean() }).strict().optional(),
+  scanStarted: z.boolean().optional(),
+  omissionReason: token.optional(),
+  firstResult: z.enum(["queued", "preview", "completed", "failed", "unknown"]).optional(),
+  previewWaitMs: z.number().int().min(0).max(3600000).optional(),
+  internalReadCount: z.number().int().min(0).max(10000).optional(),
+  anonymousCreationQuota: z.object({ limit: z.number().int().min(0), remaining: z.number().int().min(0), resetAt: z.string().datetime() }).strict().optional(),
+  completeness: z.object({ findingsReturned: z.number().int().min(0).optional(), findingsTotal: z.number().int().min(0).optional(), inventoryReturned: z.number().int().min(0).optional(), inventoryTotal: z.number().int().min(0).optional(), omittedSections: z.array(token).max(12).optional() }).strict().optional(),
+  message: z.string().max(400).optional(),
+  recommendedNextAction: z.string().max(800).optional(),
+  textOmitted: z.boolean(),
+  summaryTruncated: z.boolean(),
+  issues: z.array(z.object({ field: token, code: token, required: z.boolean().optional() }).strict()).max(8).optional(),
+  upstream: z.object({
+    operation: z.enum(["scan_create", "scan_status", "scan_resource", "findings", "finding", "report", "evidence", "pre_consent", "domain_latest", "other"]),
+    httpStatus: z.number().int().min(100).max(599).optional(),
+    requestId: z.string().uuid().optional(),
+  }).strict().optional(),
+}).strict().refine(value => new TextEncoder().encode(JSON.stringify(value)).length <= 2048, "Response summary exceeds 2 KB");
+export type McpResponseSummary = z.infer<typeof mcpResponseSummarySchema>;

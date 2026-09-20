@@ -6,7 +6,7 @@ CertScore outputs are automated public-web observations for human and agentic re
 
 ## Status
 
-The SDK is published as `@certscore/sdk` on npm. Use version `0.2.8` or newer for API v2 scan creation in EU-Germany, EU-Ireland, and California, plus typed no-account allowance, completed-limited no-go results, API v2 timing, and client attribution. See the [npm package](https://www.npmjs.com/package/@certscore/sdk) and [SDK source](https://github.com/ergoveritas1-alt/certscore.ai/tree/main/packages/certscore-sdk).
+The SDK is published as `@certscore/sdk` on npm. Use version `0.2.11` or newer for typed GPC, Accept Path, and Reject Path results on both Pulse and API v2 scan resources, plus API v2 scan creation in EU-Germany, EU-Ireland, and California. See the [npm package](https://www.npmjs.com/package/@certscore/sdk) and [SDK source](https://github.com/ergoveritas1-alt/certscore.ai/tree/main/packages/certscore-sdk).
 
 ```bash
 npm install @certscore/sdk
@@ -23,7 +23,13 @@ import { CertScoreClient } from "@certscore/sdk";
 
 const client = new CertScoreClient();
 const pulse = await client.scan("https://ergoveritas.com/.well-known/certscore-canary/sentinels/broad-baseline.html");
-console.log(pulse.summary?.score, pulse.links?.fullReportUrl);
+console.log(
+  pulse.summary?.score,
+  pulse.gpcResponse?.status,
+  pulse.postAcceptObservation?.status,
+  pulse.postRefusalObservation?.status,
+  pulse.links?.fullReportUrl,
+);
 ```
 
 ## Resource Clients
@@ -45,6 +51,12 @@ const created = await certscore.scans.create("https://ergoveritas.com/.well-know
 const completed = await certscore.scans.wait(created);
 const scanId = completed.scanId;
 
+console.log(
+  completed.gpcResponse?.status,
+  completed.postAcceptObservation?.verdict,
+  completed.postRefusalObservation?.verdict,
+);
+
 const status = await certscore.scans.status(scanId);
 const diagnostics = await certscore.scans.diagnostics(scanId);
 const findings = await certscore.findings.list(scanId);
@@ -62,6 +74,33 @@ const latestPreConsentTable = await certscore.domains.latestPreConsentCookiesTra
 
 console.log(status.status, diagnostics.totalWallMs, diagnostics.policyDiscovery.phaseWallMs, preConsentTable.summary.rowCount, explanation?.title, pulseProjection.disclaimer, pulseEvidence.type, latestDomainScan.scan?.scanId, latestPreConsentTable.rows.length);
 ```
+
+Read capture and registration separately:
+
+```ts
+const reject = completed.postRefusalObservation;
+const accept = completed.postAcceptObservation;
+
+for (const path of [accept, reject]) {
+  if (!path) continue;
+  console.log(path.interpretation);
+  // After-click facts remain useful even when registration is unconfirmed.
+  if (path.afterAction) console.log(path.afterAction);
+  // Use canonical findings for risk/scoring; request counts are not tracker counts.
+}
+
+const gpc = completed.gpcResponse;
+console.log({
+  observation: gpc?.observation?.status ?? "not_available_in_this_record",
+  pairedResponse: gpc?.status,
+  recordedState: gpc?.observation?.registration,
+  requests: gpc?.observation?.requests,
+});
+// Complete observation does not mean GPC was honored.
+// Historical records may omit observation and afterAction entirely.
+```
+
+SDK 0.2.11 adds typed GPC v3 bounded observations and after-click summaries. SDK 0.2.10 can receive additional JSON fields but does not type them. These fields do not add scan invocations, extend observation windows or change scoring. New scans use the deployed backend; cached records retain their original evidence.
 
 `certscore.scans.get()`, `certscore.scans.status()`, and `certscore.scans.wait()` expose scan timing where the API has enough evidence:
 

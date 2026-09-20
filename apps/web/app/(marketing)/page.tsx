@@ -19,7 +19,7 @@ import { getFindingReferenceItems } from "../../lib/marketing/finding-atlas";
 import { getPublishedReleases } from "../../lib/releases";
 import { createPageMetadata, SITE_URL } from "../../lib/seo";
 
-const SAMPLE_REPORT_URL = "https://certscore.ai/scan/f20f885d-10d4-4a07-899f-f7ea5a1825d8";
+const SAMPLE_REPORT_URL = "https://certscore.ai/scan/a9a7470d-248f-4d96-ac1f-7ffa517c22de";
 const BOOK_DEMO_URL = "/contact-sales";
 export const metadata: Metadata = {
   ...createPageMetadata({
@@ -46,7 +46,7 @@ const personas = [
   {
     title: "Digital policy analysts reviewing public privacy surfaces",
     detail:
-      "Review pre-consent cookies, storage, tracking, public disclosures, collection surfaces, and consent-control accessibility without depending on brittle post-choice automation."
+      "Review pre-consent cookies, storage, tracking, public disclosures, collection surfaces, and consent-control accessibility—plus what a site does after an eligible Accept or Reject interaction is confirmed."
   },
   {
     title: "Teams reviewing third-party websites",
@@ -68,7 +68,7 @@ const scannerSolutions = [
     href: "/solutions/cookie-consent-scanner",
     title: "Cookie consent scanner",
     description:
-      "Check cookie timing, CMP behavior, third-party cookies before consent, and reject-path review signals.",
+      "Check cookie timing, CMP behavior, third-party cookies before consent, and what happens after a confirmed Accept or Reject.",
     animation: "waterfall" as const,
     meta: "Consent controls"
   },
@@ -181,27 +181,27 @@ export default async function MarketingHomePage() {
 
       <section className="relative isolate overflow-hidden border-b border-sky-500/20 bg-[#020d20] text-white">
         <div className="absolute inset-x-0 -top-10 bottom-0 -z-20" aria-hidden="true">
-          <Image alt="" className="object-cover object-[62%_center]" fill priority sizes="100vw" src="/marketing/hero/futuristic-tech-shield-and-network-fast.jpg" />
+          <Image alt="" className="object-cover object-[62%_center]" fill priority unoptimized sizes="100vw" src="/marketing/hero/shield-report-compact.png" />
         </div>
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(1,10,27,0.06)_0%,rgba(1,10,27,0.02)_48%,rgba(1,10,27,0.12)_100%)]" aria-hidden="true" />
         <div className="relative top-0 mx-auto grid min-h-0 max-w-6xl gap-8 px-4 py-10 sm:px-6 sm:py-20 lg:-top-5 lg:min-h-[595px] lg:grid-cols-[minmax(0,650px)_minmax(0,1fr)] lg:items-center lg:gap-8 lg:py-16">
           <div className="relative z-20 max-w-[680px] space-y-7 sm:space-y-8 lg:-translate-y-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Evidence-led website review</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Evidence-led Website Privacy Scanner</p>
             <h1 className="text-[2rem] font-bold leading-[1.08] tracking-[-0.035em] text-white sm:text-5xl lg:text-[3.5rem]">
-              <span className="block sm:whitespace-nowrap">See what websites <span className="text-[#178cff]">reveal</span></span>
-              <span className="block sm:whitespace-nowrap">about privacy risk.</span>
+              <span className="block sm:whitespace-nowrap">Find privacy <span className="text-[#178cff]">risks</span>.</span>
+              <span className="block sm:whitespace-nowrap">See the evidence.</span>
             </h1>
             <div className="max-w-[650px]">
               <p className="text-base leading-8 text-slate-300 sm:text-xl">
-                Scan cookies, trackers, CMPs, consent, privacy policy, GDPR, CCPA, and TLS—with evidence retained behind every finding.
+                See what a website collects, which services it loads, and how it responds to consent choices. Review privacy signals across pages, with retained evidence and clear next steps.
               </p>
-              <p className="mt-2 text-sm font-semibold text-sky-400">
-                Built for developers and agencies reviewing client websites for GDPR and ePrivacy concerns.
+              <p className="relative top-[15px] mt-[20px] text-sm font-semibold text-sky-400">
+                Built for developers and agencies reviewing websites for GDPR/ePrivacy and CCPA concerns.
               </p>
             </div>
             <div id="homepage-scan" className="max-w-[650px] scroll-mt-24 pt-2">
               <div className="rounded-[1.4rem] border border-sky-300/30 bg-slate-950/35 p-2 shadow-[0_20px_45px_rgba(2,132,199,0.16)] backdrop-blur-sm sm:p-2.5">
-                <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200">Start with a website URL</p>
+                <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200">Start your <span className="text-[#178cff]">free</span> scan. Enter a website URL</p>
                 <DomainScanForm buttonLabel="Scan a website" inputLabel="Website URL to scan" inputPlaceholder="Enter website here:" mode="full" requestSource="homepage" scanSource="homepage" variant="homepage-hero" />
               </div>
             </div>
@@ -222,7 +222,7 @@ export default async function MarketingHomePage() {
                 <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] shrink-0 text-sky-500" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="9.25" /><path d="M12 6.8V12l3.4 2.1" />
                 </svg>
-                Results in seconds
+                Preview in seconds
               </span>
               <span className="flex shrink-0 items-center gap-2.5 whitespace-nowrap text-[13px]">
                 <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] shrink-0 text-sky-500" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
@@ -249,10 +249,6 @@ export default async function MarketingHomePage() {
                 variant="secondary"
               />
             </div>
-          </div>
-
-          <div className="relative z-10 hidden items-center justify-center lg:-mr-24 lg:-translate-y-3 lg:flex lg:justify-end" aria-hidden="true">
-            <Image alt="" className="h-auto w-full max-w-[476px] -translate-x-[15px] blur-[0.85px] opacity-[0.51] mix-blend-screen drop-shadow-[0_32px_45px_rgba(0,0,0,0.35)]" height={1190} sizes="(min-width: 1024px) 36vw, 92vw" src="/marketing/hero/scan-report-dashboard-with-privacy-details.jpg" width={1438} />
           </div>
         </div>
       </section>

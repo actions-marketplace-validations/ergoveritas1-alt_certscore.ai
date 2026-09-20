@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { chromium } from "playwright";
+import { chromium, type Browser } from "playwright";
 import {
   type CanonicalEvidenceBundle,
   type ReviewResult,
@@ -23,6 +23,7 @@ import { getScanProfile } from "./profiles.js";
 import {
   type FixtureRouteFulfiller,
   consentUiObservationFromConfirmedGeometryControls,
+  mergeConsentUiObservations,
   consentControlsFromAccessibilityTree,
   finalizeBoundedSameSessionConsentPacket,
   PRE_CONSENT_RUNTIME_PREVIEW_CHECKPOINT_MS,
@@ -676,7 +677,7 @@ test("pre-consent runtime scanner retains canonical rendered policy links from t
   }
 });
 
-test("runtime-evidence scanner emits one metadata-only passive preview checkpoint without ending capture", async () => {
+test("runtime-evidence scanner emits one metadata-only preview even when capture finishes before the scheduled checkpoint", async () => {
   const server = await startStaticFixtureServer();
   const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-v2-runtime-preview-checkpoint-"));
   try {
@@ -699,7 +700,7 @@ test("runtime-evidence scanner emits one metadata-only passive preview checkpoin
 
     assert.equal(PRE_CONSENT_RUNTIME_PREVIEW_CHECKPOINT_MS, 6_000);
     assert.equal(checkpoints.length, 1);
-    assert.ok(checkpoints[0]!.observedAtMs >= 700);
+    assert.ok(checkpoints[0]!.observedAtMs > 0);
     assert.equal(
       checkpoints[0]!.cookieSnapshots.some((snapshot) =>
         snapshot.cookies.some((cookie) => cookie.name === "_ga")
@@ -816,25 +817,60 @@ test("pre-consent runtime scanner retains Reject and Pay as typed paid-decline e
   }
 });
 
+test("owned paid-alternative fixture can verify denial without a transaction", async () => {
+  const server = await startStaticFixtureServer();
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const fixture of ["consent-reject-subscribe", "consent-reject-pay"] as const) {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.goto(server.urlFor(fixture));
+      await page.getByRole("button", { name: /reject/i }).click();
+      const sandbox = page.locator('[data-certscore-owned-nontransactional-sandbox="true"]');
+      await sandbox.waitFor({ state: "visible" });
+      assert.match(await sandbox.innerText(), /No account, subscription, payment method, charge, or external request is created/i);
+      await page.getByRole("button", { name: "Complete test alternative" }).click();
+      assert.equal(
+        await page.evaluate(() => localStorage.getItem("certscore_paid_alternative_state")),
+        "optional_purposes_denied",
+      );
+      assert.equal(
+        await page.evaluate(() => localStorage.getItem("certscore_paid_alternative_completion")),
+        "sandbox_confirmed",
+      );
+      assert.equal(await page.locator("#banner").count(), 0);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
 test("pre-consent runtime scanner can retain confirmed first-layer geometry controls without interaction", () => {
   const optionsCandidate = {
     ...geometryCandidate("Cookie settings", "manage_preferences", "confirmed_visible", "first_layer"),
     placementType: "action_cluster" as const,
     presentationType: "inline_link" as const,
   };
+  const scanStartedAtMs = Date.now() - 5000;
   const observation = consentUiObservationFromConfirmedGeometryControls({
     artifactPath: "/tmp/ConsentControlGeometryEvidence.json",
-    geometry: geometryFixture([
+    geometry: { ...geometryFixture([
       geometryCandidate("Reject all", "reject_all", "confirmed_visible", "first_layer"),
       geometryCandidate("Accept all", "accept_all", "confirmed_visible", "first_layer"),
       optionsCandidate,
+      { ...geometryCandidate("Save selection", "reject_all", "confirmed_visible", "first_layer"),
+        classifierReasonCodes: ["initial_necessary_only_selection_observed"] },
       geometryCandidate("Privacy policy", "policy_link", "footer_or_policy_link", "footer"),
       geometryCandidate("Hidden reject", "reject_all", "hidden", "first_layer"),
-    ]),
-    scanStartedAtMs: Date.now(),
+    ]), capturedAt: new Date(scanStartedAtMs + 1000).toISOString() },
+    scanStartedAtMs,
     text: "We use cookies to personalize content and measure audiences.",
   });
 
+  assert.equal(observation?.observedAtMs, 1000, "retain capture time, not later projection time");
+  assert.equal(mergeConsentUiObservations({ ...observation!, observedAtMs: 2000 }, observation!, "test").observedAtMs, 2000);
   assert.equal(observation?.likelyPresent, true);
   assert.equal(observation?.acceptControlObserved, true);
   assert.equal(observation?.rejectControlObserved, true);
@@ -1578,7 +1614,7 @@ test("pre-consent runtime scanner inventories compact German accept and reject c
   }
 });
 
-test("pre-consent runtime scanner inventories compact privacy settings and accept controls after supplemental full-page evidence", async () => {
+test("pre-consent runtime scanner excludes off-viewport page-body privacy settings from first-layer evidence", async () => {
   const server = await startStaticFixtureServer();
   const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-v2-preconsent-compact-privacy-settings-"));
   try {
@@ -1591,29 +1627,88 @@ test("pre-consent runtime scanner inventories compact privacy settings and accep
     );
     const observation = result.consentUiObservations[0];
 
-    assert.equal(observation?.acceptControlObserved, true);
+    // A full-page image does not turn below-fold page-body buttons into visible
+    // first-layer controls. Structured visibility remains authoritative.
+    assert.equal(result.screenshots.some((screenshot) => screenshot.captureMethod === "primary_full_page"), true);
+    assert.equal(observation?.acceptControlObserved, false);
     assert.equal(observation?.rejectControlObserved, false);
-    assert.equal(observation?.managePreferencesControlObserved, true);
-    assert.deepEqual(observation?.visibleChoiceLabels, ["Settings", "Accept"]);
+    assert.equal(observation?.managePreferencesControlObserved, false);
+    assert.deepEqual(observation?.visibleChoiceLabels, []);
+    assert.equal(observation?.basis.includes("geometry:no_visible_consent_surface"), true);
   } finally {
     await server.close();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
-test("pre-consent runtime scanner recaptures late first-layer controls without interaction", async () => {
+test("pre-consent runtime scanner inventories compact privacy settings and accept controls in the visible first-layer", async (t) => {
+  const server = await startStaticFixtureServer();
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-v2-preconsent-visible-privacy-settings-"));
+  const browser = await chromium.launch({ headless: true });
+  const newContext = browser.newContext.bind(browser);
+  t.mock.method(browser, "newContext", async (options: Parameters<typeof browser.newContext>[0]) =>
+    newContext({ ...options, viewport: { width: 1440, height: 1800 } }),
+  );
+  try {
+    const result = await scanFixturePage(
+      server.urlFor("consent-compact-privacy-settings-controls"),
+      path.join(tempRoot, "consent-compact-privacy-settings-controls"),
+      "fast", "always", "viewport_first", undefined, undefined, false, browser,
+    );
+    const observation = result.consentUiObservations[0];
+    assert.equal(observation?.acceptControlObserved, true);
+    assert.equal(observation?.rejectControlObserved, false);
+    assert.equal(observation?.managePreferencesControlObserved, true);
+    assert.deepEqual([...observation.visibleChoiceLabels].sort(), ["Accept", "Settings"]);
+  } finally {
+    await browser.close();
+    await server.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("pre-consent runtime scanner recaptures late first-layer controls without interaction", async (t) => {
   const server = await startStaticFixtureServer();
   const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-v2-preconsent-late-controls-"));
+  const browser = await chromium.launch({ headless: true });
+  let releaseCount = 0;
+  const newContext = browser.newContext.bind(browser);
+  t.mock.method(browser, "newContext", async (...args: Parameters<typeof browser.newContext>) => {
+    const context = await newContext(...args);
+    const newPage = context.newPage.bind(context);
+    t.mock.method(context, "newPage", async () => {
+      const page = await newPage();
+      const waitForFunction = page.waitForFunction.bind(page);
+      t.mock.method(page, "waitForFunction", (...waitArgs: Parameters<typeof page.waitForFunction>) => {
+        if (String(waitArgs[0]).includes("const visibleConsentControls =") && releaseCount === 0) {
+          releaseCount += 1;
+          return (async () => {
+            assert.equal(await page.locator("#late-controls button").count(), 0, "initial typed inventories must run before fixture controls exist");
+            await page.evaluate(() => {
+              setTimeout(() => window.dispatchEvent(new Event("certscore-fixture-release-late-controls")), 100);
+            });
+            // Delegate to the actual bounded production wait and inventory.
+            return waitForFunction(...waitArgs);
+          })();
+        }
+        return waitForFunction(...waitArgs);
+      });
+      return page;
+    });
+    return context;
+  });
   try {
     const bundle = await scanFixturePage(
-      server.urlFor("consent-late-first-layer-controls"),
+      `${server.urlFor("consent-late-first-layer-controls")}?defer-late-controls=1`,
       path.join(tempRoot, "consent-late-first-layer-controls"),
       "fast",
       "selective",
+      undefined, undefined, undefined, false, browser,
     );
     const observation = bundle.consentUiObservations[0];
     const timingLabels = bundle.modulesRun[0]?.timingBreakdown?.map((entry) => entry.label) ?? [];
 
+    assert.equal(releaseCount, 1, "the real text-backed recapture wait must be reached");
     assert.equal(observation?.likelyPresent, true);
     assert.equal(observation?.layerInspected, "first_layer");
     assert.equal(observation?.acceptControlObserved, true);
@@ -1664,6 +1759,8 @@ test("pre-consent runtime scanner recaptures late first-layer controls without i
       "scanner should record either a synchronized late capture or verified stable-proof reuse",
     );
   } finally {
+    t.mock.restoreAll();
+    await browser.close();
     await server.close();
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -3144,6 +3241,62 @@ test("consent-proof lane binds a completed generic negative inventory to a repre
   }
 });
 
+test("consent-proof lane retains same-document Playwright proof after the bounded CDP attempt stalls", async (t) => {
+  const server = await startStaticFixtureServer();
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-v2-consent-proof-cdp-stall-"));
+  const browser = await chromium.launch({ headless: true });
+  let proofPhase = false;
+  let stalledAttempts = 0;
+  const newContext = browser.newContext.bind(browser);
+  t.mock.method(browser, "newContext", async (...args: Parameters<typeof browser.newContext>) => {
+    const context = await newContext(...args);
+    const newSession = context.newCDPSession.bind(context);
+    t.mock.method(context, "newCDPSession", async (...sessionArgs: Parameters<typeof context.newCDPSession>) => {
+      const session = await newSession(...sessionArgs);
+      const send = session.send.bind(session);
+      t.mock.method(session, "send", (...sendArgs: Parameters<typeof session.send>) => {
+        if (proofPhase && stalledAttempts === 0 && sendArgs[0] === "Page.captureScreenshot") {
+          stalledAttempts += 1;
+          return new Promise<never>(() => undefined);
+        }
+        return send(...sendArgs);
+      });
+      return session;
+    });
+    return context;
+  });
+  try {
+    const url = server.urlFor("generic-cdn-noise");
+    const artifactWriter = await createArtifactWriter(path.join(tempRoot, "out"));
+    const artifactPath = artifactWriter.artifactPath.bind(artifactWriter);
+    t.mock.method(artifactWriter, "artifactPath", (name: string) => {
+      if (name === "screenshot-pre-consent-geometry-proof.png") proofPhase = true;
+      return artifactPath(name);
+    });
+    const result = await preConsentRuntimeScanner({
+      url, normalizedUrl: url, scanStartedAtMs: Date.now(), internalBudgetMs: 25_000,
+      artifactWriter, browser, captureScope: "consent_proof", routeFulfillers,
+      screenshotCaptureMode: "viewport_first", screenshotMode: "selective", waitMode: "fast",
+    });
+    const proof = result.screenshots.find(screenshot => screenshot.artifactId === "screenshot_pre_consent_geometry_proof");
+    const geometry = JSON.parse(await readFile(path.join(tempRoot, "out", "ConsentControlGeometryEvidence.json"), "utf8")) as ConsentControlGeometryArtifact;
+    const timing = result.moduleRun.timingBreakdown?.find(entry => entry.label === "consent geometry representative screenshot");
+    assert.equal(stalledAttempts, 1, "the bounded first attempt must actually exhaust its reserved time");
+    assert.ok(proof, "the real Playwright fallback must still retain a representative viewport");
+    assert.equal(proof.captureMethod, "independent_visual_fallback_viewport");
+    assert.ok(proof.documentIdentity, "fallback must preserve same-document binding");
+    assert.equal(geometry.screenshotArtifactRef, proof.path);
+    assert.deepEqual((await readFile(proof.path)).subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    assert.ok(typeof timing?.durationMs === "number" && timing.durationMs <= 950, `unchanged representative allowance: ${timing?.durationMs}`);
+    assert.ok(result.moduleRun.errors.some(error => error.includes("Consent geometry proof fast screenshot failed")), "do not erase the first-attempt coverage diagnostic");
+  } finally {
+    t.mock.restoreAll();
+    await browser.close();
+    await server.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("bounded same-session recovery carries a real empty browser packet through canonical inspection", async () => {
   const server = await startStaticFixtureServer();
   const tempRoot = await mkdtemp(path.join(tmpdir(), "certscore-v2-bounded-empty-packet-"));
@@ -3627,6 +3780,7 @@ test("scan-core treats a substantive branded login page as scannable", async () 
       profile: "tiny",
       outDir: path.join(tempRoot, "out"),
       preConsentScreenshotMode: "always",
+      formSnapshotReviewer: async () => ({ safeForDisplay: true }),
     });
 
     assert.equal(bundle.scan_no_go_assessment, undefined);
@@ -3634,6 +3788,8 @@ test("scan-core treats a substantive branded login page as scannable", async () 
     assert.notEqual(bundle.runtimeCoverage?.coverageStatus, "limited_none");
     assert.equal(bundle.collectionSurfaceInventory?.coverage.status, "complete");
     assert.equal(bundle.collectionSurfaceInventory?.forms.length, 1);
+    assert.equal(bundle.collectionSurfaceSnapshots?.[0]?.status, "available");
+    assert.ok(bundle.collectionSurfaceSnapshots?.[0]?.data);
     assert.equal(bundle.collectionSurfaceInventory?.forms[0]?.surfaceType, "account");
     assert.deepEqual(
       bundle.collectionSurfaceInventory?.forms[0]?.fields.map((field) => field.semanticCategory),
@@ -3761,6 +3917,7 @@ async function scanFixturePage(
   internalBudgetMs?: number,
   captureScope?: "combined" | "consent_proof" | "runtime_evidence",
   consentGateAuditHoldout = false,
+  browser?: Browser,
 ): Promise<CanonicalEvidenceBundle> {
   const startedAtMs = Date.now();
   const scanProfile = getScanProfile("quick");
@@ -3773,6 +3930,7 @@ async function scanFixturePage(
     artifactWriter,
     captureScope,
     consentGateAuditHoldout,
+    browser,
     routeFulfillers,
     screenshotCaptureMode,
     waitMode,

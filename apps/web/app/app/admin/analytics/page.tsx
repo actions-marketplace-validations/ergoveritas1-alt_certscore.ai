@@ -23,13 +23,18 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const periods = ["1h", "24h", "7d", "30d", "1y"] as const;
-const eventNames: AdminEventName[] = ["page_viewed", "navigation_clicked", "action_clicked", "form_started", "form_submitted", "form_succeeded", "form_failed", "scan_started", "scan_completed", "scan_viewed", "report_viewed", "scroll_depth_reached", "session_engaged", "web_vital_recorded", "client_error", "account_created", "oauth_authorized", "mcp_initialized", "mcp_tools_listed", "mcp_first_tool_invoked", "mcp_scan_requested", "analytics_opted_in", "analytics_opted_out", "scan_requested", "api_request", "mcp_tool_invoked", "full_scan.started", "full_scan.completed", "preview_scan.started", "preview_scan.completed", "v2_lambda_result.received", "v2_lambda_result.failed"];
+const eventNames: AdminEventName[] = ["page_requested", "page_viewed", "navigation_clicked", "action_clicked", "form_started", "form_submitted", "form_succeeded", "form_failed", "scan_started", "scan_completed", "scan_viewed", "report_viewed", "scroll_depth_reached", "session_engaged", "web_vital_recorded", "client_error", "account_created", "oauth_authorized", "mcp_initialized", "mcp_tools_listed", "mcp_first_tool_invoked", "mcp_scan_requested", "analytics_opted_in", "analytics_opted_out", "scan_requested", "api_request", "mcp_tool_invoked", "full_scan.started", "full_scan.completed", "preview_scan.started", "preview_scan.completed", "v2_lambda_result.received", "v2_lambda_result.failed"];
 const outcomes: ProductAnalyticsOutcome[] = ["observed", "started", "submitted", "success", "failure", "opted_in", "opted_out"];
 
 type Props = { searchParams?: Promise<{ audienceFilters?: string; event?: string; excludeInternal?: string; excludeMacMiniScanBot?: string; includeCanary?: string; outcome?: string; page?: string; perPage?: string; period?: string; q?: string; route?: string; scanBotFilter?: string; snapshot?: string; traffic?: string }> };
 
 function count(value: number) { return new Intl.NumberFormat("en-US").format(value); }
-function label(value: string) { return value.replace(/[_.]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
+function label(value: string) {
+  if (["public_page_browser_confirmed", "authenticated_page_browser_confirmed"].includes(value)) return "Browser-confirmed view";
+  if (["public_page_request", "authenticated_page_request", "server_route"].includes(value)) return "Not browser-confirmed";
+  if (value === "initial_browser_view_unlinked") return "Browser view · request not linked";
+  return value.replace(/[_.]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 function option<T extends string>(value: string | undefined, values: readonly T[]) { return values.includes(value as T) ? value as T : null; }
 function eventAge(value: string) {
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1_000));
@@ -94,6 +99,7 @@ export default async function ProductAnalyticsPage({ searchParams }: Props) {
   const rates = [
     { label: "Authenticated", value: percentage(dashboard.metrics.events > 0 ? dashboard.metrics.authenticated / dashboard.metrics.events : null) },
     { label: "Errors", value: percentage(dashboard.metrics.events > 0 ? dashboard.metrics.errors / dashboard.metrics.events : null), anomaly: errorDelta.anomaly, href: snapshotHref({ outcome: "failure" }) },
+    { label: "Page requests", value: count(dashboard.metrics.pageRequests), href: snapshotHref({ event: "page_requested" }) },
     { label: "Page views", value: count(dashboard.metrics.pageViews), href: snapshotHref({ event: "page_viewed" }) },
     { label: "Opt-outs", value: count(dashboard.metrics.optedOut), href: snapshotHref({ event: "analytics_opted_out" }) },
     { label: "Events / session", value: dashboard.metrics.sessions > 0 ? (dashboard.metrics.events / dashboard.metrics.sessions).toFixed(2) : "—" },
@@ -105,7 +111,7 @@ export default async function ProductAnalyticsPage({ searchParams }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">First-party operational telemetry</p><h2 className="text-2xl font-semibold tracking-tight text-slate-950">Events</h2><p className="mt-1 text-sm text-slate-500">Privacy-bounded activity across Web, API, Pulse, SDK, MCP, and scan lifecycle routes.</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">First-party operational telemetry</p><h2 className="text-2xl font-semibold tracking-tight text-slate-950">Events</h2><p className="mt-1 text-sm text-slate-500">Privacy-bounded activity across Web, API, Pulse, SDK, MCP, and scan lifecycle routes. Page requests are recorded without JavaScript; browser confirmation updates the same request. A request alone does not establish a rendered view.</p></div>
         <AdminTrafficFilters basePath="/app/admin/analytics" scope={trafficScope} searchParams={resolved} />
       </div>
 
@@ -155,7 +161,7 @@ export default async function ProductAnalyticsPage({ searchParams }: Props) {
               <td className="px-2.5 py-1.5"><p className="truncate font-medium text-slate-800" title={label(event.event_name)}>{label(event.event_name)}</p><p className="truncate text-[9px] text-slate-400">{label(event.outcome)}{duration ? ` · ${duration}` : ""}</p></td>
               <td className="px-2.5 py-1.5"><code className="block truncate text-[10px] text-slate-700" title={event.normalized_route}>{event.normalized_route}</code><p className="truncate text-[9px] text-slate-400" title={label(event.feature)}>{label(event.feature)}</p></td>
               <td className="px-2.5 py-1.5"><p className="truncate text-slate-700" title={event.email ?? event.actor_id ?? "Anonymous aggregate"}>{event.email ?? event.actor_id?.slice(0, 12) ?? "Anonymous aggregate"}</p><p className="truncate font-mono text-[9px] text-slate-400" title={event.session_id ?? "No linkable session"}>{event.session_id?.slice(0, 12) ?? "No linkable session"}</p></td>
-              <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px] text-slate-700" title={originLabel(event)}>{originLabel(event)}</p><p className="truncate text-[9px] text-slate-400">{label(event.source)} · {label(event.device_class)}</p></td>
+              <td className="px-2.5 py-1.5"><p className="truncate font-mono text-[10px] text-slate-700" title={originLabel(event)}>{originLabel(event)}</p><p className="truncate text-[9px] text-slate-400">{label(event.source)} · {label(event.device_class)} · {event.traffic_class ?? "unknown"} audience</p></td>
               <td className="px-2.5 py-1.5"><p className="truncate font-medium text-slate-700">{event.freshness ? label(event.freshness) : "—"}</p><p className="truncate text-[9px] text-slate-400">{event.request_region ? label(event.request_region) : event.country_code ? `Country ${event.country_code}` : "No region"}</p></td>
               <td className="px-2.5 py-1.5">{event.scan_id ? <a className="block truncate font-medium text-sky-700 hover:underline" href={getAdminAuthenticatedScanHref(event.scan_id)} title={event.hostname ?? event.scan_id}>{event.hostname ?? event.scan_id.slice(0, 8)}</a> : <p className="truncate text-slate-500" title={event.hostname ?? undefined}>{event.hostname ?? "—"}</p>}<p className="truncate font-mono text-[9px] text-slate-400">{event.scan_id?.slice(0, 8) ?? "No scan"}</p>{event.scan_id ? <p className="mt-0.5 flex gap-1.5 text-[9px]"><a className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/scans", { q: event.scan_id, traffic: trafficScope })}>Scans</a><a className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/pulse", { q: event.scan_id, traffic: trafficScope })}>API</a><a className="text-sky-700 hover:underline" href={adminOperationalSnapshotHref("/app/admin/mcp", { q: event.scan_id, traffic: trafficScope })}>MCP</a></p> : null}</td>
             </tr>;

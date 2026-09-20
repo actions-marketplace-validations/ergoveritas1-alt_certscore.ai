@@ -59,6 +59,60 @@ test("executive overview names a confirmed Reject-path failure", () => {
   assert.match(copy, /8-second post-Reject window/i);
 });
 
+test("executive overview includes the confirmed Accept-path comparison result", () => {
+  const copy = buildExecutiveOverview({
+    ...baseInput,
+    acceptPath: {
+      observationWindowMs: 3_000,
+      state: "activity_observed",
+    },
+    findings: [{ summary: "Consent-dependent activity followed Accept.", title: "Post-Accept activity" }],
+  });
+
+  assertBounded(copy);
+  assert.match(copy, /confirmed Accept path retained consent-dependent activity/i);
+  assert.match(copy, /post-Accept comparison baseline/i);
+  assert.doesNotMatch(copy, /score-neutral|affect(?:s|ed)? (?:the )?score/i);
+});
+
+test("executive overview names a contradictory retained Accept state", () => {
+  const copy = buildExecutiveOverview({
+    ...baseInput,
+    acceptPath: {
+      observationWindowMs: 3_000,
+      state: "review_signal",
+    },
+    findings: [{ summary: "The retained state contradicted Accept.", title: "Consent-state review" }],
+  });
+
+  assertBounded(copy);
+  assert.match(copy, /consent record saved afterward still showed analytics and advertising as denied/i);
+});
+
+test("executive overview describes Reject outcomes without disclosing scoring treatment", () => {
+  const reviewCopy = buildExecutiveOverview({
+    ...baseInput,
+    findings: [{ summary: "Storage remained after Reject.", title: "Post-choice storage review" }],
+    rejectPath: {
+      observationWindowMs: 8_000,
+      state: "review_signal",
+    },
+  });
+  const incompleteCopy = buildExecutiveOverview({
+    ...baseInput,
+    findings: [{ summary: "Reject testing was incomplete.", title: "Post-choice review" }],
+    rejectPath: {
+      note: "The deterministic control could not be verified.",
+      observationWindowMs: null,
+      state: "incomplete",
+    },
+  });
+
+  assert.match(reviewCopy, /Reject path retained evidence requiring review/i);
+  assert.match(incompleteCopy, /The deterministic control could not be verified/i);
+  assert.doesNotMatch(`${reviewCopy} ${incompleteCopy}`, /score-neutral|affect(?:s|ed)? (?:the )?score|score effect|deduct|partial credit/i);
+});
+
 test("executive overview summarizes a focused mixed review without creating new findings", () => {
   const copy = buildExecutiveOverview({
     ...baseInput,
@@ -97,7 +151,19 @@ test("executive overview explains the deferred post-choice check without implyin
   });
 
   assertBounded(copy);
-  assert.match(copy, /post-choice tracking was not tested/i);
-  assert.match(copy, /remains unassessed/i);
+  assert.match(copy, /post-choice tracking assessment has limited evidence/i);
+  assert.match(copy, /see the Reject-path result/i);
   assert.doesNotMatch(copy, /verify that row manually/i);
+});
+
+
+test("observed after-click facts are not described as an unperformed Reject test", () => {
+  const copy = buildExecutiveOverview({
+    ...baseInput,
+    findings: [{ title: "After-Reject observations", summary: "Two requests were recorded after Reject." }],
+    limitedItems: ["Post-choice tracking reduction"],
+    rejectPath: { state: "incomplete", observationWindowMs: 3000, afterClickCoverage: "complete", note: "Two requests were recorded after Reject." },
+  });
+  assert.match(copy, /Two requests were recorded after Reject/);
+  assert.doesNotMatch(copy, /testing did not complete|tracking was not tested/);
 });

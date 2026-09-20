@@ -23,7 +23,7 @@ test("ScanFromSelect always submits core local v2 profile and Lambda option fiel
   assert.doesNotMatch(html, />Tiny</);
 });
 
-test("ScanFromSelect defaults Lambda on and fresh re-scan off", () => {
+test("ScanFromSelect defaults Lambda and fresh re-scan on", () => {
   const html = renderToStaticMarkup(
     createElement(ScanFromSelect, {
       includeFreshRescanOption: true,
@@ -34,7 +34,25 @@ test("ScanFromSelect defaults Lambda on and fresh re-scan off", () => {
   );
 
   assert.match(html, /<input[^>]*name="localV2RunViaLambda"[^>]*value="true"/);
-  assert.doesNotMatch(html, /<input[^>]*name="forceNewScan"[^>]*value="true"/);
+  assert.match(html, /<input[^>]*name="forceNewScan"[^>]*value="true"/);
+  assert.doesNotMatch(html, /name="gpcObservation"/);
+});
+
+test("ScanFromSelect omits redundant always-on GPC controls and status", () => {
+  const html = renderToStaticMarkup(
+    createElement(ScanFromSelect, {
+      allowRestrictedScanOptions: true,
+      includeLocalV2ScanProfileOption: true,
+      includeScanFromOptions: false,
+      variant: "icon"
+    })
+  );
+  const source = readFileSync(join(process.cwd(), "apps/web/components/scans/scan-from-select.tsx"), "utf8");
+
+  assert.doesNotMatch(html, /name="gpcObservation"/);
+  assert.doesNotMatch(html, /GPC comparison/);
+  assert.doesNotMatch(source, /Included automatically · isolated Lambda lane/);
+  assert.doesNotMatch(source, /onGpcObservationChange/);
 });
 
 test("ScanFromSelect renders scan-from choices before option toggles", () => {
@@ -108,7 +126,7 @@ test("ScanFromSelect exposes every public region while hiding internal controls 
   assert.doesNotMatch(html, /Run via Lambda/);
 });
 
-test("ScanFromSelect exposes restricted scan controls to admin users", () => {
+test("ScanFromSelect keeps Lambda enabled even with a legacy false value for admins", () => {
   const html = renderToStaticMarkup(
     createElement(ScanFromSelect, {
       allowRestrictedScanOptions: true,
@@ -121,7 +139,7 @@ test("ScanFromSelect exposes restricted scan controls to admin users", () => {
   );
 
   assert.match(html, /<input[^>]*name="scanFrom"[^>]*value="local_extension"/);
-  assert.match(html, /<input[^>]*name="localV2RunViaLambda"[^>]*value="false"/);
+  assert.match(html, /<input[^>]*name="localV2RunViaLambda"[^>]*value="true"/);
   assert.match(html, /Chrome browser/);
 });
 

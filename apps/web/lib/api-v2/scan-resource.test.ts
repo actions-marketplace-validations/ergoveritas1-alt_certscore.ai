@@ -1,5 +1,10 @@
+import { observedControlAssessment } from "../scans/test-fixtures/observed-control-assessment";
+import { createHash } from "node:crypto";
+import { gpcProductionRuntimeFixture } from "../../../../packages/certscore-contracts/src/test-fixtures/gpc-production";
+import { buildGpcProductionAssessment } from "../../../../packages/certscore-scan-core/src/gpc-production-observation";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createRequire } from "node:module";
 import {
   apiV2ActiveScanRetryAfterSeconds,
   buildApiV2Error,
@@ -18,6 +23,24 @@ import {
 import { buildRuntimeInventoryProjectionFromScan } from "../scans/runtime-inventory-projection";
 import type { ScanDetailResponse } from "../../server/scans/get-scan-by-id";
 import { SCAN_NO_GO_REASON_CODES, SCAN_NO_GO_REASON_PRESENTATIONS } from "@website-signal-risk-scanner/shared";
+import { apiV2GpcResponseSchema, apiV2PreConsentCookiesTrackersSchema } from "@certscore/api-contracts";
+import { gpcRuntimeFixture } from "../../../../packages/certscore-contracts/src/test-fixtures/gpc-runtime";
+import servicePurposeFixtures from "../../../../packages/certscore-contracts/src/test-fixtures/vendor-service-purpose-v1.json";
+import { resolveCanonicalVendorLabel } from "@certscore/vendor-resolver";
+import { buildGpcResponseAssessment } from "../../../../packages/certscore-scan-core/src/gpc-response-assessment";
+import { gpcJourneyWindowFixture, redirectGpcFixture } from "../../../../packages/certscore-scan-core/src/test-fixtures/gpc-window.cases";
+import { buildNormalizedConcerns } from "../scans/normalized-concerns";
+import { buildUnifiedFindingDisplayPackets } from "../scans/unified-findings";
+import { buildGpcResponseReportProjection } from "../../components/scans/report-lab/gpc-report-projection";
+import type { CanonicalEvidenceBundle } from "@certscore/contracts";
+import { RuntimeEvidenceGraphBuilder } from "../../../../packages/certscore-scan-core/src/runtime-evidence-graph";
+import { projectRuntimeEvidenceGraphs, applyRuntimeGraphPresentationSwitch } from "../../server/scans/runtime-evidence-graph-projection";
+import { buildPersistedScanReportProjection, readPersistedScanReportProjection, SCAN_REPORT_PROJECTION_VERSION } from "../../server/scans/scan-report-projection-contract";
+const require = createRequire(import.meta.url);
+const serverOnlyPath = require.resolve("server-only");
+(require.cache as Record<string, unknown>)[serverOnlyPath] = { exports: {}, loaded: true };
+const { externalizeRuntimeGraphForPersistence, hydrateRuntimeGraphForRead } = require("../../server/scans/runtime-evidence-graph-storage") as typeof import("../../server/scans/runtime-evidence-graph-storage");
+const { buildGpcResponseRuntimeProjection } = require("../../server/scans/local-v2-dag-report") as typeof import("../../server/scans/local-v2-dag-report");
 
 function fixture(overrides: Partial<ScanDetailResponse["scan"]> = {}) {
   return {
@@ -67,6 +90,101 @@ function fixture(overrides: Partial<ScanDetailResponse["scan"]> = {}) {
     },
     trackerVendors: [],
     validationFindings: []
+  } as unknown as ScanDetailResponse;
+}
+
+test("retained graph survives verified artifact/reference persistence through inventory/API without changing findings or score", async () => {
+  const record = fixture(); const baseline = buildApiV2ScanResource(record);
+  const builder = new RuntimeEvidenceGraphBuilder({ scanId: record.scan.id, captureId: `${record.scan.id}:runtime_evidence`, scenario: "pre_consent", mode: "project", startedAt: new Date().toISOString(), browserVersion: "fixture" });
+  builder.snapshot([{ name: "fixture", domain: "example.com", path: "/", value: "NOT_PUBLIC" }]);
+  const bundle = { scanId: record.scan.id, runtimeEvidenceGraphs: [builder.finish()] } as CanonicalEvidenceBundle;
+  const graph = projectRuntimeEvidenceGraphs({ bundle, scanId: record.scan.id, source: { verificationStatus: "verified", sha256: "a".repeat(64), sizeBytes: 1000 } });
+  record.runtimeArtifacts = { runtimeEvidenceGraphProjection: graph };
+  let artifact: Buffer = Buffer.alloc(0);
+  const compact = await externalizeRuntimeGraphForPersistence(record, { write: async (_reference, bytes) => { artifact = bytes; } });
+  const persisted = buildPersistedScanReportProjection(compact);
+  assert.ok(!persisted.serialized.includes('"nodes"'), "full graph bytes must not enter the database");
+  assert.ok(artifact.byteLength);
+  const hydrated = readPersistedScanReportProjection({ scan: record.scan, snapshot: {
+    report_projection_payload: JSON.parse(persisted.serialized), report_projection_payload_sha256: persisted.sha256,
+    report_projection_payload_size_bytes: persisted.sizeBytes, report_projection_status: "ready", report_projection_version: SCAN_REPORT_PROJECTION_VERSION,
+    report_projection_computed_at: new Date().toISOString(),
+  } });
+  assert.ok(hydrated);
+  const resolved = await hydrateRuntimeGraphForRead({ ...record, runtimeArtifacts: hydrated.runtimeArtifacts }, { read: async () => artifact, environment: { CERTSCORE_RUNTIME_GRAPH_PRESENTATION: "on" } });
+  record.runtimeArtifacts = resolved.runtimeArtifacts;
+  assert.deepEqual(record.runtimeArtifacts?.runtimeEvidenceGraphProjection, JSON.parse(JSON.stringify(graph)));
+  const inventory = buildRuntimeInventoryProjectionFromScan(record);
+  const api = buildApiV2PreConsentCookiesTrackers(record);
+  assert.deepEqual(api.runtimeEvidenceGraph, inventory.runtimeEvidenceGraph);
+  assert.deepEqual(apiV2PreConsentCookiesTrackersSchema.parse(api).runtimeEvidenceGraph, inventory.runtimeEvidenceGraph);
+  assert.ok(!JSON.stringify(api).includes("NOT_PUBLIC"));
+  assert.equal(buildApiV2ScanResource(record).score, baseline.score);
+  assert.deepEqual(record.validationFindings, fixture().validationFindings);
+  assert.deepEqual(record.signals, fixture().signals);
+  const disabled = { ...record, runtimeArtifacts: applyRuntimeGraphPresentationSwitch(record.runtimeArtifacts, { CERTSCORE_RUNTIME_GRAPH_PRESENTATION: "off" }) };
+  assert.equal(buildApiV2PreConsentCookiesTrackers(disabled).runtimeEvidenceGraph, undefined);
+  assert.ok(record.runtimeArtifacts?.runtimeEvidenceGraphProjection, "presentation kill switch must not mutate retained evidence");
+});
+
+function gpcCanonicalFixture() {
+  const assessment = {
+    contractVersion: "certscore.gpc-response-assessment.v1",
+    generatedAt: "2026-09-02T12:00:00.000Z",
+    status: "no_observable_response",
+    findingTitle: "No observable GPC response",
+    scoreEffect: "none",
+    legalInterpretation: "not_assessed",
+    comparison: {
+      comparable: true,
+      protocol: "passive_baseline_with_sec_gpc",
+      baselineArtifact: { lane: "runtime_evidence", sha256: "a".repeat(64), sizeBytes: 100, uri: "s3://private/baseline.json" },
+      gpcArtifact: { lane: "gpc_observation", sha256: "b".repeat(64), sizeBytes: 110, uri: "s3://private/gpc.json" },
+      enabledProof: {
+        secGpcHeaderValue: "1",
+        requestsWithSecGpc: 2,
+        requestEventIds: ["gpc-request-1", "gpc-request-2"],
+        navigatorGlobalPrivacyControl: true,
+      },
+      deltas: {
+        cookies: { baselineCount: 1, gpcCount: 1, countDelta: 0, baselineOnly: [], gpcOnly: [], shared: ["session@example.com@/"] },
+        trackers: { baselineCount: 1, gpcCount: 1, countDelta: 0, baselineOnly: [], gpcOnly: [], shared: ["Example Ads|tracker|advertising"] },
+        advertisingOrMeasurementActivity: { baselineCount: 1, gpcCount: 1, countDelta: 0, baselineOnly: [], gpcOnly: [], shared: ["Example Ads|pixel|advertising"] },
+        consentOrCmpBehavior: { baselineCount: 1, gpcCount: 1, countDelta: 0, baselineOnly: [], gpcOnly: [], shared: ["Example CMP|cmp"] },
+      },
+      evidenceRefs: ["s3://private/baseline.json", "s3://private/gpc.json"],
+      limitationKeys: [],
+    },
+  } as const;
+  const finding = {
+    unifiedFindingId: "gpc_response",
+    summary: "No observable baseline delta was retained under the equivalent passive GPC condition.",
+    details: { family: "privacy_signal", kind: "gpc_response", assessment },
+    presentationDecision: { status: "surface" },
+    scoreEffects: [{
+      appliesTo: "certscore_overall",
+      deductionPoints: 15,
+      evidenceRefs: assessment.comparison.evidenceRefs,
+      framework: "california",
+      observedActivity: ["Example Ads|pixel|advertising"],
+      policyKey: "california.gpc_response.qualifying_activity_not_suppressed",
+      policyVersion: "california-gpc-response.v1",
+      reasonCode: "comparable_gpc_no_qualifying_suppression",
+    }],
+  };
+  return {
+    ...fixture(),
+    canonicalReportProjection: {
+      artifactVersion: "persisted-canonical-report-projection-v2",
+      checklistRows: [],
+      collectionSurfaceAssessment: null,
+      derivedContext: {},
+      globalUnifiedFindings: [finding],
+      legacyScoreAssessmentInput: { scanId: "00000000-0000-4000-8000-000000000123" },
+      normalizedConcerns: [],
+      ownerUnifiedFindings: [finding],
+      topFindingIds: [],
+    },
   } as unknown as ScanDetailResponse;
 }
 
@@ -204,12 +322,96 @@ test("buildApiV2ScanResource projects a completed scan into public-safe v2 shape
   assert.equal(resource.links?.findings, "https://certscore.ai/api/v2/scans/00000000-0000-4000-8000-000000000123/findings");
 });
 
+test("API v2 resource and status surface the canonical GPC response without private artifact URIs", () => {
+  const resource = buildApiV2ScanResource(gpcCanonicalFixture());
+  const status = buildApiV2ScanStatus(gpcCanonicalFixture(), { canonicalScan: resource });
+
+  assert.equal(resource.gpcResponse?.status, "no_observable_response");
+  assert.equal(resource.gpcResponse?.findingTitle, "No observable GPC response");
+  assert.equal(resource.gpcResponse?.comparison.enabledProof.secGpcHeaderValue, "1");
+  assert.equal(resource.gpcResponse?.comparison.enabledProof.requestsWithSecGpc, 2);
+  assert.equal(resource.gpcResponse?.comparison.deltas.trackers.shared.length, 1);
+  assert.deepEqual(resource.gpcResponse?.californiaPolicy, { applied: true, deductionPoints: 15 });
+  assert.equal(resource.gpcResponse?.evidenceUrl, "https://certscore.ai/api/v2/scans/00000000-0000-4000-8000-000000000123/findings/gpc_response");
+  assert.doesNotMatch(JSON.stringify(resource.gpcResponse), /s3:\/\//);
+  assert.deepEqual(status.gpcResponse, resource.gpcResponse);
+});
+
+for (const scenario of ["no_observable_response", "responsive", "indeterminate", "late_journey", "redirect", "stale_redirect"] as const) {
+  test(`GPC v2 ${scenario} survives canonical concern/policy, persistence, report and API boundaries`, () => {
+    const outcome = scenario === "stale_redirect" ? "indeterminate" :
+      scenario === "late_journey" || scenario === "redirect" ? "no_observable_response" : scenario;
+    const vendors = Array.from({ length: 150 }, (_, i) => ({ name: `Ad ${i}` }));
+    const baseline = scenario === "late_journey" ? gpcJourneyWindowFixture(false, "advertising") : gpcRuntimeFixture({ enabled: false, vendors });
+    const gpc = scenario === "late_journey" ? gpcJourneyWindowFixture(true, "advertising") :
+      gpcRuntimeFixture({ enabled: true, vendors: outcome === "responsive" ? [] : vendors });
+    if (scenario === "redirect" || scenario === "stale_redirect") {
+      redirectGpcFixture(baseline); redirectGpcFixture(gpc);
+      if (scenario === "stale_redirect") gpc.networkEvents.push({ ...gpc.networkEvents[0]!, eventId: "later_navigation", timestampMs: 900 });
+    }
+    const assessment = buildGpcResponseAssessment({ baseline,
+      baselineArtifact: { sha256: "a".repeat(64), sizeBytes: 100, uri: "s3://private/baseline.json" },
+      ...(scenario === "indeterminate" ? { failureReason: "gpc_worker_failed" as const } : {
+        gpc, gpcArtifact: { sha256: "b".repeat(64), sizeBytes: 100, uri: "s3://private/gpc.json" },
+      }),
+    });
+    const runtimeArtifacts = buildGpcResponseRuntimeProjection({ gpcResponseAssessment: assessment });
+    const input = { reviewFindingCandidates: [], runtimeArtifacts, validationFindings: [] };
+    const concerns = buildNormalizedConcerns(input);
+    const findings = buildUnifiedFindingDisplayPackets({ ...input, validationFindingLookup: new Map() });
+    const finding = findings.find((row) => row.unifiedFindingId === "gpc_response");
+    assert.ok(finding, "canonical flow must produce the typed GPC result");
+    assert.equal(concerns.length, 1);
+    const expectedDeduction = outcome === "no_observable_response" && scenario !== "late_journey" ? 15 : 0;
+    const report = buildGpcResponseReportProjection(findings);
+    assert.deepEqual(report?.assessment, assessment);
+    assert.equal(report?.californiaDeductionPoints, expectedDeduction);
+    const record = gpcCanonicalFixture() as ScanDetailResponse & { canonicalReportProjection: Record<string, unknown> };
+    record.runtimeArtifacts = runtimeArtifacts;
+    record.canonicalReportProjection = { ...record.canonicalReportProjection!, normalizedConcerns: concerns,
+      globalUnifiedFindings: findings, ownerUnifiedFindings: findings };
+    const persisted = buildPersistedScanReportProjection(record);
+    const snapshot = { report_projection_payload: JSON.parse(persisted.serialized), report_projection_payload_sha256: persisted.sha256,
+      report_projection_payload_size_bytes: persisted.sizeBytes, report_projection_status: "ready", report_projection_version: SCAN_REPORT_PROJECTION_VERSION,
+      report_projection_computed_at: new Date().toISOString() };
+    const hydrated = readPersistedScanReportProjection({ scan: record.scan, snapshot });
+    assert.ok(hydrated);
+    const publicRecord = { ...record, ...hydrated, scan: record.scan };
+    const resource = buildApiV2ScanResource(publicRecord);
+    const status = buildApiV2ScanStatus(publicRecord, { canonicalScan: resource });
+    const response = apiV2GpcResponseSchema.parse(resource.gpcResponse);
+    assert.equal(response.contractVersion, "certscore.gpc-response-assessment.v2");
+    assert.equal(response.status, outcome);
+    assert.equal(response.californiaPolicy.deductionPoints, expectedDeduction);
+    assert.deepEqual(response, status.gpcResponse);
+    assert.doesNotMatch(JSON.stringify(response), /s3:\/\/|documentUrlSha256|contextConfigSha256/);
+    if (outcome === "no_observable_response" && scenario !== "late_journey") {
+      assert.equal(response.comparison.deltas.trackers.sharedCount, 150);
+      assert.equal(response.comparison.deltas.trackers.shared.length, 100);
+      assert.equal(apiV2GpcResponseSchema.safeParse({ ...response, comparison: { ...response.comparison,
+        deltas: { ...response.comparison.deltas, trackers: { ...response.comparison.deltas.trackers, sharedCount: 99 } } } }).success, false);
+    }
+    if (scenario === "late_journey") {
+      assert.equal(response.comparison.deltas.trackers.baselineCount, 0);
+      assert.equal(response.comparison.deltas.trackers.gpcCount, 0);
+    }
+    if (scenario === "indeterminate") {
+      assert.equal(response.comparison.gpcArtifact, null);
+      assert.equal(response.comparison.enabledProof.navigatorGlobalPrivacyControl, null);
+      assert.equal(response.comparison.delivery?.status, "unavailable");
+    }
+    assert.equal(readPersistedScanReportProjection({ scan: record.scan, snapshot: { ...snapshot, report_projection_payload_sha256: "0".repeat(64) } }), null);
+  });
+}
+
 test("API v2 and status expose joined canonical post-refusal observation metadata", () => {
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postRefusalEvidenceProjection: {
         status: "confirmed_observation",
+        actionControlProof: { action: "reject" },
         refusalExercised: true,
         observationCount: 2,
         productionProjectable: true,
@@ -234,6 +436,8 @@ test("API v2 and status expose joined canonical post-refusal observation metadat
     refusalExercised: true,
     observationCount: 2,
     productionProjectable: true,
+    evidenceDisposition: "confirmed",
+    indeterminateReason: null,
     verdict: "eligible_nonessential_activity_observed_after_confirmed_refusal",
     interpretation: "Reject was confirmed, and eligible non-essential storage activity was observed afterward.",
     observationStrategy: "stop_on_first_eligible_activity",
@@ -249,10 +453,190 @@ test("API v2 and status expose joined canonical post-refusal observation metadat
   assert.deepEqual(status.postRefusalObservation, resource.postRefusalObservation);
 });
 
-test("API v2 and status expose a six-second Reject Path timeout as a neutral limitation", () => {
+test("API v2 keeps unchanged post-refusal storage persistence review-only", () => {
   const retained = {
     ...fixture(),
     runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
+      postRefusalEvidenceProjection: {
+        status: "confirmed_observation",
+        actionControlProof: { action: "reject" },
+        refusalExercised: true,
+        observationCount: 3,
+        productionProjectable: true,
+        completedAt: "2026-09-02T02:36:02.321Z",
+        contradictionObserved: false,
+        postRefusalActivity: [],
+        preConsentStorageNotCleared: [
+          { name: "_ga", storageType: "cookie", exactIdentityVerified: true, sameValueHashVerified: true },
+          { name: "_ga_A", storageType: "cookie", exactIdentityVerified: true, sameValueHashVerified: true },
+          { name: "_ga_B", storageType: "cookie", exactIdentityVerified: true, sameValueHashVerified: true },
+        ],
+        limitations: [],
+      },
+    },
+  } as unknown as ScanDetailResponse;
+
+  const resource = buildApiV2ScanResource(retained);
+  const status = buildApiV2ScanStatus(retained, { canonicalScan: resource });
+
+  assert.equal(resource.postRefusalObservation?.status, "confirmed_observation");
+  assert.equal(
+    resource.postRefusalObservation?.verdict,
+    "no_eligible_nonessential_activity_observed_during_completed_window",
+  );
+  assert.equal(
+    resource.postRefusalObservation?.interpretation,
+    "Reject was confirmed. No eligible post-refusal request or storage write was observed; unchanged non-essential storage remained as a score-neutral review signal.",
+  );
+  assert.deepEqual(resource.postRefusalObservation?.termination, {
+    kind: "window_elapsed",
+    intentional: true,
+    trigger: "window_elapsed",
+  });
+  assert.deepEqual(status.postRefusalObservation, resource.postRefusalObservation);
+});
+
+test("API v2 and status expose joined canonical post-Accept observation metadata", () => {
+  const retained = {
+    ...fixture(),
+    runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
+      postAcceptEvidenceProjection: {
+        status: "confirmed_observation",
+        actionControlProof: { action: "accept" },
+        acceptanceExercised: true,
+        observationCount: 3,
+        productionProjectable: true,
+        completedAt: "2026-09-01T12:00:09.000Z",
+        contradictionObserved: true,
+        postAcceptActivity: [
+          { activityType: "network_request" },
+          { activityType: "storage_write" },
+        ],
+        limitations: [
+          "observation_early_exit:acceptance_signal_contradiction_observed",
+        ],
+      },
+    },
+  } as unknown as ScanDetailResponse;
+
+  const resource = buildApiV2ScanResource(retained);
+  const status = buildApiV2ScanStatus(retained, { canonicalScan: resource });
+  assert.deepEqual(resource.postAcceptObservation, {
+    status: "confirmed_observation",
+    acceptanceExercised: true,
+    observationCount: 3,
+    productionProjectable: true,
+    evidenceDisposition: "confirmed",
+    indeterminateReason: null,
+    verdict: "eligible_nonessential_activity_observed_after_confirmed_acceptance",
+    interpretation: "Accept was confirmed, and eligible non-essential network and storage activity was observed afterward.",
+    observationStrategy: "stop_on_first_eligible_activity",
+    termination: {
+      kind: "evidence_satisfied",
+      intentional: true,
+      trigger: "acceptance_signal_contradiction_observed",
+    },
+    completedAt: "2026-09-01T12:00:09.000Z",
+    coverageLimitations: [],
+    limitations: [],
+  });
+  assert.deepEqual(status.postAcceptObservation, resource.postAcceptObservation);
+});
+
+test("API v2 returns indeterminate when confirmed Accept evidence lacks verified control proof", () => {
+  const retained = {
+    ...fixture(),
+    runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
+      postAcceptEvidenceProjection: {
+        status: "confirmed_observation",
+        acceptanceExercised: true,
+        observationCount: 1,
+        productionProjectable: false,
+        evidenceDisposition: "indeterminate",
+        indeterminateReason: "verified_action_control_proof_missing",
+        completedAt: "2026-09-01T12:00:09.000Z",
+        contradictionObserved: false,
+        postAcceptActivity: [{ activityType: "network_request" }],
+        limitations: [],
+      },
+    },
+  } as unknown as ScanDetailResponse;
+
+  const resource = buildApiV2ScanResource(retained);
+  assert.equal(resource.postAcceptObservation?.evidenceDisposition, "indeterminate");
+  assert.equal(
+    resource.postAcceptObservation?.indeterminateReason,
+    "verified_action_control_proof_missing",
+  );
+  assert.equal(resource.postAcceptObservation?.productionProjectable, false);
+  assert.equal(resource.postAcceptObservation?.observationCount, 0);
+  assert.equal(resource.postAcceptObservation?.verdict, "no_confirmed_post_accept_verdict");
+  assert.match(
+    resource.postAcceptObservation?.interpretation ?? "",
+    /not tied to a verified Accept control/,
+  );
+});
+
+test("API v2 fails closed when a joined Accept observation window was truncated", () => {
+  const retained = {
+    ...fixture(),
+    runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
+      postAcceptEvidenceProjection: {
+        status: "confirmed_observation",
+        acceptanceExercised: true,
+        observationCount: 1,
+        productionProjectable: false,
+        completedAt: "2026-09-01T12:00:05.000Z",
+        contradictionObserved: false,
+        postAcceptActivity: [{ activityType: "network_request" }],
+        limitations: ["observer_result_budget_exhausted_after_confirmed_acceptance"],
+      },
+      postAcceptObservationCoverage: {
+        completedAt: "2026-09-01T12:00:05.000Z",
+        evidenceJoined: true,
+        limitationCode: "accept_observation_window_truncated",
+        maxTailWaitMs: 6_000,
+        status: "limited",
+      },
+    },
+  } as unknown as ScanDetailResponse;
+
+  const resource = buildApiV2ScanResource(retained);
+  const status = buildApiV2ScanStatus(retained, { canonicalScan: resource });
+  assert.deepEqual(resource.postAcceptObservation, {
+    status: "aborted",
+    acceptanceExercised: false,
+    observationCount: 0,
+    productionProjectable: false,
+    evidenceDisposition: "indeterminate",
+    indeterminateReason: "accept_observation_window_truncated",
+    verdict: "no_confirmed_post_accept_verdict",
+    interpretation: "Accept was confirmed, but the bounded post-accept observation window was truncated, so no production post-accept verdict was established.",
+    observationStrategy: "not_applicable",
+    termination: {
+      kind: "unavailable",
+      intentional: false,
+      trigger: "accept_observation_window_truncated",
+    },
+    completedAt: "2026-09-01T12:00:05.000Z",
+    coverageLimitations: ["Accept was confirmed, but the bounded post-accept observation window was truncated, so no production post-accept verdict was established."],
+    limitations: ["Accept was confirmed, but the bounded post-accept observation window was truncated, so no production post-accept verdict was established."],
+  });
+  assert.deepEqual(status.postAcceptObservation, resource.postAcceptObservation);
+  assert.ok(resource.coverage?.limitations?.includes(
+    "Accept was confirmed, but the bounded post-accept observation window was truncated.",
+  ));
+});
+
+test("API v2 and status expose a bounded Reject Path timeout as a neutral limitation", () => {
+  const retained = {
+    ...fixture(),
+    runtimeArtifacts: {
+      consentControlAssessment: observedControlAssessment,
       postRefusalObservationCoverage: {
         completedAt: "2026-08-26T12:00:16.000Z",
         evidenceJoined: false,
@@ -270,8 +654,10 @@ test("API v2 and status expose a six-second Reject Path timeout as a neutral lim
     refusalExercised: false,
     observationCount: 0,
     productionProjectable: false,
+    evidenceDisposition: "indeterminate",
+    indeterminateReason: "reject_path_timeout",
     verdict: "no_confirmed_post_refusal_verdict",
-    interpretation: "Reject Path did not complete within the six-second post-primary allowance, so no post-refusal verdict was established.",
+    interpretation: "Reject Path did not complete within the configured action-lane allowance, so no post-refusal verdict was established.",
     observationStrategy: "not_applicable",
     termination: {
       kind: "unavailable",
@@ -279,12 +665,12 @@ test("API v2 and status expose a six-second Reject Path timeout as a neutral lim
       trigger: "reject_path_timeout",
     },
     completedAt: "2026-08-26T12:00:16.000Z",
-    coverageLimitations: ["Reject Path did not complete within the six-second post-primary allowance, so no post-refusal verdict was established."],
-    limitations: ["Reject Path did not complete within the six-second post-primary allowance, so no post-refusal verdict was established."],
+    coverageLimitations: ["Reject Path did not complete within the configured action-lane allowance, so no post-refusal verdict was established."],
+    limitations: ["Reject Path did not complete within the configured action-lane allowance, so no post-refusal verdict was established."],
   });
   assert.deepEqual(status.postRefusalObservation, resource.postRefusalObservation);
   assert.ok(resource.coverage?.limitations?.includes(
-    "Reject Path did not complete within the six-second post-primary allowance.",
+    "Reject Path did not complete within the configured action-lane allowance.",
   ));
 });
 
@@ -961,6 +1347,45 @@ test("buildApiV2FindingList maps public Pulse findings into compact v2 summaries
   assert.equal(finding?.links?.self, "https://certscore.ai/api/v2/scans/00000000-0000-4000-8000-000000000123/findings/pre_consent_tracking_detected");
 });
 
+test("API v2 finding lists preserve canonical post-Accept finding IDs", () => {
+  const list = buildApiV2FindingList({
+    scanId: "00000000-0000-4000-8000-000000000123",
+    findings: [{
+      id: "post_accept_consent_dependent_activity",
+      label: "Consent-dependent activity observed after acceptance",
+      criticality: "low",
+      confidence: "strong",
+      plainEnglish: "Confirmed acceptance was followed by eligible non-essential analytics activity.",
+      evidence: {
+        summary: "A bounded post-Accept request observation was retained.",
+        observedPhase: "post_accept",
+        exampleEvents: [{
+          type: "request",
+          urlHost: "analytics.example.test",
+          timestampMs: 670,
+        }],
+      },
+      evidenceDigest: {
+        basis: "runtime_observation",
+        phase: "post_accept",
+        exampleCount: 1,
+        examplesShown: 1,
+        examplesAvailable: 1,
+        authRequiredForExamples: false,
+        hasTimingAnchor: true,
+        hasVendorAnchor: false,
+        hasConsentContext: true,
+      },
+      reviewLenses: ["GDPR / ePrivacy"],
+      nextStep: "Compare the retained baseline with pre-consent and post-Reject behavior.",
+    }],
+  });
+
+  assert.equal(list.findings[0]?.id, "post_accept_consent_dependent_activity");
+  assert.equal(list.findings[0]?.evidence.phase, "post_accept");
+  assert.equal(list.findings[0]?.criticality, "low");
+});
+
 test("buildApiV2FindingList makes retained excerpt truncation machine-readable", () => {
   const list = buildApiV2FindingList({
     scanId: "00000000-0000-4000-8000-000000000123",
@@ -1045,6 +1470,41 @@ test("buildApiV2FindingDetail uses unknown enums conservatively", () => {
   assert.equal(detail.detail?.caveats?.[0], "Coverage was limited; absence of findings should not be interpreted as absence of risk.");
 });
 
+test("API and report use canonical service purposes for legacy requests without changing score or API resource scope", () => {
+  const baseline = fixture();
+  const record = {
+    ...baseline,
+    trackerVendors: servicePurposeFixtures.map(({ url, observation }) => ({
+      vendorName: observation.product, vendorCategory: observation.purpose,
+      vendorDisplayCategory: resolveCanonicalVendorLabel(observation.product)!.displayCategory,
+      regulatoryRelevance: resolveCanonicalVendorLabel(observation.product)!.regulatoryRelevance,
+      detectionSource: "retained_canonical_vendor", confidence: observation.confidence,
+      firstPartyOrThirdParty: "third_party", collectionEndpointType: "direct_third_party",
+      beforeConsent: true, scriptHost: new URL(url).hostname, matchedSignatureId: observation.observationId,
+      matchedUrls: [url],
+      firstSeenMs: 9330, requestCount: 1, observedVia: ["request"],
+    })),
+    runtimeArtifacts: { hybridRuntimeEvidence: { iframeSummary: { iframeEvents:
+      servicePurposeFixtures.filter(row => row.resourceTypes.includes("iframe")).map(({ url }) => ({
+        frameUrl: url, timestampMs: 10875, preConsent: true,
+      })),
+    } } },
+  };
+  const projection = buildRuntimeInventoryProjectionFromScan(record);
+  const api = buildApiV2PreConsentCookiesTrackers(record);
+  for (const { observation } of servicePurposeFixtures) {
+    const rows = projection.groupedRows.filter(row => row.rawProducts.includes(observation.product));
+    assert.ok(rows.length > 0, observation.product);
+    assert.ok(rows.every(row => row.purpose === observation.servicePurpose));
+    assert.equal(api.rows.find(row => row.products?.includes(observation.product))?.purpose, observation.servicePurpose);
+  }
+  assert.equal(api.rows.length, 4, "this versioned API remains cookies/trackers-only");
+  assert.equal(projection.embedRows.length, 2);
+  assert.equal(buildApiV2ScanResource(record).score, buildApiV2ScanResource(baseline).score);
+  assert.deepEqual(record.signals, baseline.signals);
+  assert.deepEqual(record.validationFindings, baseline.validationFindings);
+});
+
 test("buildApiV2PreConsentCookiesTrackers matches the shared public report table projection", () => {
   const scanRecord = retainedPreConsentInventoryFixture();
   const projection = buildRuntimeInventoryProjectionFromScan(scanRecord);
@@ -1090,7 +1550,8 @@ test("buildApiV2PreConsentCookiesTrackers matches the shared public report table
   assert.equal(metaCookie?.essentialitySource, "canonical_registry");
   assert.deepEqual(metaCookie?.initiatorChain, ["https://connect.facebook.net/fbevents.js"]);
   assert.deepEqual(metaRow?.dataFlows, []);
-  assert.deepEqual(metaRow?.requestDetails?.[0], {
+  assert.deepEqual(metaRow?.requestDetails, [], "A same-vendor request on another domain is not evidence for this first-party cookie");
+  assert.deepEqual(projection.requestRows[0], {
     cookieNamesSent: ["_fbp"],
     essentiality: "non_essential",
     hostname: "connect.facebook.net",
@@ -1200,9 +1661,68 @@ test("buildApiV2PreConsentCookiesTrackers returns a valid empty response", () =>
       review: 0,
     },
     cookieCount: 0,
+    storageCount: 0,
     requestCount: 0,
     vendorCount: 0,
     domainCount: 0
   });
   assert.deepEqual(resource.rows, []);
+});
+
+
+test("private full-site resource keeps homepage score without exposing inventory through API or MCP",()=>{
+ const record=fixture(),baseline=buildApiV2ScanResource(record);
+ record.scan.scanConfigJson={...record.scan.scanConfigJson,fullSite:true,crawlOptions:{maxPages:200,concurrency:1,waitSeconds:5}};
+ const resource=buildApiV2ScanResource(record);
+ assert.equal(resource.score,baseline.score);
+ assert.equal("fullSite" in resource,false);
+ assert.equal("fullSite" in baseline,false);
+});
+
+
+test("known incomplete scans retain their status and same-ID polling guidance", () => {
+  for (const scanStatus of ["queued", "running", "failed", "expired"] as const) {
+    const record = fixture();
+    record.scan.status = scanStatus;
+    const status = buildApiV2ScanStatus(record);
+    assert.equal(status.status, scanStatus === "expired" ? "failed" : scanStatus);
+    assert.equal(status.scanId, record.scan.id);
+    if (scanStatus === "queued" || scanStatus === "running") {
+      assert.match(status.recommendedNextAction ?? "", /certscore_get_scan_status/);
+      assert.ok((status.retryAfterSeconds ?? 0) > 0);
+    }
+  }
+});
+
+
+test("GPC v3 independent observation survives actual persisted report hydration and public resource/status projection", () => {
+  const gpc = gpcProductionRuntimeFixture();
+  gpc.gpcSignalObservation!.workerCount = 1;
+  const bytes = Buffer.from(JSON.stringify(gpc));
+  const pointer = { uri: "s3://fixture/gpc.json", sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length };
+  const comparison = buildGpcResponseAssessment({ baseline: gpcRuntimeFixture({ enabled: false }), baselineArtifact: pointer, gpc, gpcArtifact: pointer });
+  const assessment = buildGpcProductionAssessment({ scanId: gpc.scanId, source: { bytes, pointer }, comparison });
+  const runtimeArtifacts = buildGpcResponseRuntimeProjection({ ...gpc, gpcResponseAssessment: assessment });
+  const concerns = buildNormalizedConcerns({ reviewFindingCandidates: [], validationFindings: [], runtimeArtifacts });
+  const findings = buildUnifiedFindingDisplayPackets({ reviewFindingCandidates: [], validationFindings: [], validationFindingLookup: new Map(), runtimeArtifacts });
+  const record = gpcCanonicalFixture() as ScanDetailResponse & { canonicalReportProjection: Record<string, unknown> };
+  record.runtimeArtifacts = runtimeArtifacts;
+  record.canonicalReportProjection = { ...record.canonicalReportProjection!, normalizedConcerns: concerns, globalUnifiedFindings: findings, ownerUnifiedFindings: findings };
+  const persisted = buildPersistedScanReportProjection(record);
+  const snapshot = { report_projection_payload: JSON.parse(persisted.serialized), report_projection_payload_sha256: persisted.sha256,
+    report_projection_payload_size_bytes: persisted.sizeBytes, report_projection_status: "ready", report_projection_version: SCAN_REPORT_PROJECTION_VERSION,
+    report_projection_computed_at: new Date().toISOString() };
+  const hydrated = readPersistedScanReportProjection({ scan: record.scan, snapshot });
+  assert.ok(hydrated);
+  const publicRecord = { ...record, ...hydrated, scan: record.scan };
+  const resource = buildApiV2ScanResource(publicRecord);
+  const response = apiV2GpcResponseSchema.parse(resource.gpcResponse);
+  assert.equal(response.contractVersion, "certscore.gpc-response-assessment.v3");
+  assert.equal(response.observation?.status, "complete");
+  assert.equal(response.status, "indeterminate");
+  assert.deepEqual(response.californiaPolicy, { applied: false, deductionPoints: 0 });
+  assert.deepEqual(buildApiV2ScanStatus(publicRecord, { canonicalScan: resource }).gpcResponse, response);
+  assert.doesNotMatch(JSON.stringify(response), /s3:\/\/|prototype|requestDiagnostics/);
+  assert.equal(apiV2GpcResponseSchema.safeParse({ ...response, observation: undefined }).success, false);
+  assert.equal(apiV2GpcResponseSchema.safeParse({ ...response, observation: { ...response.observation, sourceSha256: "0".repeat(64) } }).success, false);
 });

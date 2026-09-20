@@ -10,7 +10,7 @@ import {
   createPublicWebPageSchema
 } from "../../lib/seo";
 
-const pageTitle = "Regulatory Website Signal Pages | CertScore.ai";
+const pageTitle = "Regulatory Website Signal Pages";
 const pageDescription =
   "Browse CertScore.ai public regulatory signal pages for GDPR/ePrivacy, accessibility, cookie, consent, disclosure, and privacy review workflows.";
 const pagePath = "/regulatory";
@@ -18,7 +18,7 @@ const pagePath = "/regulatory";
 const regulatoryPages = [
   {
     href: "/gdpr",
-    title: "GDPR privacy scanner",
+    title: "GDPR evidence guide",
     description:
       "Runtime consent, cookie, tracking, session replay, fingerprinting, and disclosure-alignment signals for GDPR/ePrivacy review."
   },
@@ -85,6 +85,9 @@ export default function RegulatoryIndexPage() {
             <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">Public regulatory signal pages</h1>
             <p className="text-lg leading-8 text-slate-600">
               CertScore.ai pages translate public website observations into review queues for privacy, cookie, consent, accessibility, and disclosure work. They are evidence guides, not legal advice or compliance determinations.
+            </p>
+            <p className="text-sm leading-7 text-slate-600">
+              Choice-path observations add runtime evidence about what follows a confirmed Accept or Reject. They remain automated observations for review. <Link className="font-semibold text-sky-700 hover:text-sky-900" href="/guides/consent-enforcement-testing">Read how consent enforcement testing works.</Link>
             </p>
           </div>
         </div>

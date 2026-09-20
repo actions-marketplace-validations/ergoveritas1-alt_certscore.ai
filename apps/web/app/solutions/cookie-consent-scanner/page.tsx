@@ -6,20 +6,29 @@ import {
 } from "../../../components/marketing/solution-page";
 
 const config: SolutionPageConfig = {
+  inlineScan: true,
   badge: "Cookie consent scanner",
   description:
-    "Review public websites for cookie consent timing, third-party cookies before consent, CMP behavior, and reject-path tracking signals. Evidence-backed observations for human and agentic review.",
+    "Review cookie consent timing, third-party cookies before consent, CMP behavior, and what a site does after an Accept or Reject click. Evidence-backed observations for review.",
   intro:
-    "CertScore.ai scans how public websites behave around cookie consent, including what loads before consent, what writes cookies or storage, and whether reject-style choices appear to reduce non-essential activity.",
+    "CertScore establishes a pre-consent baseline and, where an eligible consent control can be actioned safely, observes Accept and Reject in separate browser sessions. Reports retain observable requests and storage activity after a completed click and separately state whether consent registration was verified. These observations remain useful when registration is unconfirmed.",
   path: "/solutions/cookie-consent-scanner",
   primarySignals: [
     "Cookie and storage timing",
     "Third-party cookies before consent",
     "CMP banner and choice signals",
-    "Reject-path tracking persistence",
+    "Accept and Reject Path observations",
     "Vendor and purpose review context"
   ],
   sections: [
+    {
+      title: "What this scan cannot establish",
+      body: "Public-page observation does not cover private account flows, every page, every region, or all future behavior. Bot defenses and unavailable controls can limit coverage. Accept and Reject observations are separate eligible sessions; an unverified decision stays unverified. A clean observation is not a compliance certificate."
+    },
+    {
+      title: "What to give your implementation team",
+      body: "Share the report's target and date, the affected vendor or storage identity, the consent state, and the retained evidence reference. Ask the team to inspect the relevant tag trigger, consent category, or embedded service, then compare a fresh scan after the change."
+    },
     {
       title: "Direct answer",
       body:
@@ -28,7 +37,7 @@ const config: SolutionPageConfig = {
     {
       title: "What CertScore.ai checks",
       body:
-        "CertScore.ai reviews cookie timing, third-party domains, storage writes, consent surface presence, available choices, reject-path behavior, and retained runtime evidence that helps reviewers understand what happened in the browser."
+        "CertScore.ai reviews cookie timing, third-party domains, storage writes, consent surface presence, available choices, and separate Accept and Reject observations. Accept is a score-neutral comparison baseline; Reject can support a finding after confirmed refusal with qualifying activity, or after a completed Reject click with independently verified tracking evidence under the Reject-click review policy."
     },
     {
       title: "When to run it",
@@ -55,7 +64,7 @@ const config: SolutionPageConfig = {
     {
       question: "Does CertScore.ai test reject behavior?",
       answer:
-        "CertScore.ai can surface reject-path review signals where the workflow has retained evidence. Findings remain automated review signals, not legal determinations."
+        "On eligible sites, CertScore can observe Accept and Reject in separate sessions. Reports retain activity observed after a completed Reject click and separately report refusal registration. A finding requires qualifying retained evidence under the confirmed-refusal or Reject-click tracking policy. Missing or incomplete capture remains limited coverage. Findings remain automated review signals, not legal determinations."
     }
   ],
   aiSummary: [

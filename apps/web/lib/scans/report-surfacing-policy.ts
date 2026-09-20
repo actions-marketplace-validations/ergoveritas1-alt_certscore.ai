@@ -1,3 +1,6 @@
+import { FORM_DESTINATION_FINDING_ID, qualifiesFormDestinationReview } from "@certscore/contracts";
+import { CMS_SECURITY_FINDING_ID, qualifiesCmsSecurityReview } from "@certscore/contracts";
+import { SITE_INTEGRITY_FINDING_ID } from "@certscore/contracts";
 import {
   REPORT_UNIFIED_FINDINGS,
   type ReportUnifiedFindingId
@@ -84,6 +87,7 @@ export type SurfacingPolicyRuleId =
   | "evidence.finding_contract.audit_only"
   | "evidence.finding_contract.suppressed"
   | "evidence.commercial.confirmed_when_runtime_or_structured"
+  | "cms_security.verified_version_match"
   | "evidence.context.keep_review"
   | "posture.post_choice_flow.deferred_from_core"
   | "posture.ccpa_cpra.deferred_from_core"
@@ -249,6 +253,8 @@ const RIGHTS_GAP_IDS = [
 const CONTRADICTION_IDS = [
   "policy_behavior_conflict",
   "consent_gated_tracking_claim_conflict",
+  "acceptance_signal_contradicts_action",
+  "refusal_signal_contradicts_action",
   "do_not_sell_sharing_disclosure_conflict",
   "privacy_terms_conflict",
   "privacy_cookie_policy_conflict",
@@ -263,7 +269,13 @@ const CONSENT_TRACKING_IDS = [
   "consent_surface_missing",
   "reject_did_not_reduce_tracking",
   "reject_did_not_reduce_third_party_cookies",
-  "gpc_signal_not_honored",
+  "post_refusal_non_essential_activity",
+  "post_reject_click_tracking",
+  "pre_consent_storage_not_cleared",
+  "post_accept_consent_dependent_activity",
+  "accept_reject_outcomes_indistinguishable",
+  "paid_alternative_required_to_decline_tracking",
+  "gpc_response",
   "weak_cookie_security_attributes",
   "cookie_retention_lifetime_review_signal",
   "consent_surface_required_deeper_sweep",
@@ -288,7 +300,6 @@ const CONSENT_TRACKING_IDS = [
 const CONFIRMED_CONSENT_RUNTIME_FAILURE_IDS = [
   "reject_did_not_reduce_tracking",
   "reject_did_not_reduce_third_party_cookies",
-  "gpc_signal_not_honored"
 ] as const satisfies ReportUnifiedFindingId[];
 
 const REVIEW_ONLY_CONSENT_INTERFACE_IDS = [
@@ -301,6 +312,7 @@ const REVIEW_ONLY_CONSENT_INTERFACE_IDS = [
   "forced_consent_wall",
   "accept_only_banner",
   "dismiss_without_reject",
+  "paid_alternative_required_to_decline_tracking",
   "consent_control_not_reopenable",
   "consent_governance_disclosure_gap"
 ] as const satisfies ReportUnifiedFindingId[];
@@ -350,6 +362,9 @@ const ACCESSIBILITY_IDS = [
 ] as const satisfies ReportUnifiedFindingId[];
 
 const CONTEXT_IDS = [
+  CMS_SECURITY_FINDING_ID,
+  FORM_DESTINATION_FINDING_ID,
+  SITE_INTEGRITY_FINDING_ID,
   "regulator_operated_mock_investment_example",
   "scan_quality_visual_artifact_missing",
   "scan_quality_visual_no_go",
@@ -1854,6 +1869,28 @@ function overrideDecision(
 
 function applyFindingSpecificRules(context: PolicyEvaluationContext) {
   const { packet, decision } = context;
+  if (packet.unifiedFindingId === FORM_DESTINATION_FINDING_ID) {
+    const eligible = packet.details?.family === "form_destinations" && qualifiesFormDestinationReview(packet.details.projection) &&
+      packet.concernContext?.promotionEligibilities.includes("eligible") && packet.concernContext?.externalSurfacingEligibilities.includes("eligible");
+    overrideDecision(decision, { state: eligible ? "review" : "suppressed", lane: eligible ? "main" : "suppressed",
+      tier: "headline", reason: "Canonical form-data payload match outside the declared destination; score-neutral.", ruleId: "evidence.context.keep_review" });
+    return;
+  }
+  if (packet.unifiedFindingId === CMS_SECURITY_FINDING_ID) {
+    const eligible = packet.details?.family === "cms_security" && qualifiesCmsSecurityReview(packet.details.projection) &&
+      packet.concernContext?.promotionEligibilities.includes("eligible") && packet.concernContext?.externalSurfacingEligibilities.includes("eligible");
+    overrideDecision(decision, { state: eligible ? "review" : "suppressed", lane: eligible ? "main" : "suppressed",
+      tier: "headline", reason: "Canonical CMS security assessment: evidence-backed version match requiring verification; score-neutral.", ruleId: "cms_security.verified_version_match" });
+    return;
+  }
+  if (packet.unifiedFindingId === SITE_INTEGRITY_FINDING_ID) {
+    const eligible = packet.details?.family === "site_integrity" &&
+      packet.concernContext?.promotionEligibilities.includes("eligible") &&
+      packet.concernContext?.externalSurfacingEligibilities.includes("eligible");
+    overrideDecision(decision, { state: eligible ? "review" : "suppressed", lane: eligible ? "main" : "suppressed",
+      tier: "section", reason: "Canonical site-integrity concern policy; review only, with no regulatory or score effect.", ruleId: "evidence.context.keep_review" });
+    return;
+  }
   const evidenceFlags = new Set(packet.evidence?.flags ?? []);
   const negativeFlags = getNegativeEvidenceFlags(packet);
   const policyExtractionDetails = packet.details?.family === "policy_extraction" ? packet.details : null;
@@ -2008,8 +2045,8 @@ function applyFindingSpecificRules(context: PolicyEvaluationContext) {
           tier: "headline",
           reason:
             evidenceFlags.has("reject_evidence_confirmed")
-              ? `The reject interaction succeeded and classified non-essential tracking requests were retained at least ${REJECT_TRACKING_CONFIRMATION_MIN_MS_LABEL} after reject, so the finding can stand as a confirmed consent-control failure.`
-              : "The reject interaction succeeded and retained named post-reject tracker vendors with multiple runtime evidence URLs, so this can surface as a main consent-control review finding while attribution caveats remain visible.",
+              ? `The refusal-state transition was confirmed and classified non-essential tracking requests were retained at least ${REJECT_TRACKING_CONFIRMATION_MIN_MS_LABEL} after confirmation, so the finding can stand as a confirmed consent-control failure.`
+              : "The refusal-state transition was confirmed and named post-refusal tracker vendors were retained with multiple runtime evidence URLs, so this can surface as a main consent-control review finding while attribution caveats remain visible.",
           ruleId: evidenceFlags.has("reject_evidence_confirmed")
             ? "evidence.consent_behavior.confirmed_specific_runtime_failure"
             : "evidence.consent_behavior.review_runtime_without_effect_evidence"
@@ -2446,7 +2483,7 @@ function applyFindingSpecificRules(context: PolicyEvaluationContext) {
           lane: "main",
           tier: "headline",
           reason:
-            `The reject interaction succeeded and classified non-essential tracking requests were retained at least ${REJECT_TRACKING_CONFIRMATION_MIN_MS_LABEL} after reject, so the finding can stand as a confirmed consent-control failure.`,
+            `The refusal-state transition was confirmed and classified non-essential tracking requests were retained at least ${REJECT_TRACKING_CONFIRMATION_MIN_MS_LABEL} after confirmation, so the finding can stand as a confirmed consent-control failure.`,
           ruleId: "evidence.consent_behavior.confirmed_specific_runtime_failure"
         });
       } else {

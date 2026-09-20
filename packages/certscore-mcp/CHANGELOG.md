@@ -2,7 +2,36 @@
 
 ## Unreleased
 
-- Prepare Cursor integration `1.0.2` with the `CertScore.ai` MCP component name, expanded evidence-confirmed Reject Path discovery metadata, and three official Cursor prompt deeplinks on the MCP Light landing page.
+- Prepare Cursor integration `1.0.4` with query-first cookie, tracker, consent, GDPR, CCPA, ePrivacy, privacy-risk, and website-scanner discovery metadata while preserving the `CertScore.ai` no-auth Light endpoint.
+
+## 0.2.21
+
+- Publish the GPC v3 observation presentation and interpretation guidance for local MCP clients.
+- Preserve bounded after-click summaries from canonical API results, independently of consent registration.
+- Keep backend findings and scoring authoritative; do not infer consent success from capture completion.
+
+## 0.2.20
+
+- Lead completed no-go responses with the canonical access blocker, “Not scored” disposition, retained evidence, next action, and retry guidance across scan, status, and bundle text surfaces, including tight response budgets.
+- Retain bounded, redacted caller argument and metadata previews with explicit omission reasons in hosted request diagnostics.
+- Preserve supplied task context on HTTP-rate-limited calls. Keep shared-question permission requirements, the existing 4 KB record limit, and 90-day retention.
+- Link admin requests to earlier retained question context only within the same caller, session, scan, provider and entrypoint, with source attribution.
+
+## 0.2.19
+
+- Keep the required `scanFrom` field in the minimal byte-budget bundle so schema validation succeeds when large completed findings are compacted for MCP Light transports.
+- Add regression coverage for the documented 8 KB findings request used by Cursor, Claude, and OpenAI integration packages.
+
+## 0.2.18
+
+- Restore successful completed-bundle retrieval on the hosted MCP by deploying the current projection that always returns the required `scanFrom` field, using `null` when persisted execution-region provenance is unavailable.
+- Preserve fail-closed provenance semantics: an existing scan's region is never inferred from the current requester or a default region.
+
+## 0.2.17
+
+- Surface typed GPC, Accept Path, and Reject Path outcomes consistently in terminal status and completed scan bundles.
+- Preserve jurisdiction-neutral GPC wording, retained `Sec-GPC: 1` proof, baseline-versus-GPC deltas, and separately identified California scoring.
+- Keep unavailable GPC data optional under bounded MCP response budgets so canonical findings are not displaced by an empty result.
 
 ## 0.2.16
 

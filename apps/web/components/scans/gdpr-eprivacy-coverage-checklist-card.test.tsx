@@ -257,6 +257,23 @@ function makeChecklistItem(overrides: ChecklistItemOverride): GdprEprivacyCovera
   };
 }
 
+test("pre-consent storage review context does not claim that no storage was observed", () => {
+  const html = renderToStaticMarkup(createElement(GdprEprivacyCoverageChecklistCard, {
+    defaultOpen: true,
+    items: [makeChecklistItem({
+      assessmentStatus: "review_signal",
+      evidenceState: "observed",
+      id: "pre_consent_cookies_storage",
+      label: "Pre-consent storage classification review",
+      status: "Review signal"
+    })],
+    showSummaryStrip: false
+  }));
+
+  assert.match(html, /Pre-consent storage was retained, but classification, reconciliation, or direct write timing remained incomplete/);
+  assert.doesNotMatch(html, /No eligible classified non-essential pre-consent storage was observed/);
+});
+
 test("GdprEprivacyCoverageChecklistCard separates evidence labels from assessment direction", () => {
   assert.equal(
     getAssessmentDirection(makeChecklistItem({
@@ -642,7 +659,8 @@ test("GdprEprivacyCoverageChecklistCard renders concise session replay evidence 
     /Session replay or behavioral analytics signals were observed: Microsoft Clarity, Hotjar, and Contentsquare; first seen 2\.41s after scan start\./
   );
   assert.match(html, /Review summary/);
-  assert.match(html, /GDPR\/ePrivacy score is weighted from evidence-gated checklist rows/);
+  assert.match(html, /GDPR\/ePrivacy posture summarizes the applicable findings supported by retained evidence/);
+  assert.doesNotMatch(html, /weighted|partial credit|score effect|deduct/i);
   assert.doesNotMatch(html, /group\/gdpr-summary/);
   assert.match(html, /Microsoft Clarity, Hotjar, and Contentsquare/);
   assert.doesNotMatch(html, />Before consent</);
@@ -658,7 +676,7 @@ test("GdprEprivacyCoverageChecklistCard renders concise session replay evidence 
   assert.doesNotMatch(html, /signals require review from the retained runtime evidence/i);
 });
 
-test("GdprEprivacyCoverageChecklistCard preserves first-seen timing in concise runtime rationale", () => {
+test("GdprEprivacyCoverageChecklistCard uses only request-bound timing in concise runtime rationale", () => {
   const html = renderToStaticMarkup(
     createElement(GdprEprivacyCoverageChecklistCard, {
       defaultOpen: true,
@@ -667,6 +685,10 @@ test("GdprEprivacyCoverageChecklistCard preserves first-seen timing in concise r
           assessmentStatus: "gap_observed",
           criticalEvidence: {
             retainedEvidence: {
+              trackingRequestTiming: { version: "classified-request-timing.v1", requests: [{
+                requestUrl: "https://pixel.quantserve.com/pixel/", vendorName: "Quantcast Measure", vendorCategory: "analytics",
+                firstSeenMs: 521, runtimePhase: "pre_consent", evidenceRefs: ["request:quantcast:521"]
+              }] },
               preconsent_tracker_vendor_evidence: [
                 {
                   category: "tracking",
@@ -708,7 +730,7 @@ test("GdprEprivacyCoverageChecklistCard preserves first-seen timing in concise r
 
   assert.match(
     html,
-    /Pre-consent non-essential tracking evidence was retained before consent: Google Ads \/ DoubleClick \(advertising measurement\) and Quantcast Measure \(tracking\); first seen 0.521s after scan start; no consent action was recorded first\./
+    /The first retained qualifying request was Quantcast Measure at 0.521s after scan start/
   );
   assert.match(html, /aria-label="Potential gap"/);
   assert.match(html, /border-rose-200 bg-rose-50 text-rose-700/);
@@ -717,7 +739,7 @@ test("GdprEprivacyCoverageChecklistCard preserves first-seen timing in concise r
   assert.doesNotMatch(html, /Evidence summary/);
 });
 
-test("GdprEprivacyCoverageChecklistCard summarizes the top two highest-priority 3rd party trackers", () => {
+test("GdprEprivacyCoverageChecklistCard withholds precise timing when only vendor aggregates are retained", () => {
   const html = renderToStaticMarkup(
     createElement(GdprEprivacyCoverageChecklistCard, {
       defaultOpen: true,
@@ -773,13 +795,13 @@ test("GdprEprivacyCoverageChecklistCard summarizes the top two highest-priority 
 
   assert.match(
     html,
-    /Pre-consent non-essential tracking evidence was retained before consent: Bombora Visitor Insights \(Advertising\) and ScorecardResearch \(Audience measurement\); 1 additional eligible tracker retained in expandable evidence; first seen 3.27s after scan start; no consent action was recorded first\./
+    /precise request timing is unavailable/
   );
   assert.doesNotMatch(html, /Optimizely \(A\/B Testing\)/);
   assert.doesNotMatch(html, /Quantcast Measure \(Audience measurement\)/);
 });
 
-test("GdprEprivacyCoverageChecklistCard reads canonical pre-consent timing fields", () => {
+test("GdprEprivacyCoverageChecklistCard does not upgrade generic third-party timing to tracking", () => {
   const html = renderToStaticMarkup(
     createElement(GdprEprivacyCoverageChecklistCard, {
       defaultOpen: true,
@@ -807,11 +829,11 @@ test("GdprEprivacyCoverageChecklistCard reads canonical pre-consent timing field
 
   assert.match(
     html,
-    /Tracking-classified 3rd party requests fired before any recorded consent action; first seen 2.94s after scan start/
+    /Runtime 3rd party request timing was retained before any recorded consent action/
   );
 });
 
-test("GdprEprivacyCoverageChecklistCard includes pre-consent cookie vendor and purpose in compact rationale", () => {
+test("GdprEprivacyCoverageChecklistCard keeps review-state pre-consent storage copy classification-safe", () => {
   const html = renderToStaticMarkup(
     createElement(GdprEprivacyCoverageChecklistCard, {
       defaultOpen: true,
@@ -845,10 +867,9 @@ test("GdprEprivacyCoverageChecklistCard includes pre-consent cookie vendor and p
     })
   );
 
-  assert.match(
-    html,
-    /Pre-consent cookie\/storage evidence was retained before consent: Quantcast \(Analytics\); first seen 1.22s after scan start; no consent action was recorded first\./
-  );
+  assert.match(html, /Pre-consent storage was retained, but classification, reconciliation, or direct write timing remained incomplete\./);
+  assert.match(html, /This is review evidence, not a clean result or a confirmed non-essential write count\./);
+  assert.doesNotMatch(html, /Quantcast \(Analytics\)/);
   assert.doesNotMatch(html, /Cookie\/storage writes were observed before any recorded consent action; first seen 1.22s after scan start/);
 });
 
@@ -1991,7 +2012,7 @@ test("GdprEprivacyCoverageChecklistCard omits deferred consent-control accessibi
   assert.doesNotMatch(html, /consent-control accessibility/i);
 });
 
-test("GdprEprivacyCoverageChecklistCard omits deferred post-reject reduction rows", () => {
+test("GdprEprivacyCoverageChecklistCard renders projected post-reject reduction rows", () => {
   const html = renderToStaticMarkup(
     createElement(GdprEprivacyCoverageChecklistCard, {
       defaultOpen: true,
@@ -2008,8 +2029,8 @@ test("GdprEprivacyCoverageChecklistCard omits deferred post-reject reduction row
     })
   );
 
-  assert.doesNotMatch(html, /Post-reject tracking reduction/i);
-  assert.doesNotMatch(html, /did not materially decrease/i);
+  assert.match(html, /Post-reject tracking reduction/i);
+  assert.match(html, /Potential gap/i);
 });
 
 test("GdprEprivacyCoverageChecklistCard names social media providers and timing", () => {

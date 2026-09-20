@@ -41,6 +41,12 @@ export default function DevelopersPage() {
         <LightMcpCallout />
         <AgentQuickPath />
 
+        <Section eyebrow="Typed scan results" title="Choice paths in every integration">
+          <p className="max-w-3xl text-sm leading-7 text-slate-600">
+            Eligible completed scans can include <code>postAcceptObservation</code>, <code>postRefusalObservation</code>, and <code>gpcResponse</code>. Accept is a score-neutral comparison baseline; Reject findings follow canonical evidence policy, including separately verified Reject-click tracking. Read optional <code>afterAction</code> facts independently of registration. For GPC v3, <code>gpcResponse.observation</code> reports bounded capture, CMP-recorded sale/sharing state, and observed requests independently of the paired <code>gpcResponse.status</code>. Completed observation does not mean GPC was honored. <Link className="font-semibold text-sky-700 hover:text-sky-900" href="/developers/reference#choice-path-results">Read the field semantics.</Link>
+          </p>
+        </Section>
+
         <Section eyebrow="Explore the platform" title="Choose the next step that fits your workflow.">
           <div className="grid gap-5 md:grid-cols-2">
             {developerPages.map((page) => (
@@ -61,7 +67,7 @@ export default function DevelopersPage() {
 
         <Section eyebrow="API key access" title="Get an API key">
           <p className="max-w-3xl text-sm leading-7 text-slate-600">
-            Use a scoped bearer API key for the REST API, TypeScript SDK, or MCP server. Read-only + MCP access is self-serve for
+            For an authenticated agent workspace connection, use Hosted MCP OAuth. See the <a href="/developers/mcp#hosted-oauth-start">canonical eligibility and setup guide</a>. Use a scoped bearer API key for REST API, TypeScript SDK or local MCP workflows. Read-only + MCP access is self-serve for
             signed-in verified users through <code className="rounded bg-white px-1">POST /api/v2/keys/request</code>. Request{" "}
             <code className="rounded bg-white px-1">scan:create</code> preview access at{" "}
             <a className="font-semibold text-sky-700 hover:text-sky-900" href="mailto:support@certscore.ai">

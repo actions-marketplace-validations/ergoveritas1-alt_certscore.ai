@@ -1,6 +1,19 @@
 import { z } from "zod";
+import { apiRuntimeEvidenceGraphProjectionSchema, type ApiRuntimeEvidenceGraphProjection } from "./runtime-evidence-graph.js";
+const apiGraphProjectionSchema: z.ZodType<ApiRuntimeEvidenceGraphProjection> = apiRuntimeEvidenceGraphProjectionSchema;
 import { pulseResponseSchema } from "./pulse-v1.js";
 import { scanNoGoResultSchema, scanResultDispositionSchema } from "./scan-no-go.js";
+import {
+  apiV2GpcResponseSchema,
+  apiV2PostAcceptObservationSchema,
+  apiV2PostRefusalObservationSchema,
+} from "./scan-observation-results.js";
+export {
+  apiV2GpcComparisonDeltaSchema,
+  apiV2GpcResponseSchema,
+  apiV2PostAcceptObservationSchema,
+  apiV2PostRefusalObservationSchema,
+} from "./scan-observation-results.js";
 
 export const CANONICAL_SCAN_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -9,53 +22,12 @@ export function isCanonicalScanId(value: unknown): value is string {
 }
 
 export const CERTSCORE_API_V2_VERSION = "v2";
-export const CERTSCORE_API_V2_SCHEMA_VERSION = "0.1.9";
+export const CERTSCORE_API_V2_SCHEMA_VERSION = "0.1.12";
 
 export const apiV2Disclaimer =
   "CertScore outputs are automated public-web observations for human and agentic review. They are not legal advice, certification, or a compliance determination.";
 
 export const apiV2ScanStatusSchema = z.enum(["queued", "running", "finalizing", "completed", "completed_limited", "failed", "expired", "rate_limited"]);
-export const apiV2PostRefusalObservationSchema = z.object({
-  status: z.enum([
-    "confirmed_observation",
-    "confirmed_clean",
-    "unconfirmed",
-    "not_attempted",
-    "unsupported",
-    "aborted",
-  ]),
-  refusalExercised: z.boolean(),
-  observationCount: z.number().int().min(0),
-  productionProjectable: z.boolean(),
-  verdict: z.enum([
-    "eligible_nonessential_activity_observed_after_confirmed_refusal",
-    "retained_consent_signal_contradiction_observed_after_confirmed_refusal",
-    "no_eligible_nonessential_activity_observed_during_completed_window",
-    "no_confirmed_post_refusal_verdict",
-  ]),
-  interpretation: z.string().min(1).max(500),
-  observationStrategy: z.enum([
-    "stop_on_first_eligible_activity",
-    "not_applicable",
-  ]),
-  termination: z.object({
-    kind: z.enum(["evidence_satisfied", "window_elapsed", "unavailable"]),
-    intentional: z.boolean(),
-    trigger: z.enum([
-      "non_essential_request_observed",
-      "non_essential_storage_write_observed",
-      "refusal_signal_contradiction_observed",
-      "window_elapsed",
-      "reject_path_timeout",
-      "worker_failed",
-      "unavailable",
-    ]),
-  }).strict(),
-  completedAt: z.string().nullable(),
-  coverageLimitations: z.array(z.string()).max(24),
-  /** @deprecated Use coverageLimitations. Retained for API compatibility. */
-  limitations: z.array(z.string()).max(24),
-}).strict();
 export const apiV2ScanFreshnessSchema = z.enum(["latest", "refresh"]);
 export const apiV2ScanFromSchema = z.enum(["eu_de", "eu_ie", "california"]);
 export const apiV2FindingCriticalitySchema = z.enum(["critical", "high", "medium", "low", "info", "unknown"]);
@@ -162,10 +134,22 @@ export const apiV2PreConsentRuntimePreviewSchema = z.object({
     confidence: z.number().min(0).max(1),
     domains: z.array(z.string().min(1).max(253)).max(8),
   }).strict()).max(20).optional(),
+  resources: z.array(z.object({
+    kind: z.enum(["request", "embed"]),
+    vendor: z.string().min(1).max(160).nullable(),
+    product: z.string().min(1).max(160).nullable(),
+    purpose: z.string().min(1).max(80),
+    confidence: z.number().min(0).max(1).nullable(),
+    domains: z.array(z.string().min(1).max(253)).max(8),
+    party: z.enum(["first_party", "third_party", "mixed", "unknown"]),
+    observedAtMs: z.number().int().nonnegative(),
+    requestCount: z.number().int().nonnegative(),
+  }).strict()).max(20).optional(),
   truncated: z.object({
     cookies: z.boolean(),
     trackers: z.boolean(),
     operationalVendors: z.boolean().optional(),
+    resources: z.boolean().optional(),
   }).strict(),
   mustContinuePolling: z.literal(true),
   observationOnlyDisclaimer: z.string().min(1).max(500),
@@ -189,7 +173,7 @@ export const apiV2ErrorSchema = z
     error: z
       .object({
         code: z.enum(["invalid_request", "invalid_url", "not_found", "rate_limited", "unauthorized", "forbidden", "scan_unavailable", "internal_error"]),
-        reasonCode: z.enum(["non_public_target"]).nullable().optional(),
+        reasonCode: z.enum(["non_public_target", "domain_not_found", "dns_unavailable"]).nullable().optional(),
         message: z.string(),
         retryable: z.boolean(),
         retryAfterSeconds: z.number().int().nullable(),
@@ -256,6 +240,8 @@ export const apiV2ScanJobSchema = z
     scoreVersion: z.string().nullable().optional(),
     scoreUpdatedAt: z.string().nullable().optional(),
     riskLevel: z.string().nullable().optional(),
+    gpcResponse: apiV2GpcResponseSchema.nullable().optional(),
+    postAcceptObservation: apiV2PostAcceptObservationSchema.nullable().optional(),
     postRefusalObservation: apiV2PostRefusalObservationSchema.nullable().optional(),
     preConsentPreview: apiV2PreConsentRuntimePreviewSchema.optional(),
     coverage: z
@@ -312,6 +298,8 @@ export const apiV2ScanResourceSchema = z
     scoreVersion: z.string().nullable().optional(),
     scoreUpdatedAt: z.string().nullable().optional(),
     riskLevel: z.string().nullable().optional(),
+    gpcResponse: apiV2GpcResponseSchema.nullable().optional(),
+    postAcceptObservation: apiV2PostAcceptObservationSchema.nullable().optional(),
     postRefusalObservation: apiV2PostRefusalObservationSchema.nullable().optional(),
     coverage: z
       .object({
@@ -548,6 +536,7 @@ export const apiV2PreConsentCookiesTrackersRowSchema = z
       initiatorChain: z.array(z.string()),
     }).strict()).optional(),
     requestDetails: z.array(z.object({
+      resourceRole: z.literal("video_ad_sdk").optional(),
       cookieNamesSent: z.array(z.string().max(256)).max(24),
       essentiality: z.enum(["non_essential", "unknown"]),
       hostname: z.string().max(253).nullable(),
@@ -564,6 +553,11 @@ export const apiV2PreConsentCookiesTrackersRowSchema = z
     purposes: z.array(z.string()).optional(),
     domains: z.array(z.string()).optional(),
     products: z.array(z.string()).optional(),
+    storageDetails: z.object({
+      storageType: z.enum(["localStorage", "sessionStorage"]), key: z.string().max(4096), origin: z.string().url().nullable(),
+      identityBasis: z.enum(["retained_scan_type_key", "origin_type_key"]), sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+      evidenceRefs: z.array(z.string()).max(8),
+    }).strict().optional(),
     dataFlows: z.array(z.object({
       endpoint: z.string(),
       idSync: z.boolean(),
@@ -607,6 +601,7 @@ export const apiV2PreConsentCookiesTrackersSummarySchema = z
       review: z.number().int().min(0),
     }).strict().optional(),
     cookieCount: z.number().int().min(0),
+    storageCount: z.number().int().min(0).optional(),
     requestCount: z.number().int().min(0),
     vendorCount: z.number().int().min(0).default(0),
     domainCount: z.number().int().min(0).default(0)
@@ -616,6 +611,7 @@ export const apiV2PreConsentCookiesTrackersSummarySchema = z
 export const apiV2PreConsentCookiesTrackersSchema = z
   .object({
     type: z.literal("certscore_pre_consent_cookies_trackers"),
+    runtimeEvidenceGraph: apiGraphProjectionSchema.optional(),
     scanId: z.string(),
     domain: z.string(),
     generatedAt: z.string().nullable().optional(),
@@ -627,6 +623,11 @@ export const apiV2PreConsentCookiesTrackersSchema = z
   .passthrough();
 
 export type ApiV2CreateScanRequest = z.infer<typeof apiV2CreateScanRequestSchema>;
+export type {
+  ApiV2GpcResponse,
+  ApiV2PostAcceptObservation,
+  ApiV2PostRefusalObservation,
+} from "./scan-observation-results.js";
 export type ApiV2ScanJob = z.infer<typeof apiV2ScanJobSchema>;
 export type ApiV2ScanResource = z.infer<typeof apiV2ScanResourceSchema>;
 export type ApiV2FindingSummary = z.infer<typeof apiV2FindingSummarySchema>;

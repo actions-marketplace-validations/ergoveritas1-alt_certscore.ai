@@ -94,6 +94,7 @@ function makeConsentOptionsAssessment(input: {
     placementType?: "action_cluster" | "first_layer_body" | "unknown";
   }>;
   persistentOptions?: boolean;
+  representativeScreenshotUnavailable?: boolean;
 }) {
   const finalUrl = "https://consent-options.example/";
   return deriveConsentControlAssessment({
@@ -147,11 +148,17 @@ function makeConsentOptionsAssessment(input: {
       status: "observed_actionable",
       evidenceRefs: ["CanonicalEvidenceBundle.json"]
     },
+    visualEvidence: {
+      status: input.representativeScreenshotUnavailable ? "withheld" : "available",
+      artifactRefs: [],
+      reasonCodes: input.representativeScreenshotUnavailable ? ["finalization_deadline_exceeded"] : [],
+    },
     coverage: {
       status: "complete",
       requiredChannels: ["dom_inventory", "geometry"],
       completedChannels: ["dom_inventory", "geometry"],
-      incompleteChannels: []
+      incompleteChannels: [],
+      reasonCodes: []
     }
   });
 }
@@ -274,7 +281,40 @@ test("normalizes consent options prominence before concern policy assigns checkl
   }
 });
 
-test("normalizes a retained paid decline variant as a checklist-only review signal", () => {
+test("withheld visual evidence does not suppress verified structured options prominence", () => {
+  const assessment = makeConsentOptionsAssessment({
+    firstLayer: [{
+      actionType: "manage_preferences",
+      intent: "options",
+      label: "Customise",
+      presentationType: "inline_link",
+      placementType: "action_cluster"
+    }],
+    representativeScreenshotUnavailable: true
+  });
+  assert.equal(assessment.assessmentStatus, "complete");
+  assert.equal(assessment.controls.options.state, "observed");
+  assert.equal(assessment.visualEvidence?.status, "withheld");
+
+  const concerns = buildNormalizedConcerns({
+    reviewFindingCandidates: [],
+    runtimeArtifacts: { consentControlAssessment: assessment },
+    validationFindings: []
+  });
+  const concern = concerns.find((candidate) =>
+    candidate.originKey.startsWith("consent.options_control_prominence.")
+  );
+
+  assert.ok(concern);
+  assert.equal(concern.observedValue, "inline_link_action_cluster");
+  assert.equal(
+    concern.evidenceBundle.rawEvidence?.consentOptionsControlProminenceState,
+    "inline_link_action_cluster"
+  );
+  assert.equal(concern.evidenceBundle.rawEvidence?.consentControlAssessmentContractVersion, "2.2");
+});
+
+test("normalizes a retained paid decline variant as an externally eligible review finding", () => {
   const assessment = deriveConsentControlAssessment({
     scan: {
       scanId: "scan-paid-decline",
@@ -338,9 +378,23 @@ test("normalizes a retained paid decline variant as a checklist-only review sign
   assert.ok(concern);
   assert.equal(assessment.controls.reject.state, "not_observed");
   assert.equal(concern.regulatoryChecklistEligibility, "review_signal");
-  assert.equal(concern.promotionEligibility, "internal_only");
-  assert.equal(concern.externalSurfacingEligibility, "audit_only");
+  assert.equal(concern.promotionEligibility, "eligible");
+  assert.equal(concern.externalSurfacingEligibility, "eligible");
+  assert.equal(concern.suggestedUnifiedFindingId, "paid_alternative_required_to_decline_tracking");
   assert.equal(concern.evidenceBundle.rawEvidence?.consentPaidDeclinePathEvidence, true);
+  assert.equal(concern.evidenceBundle.rawEvidence?.scoreEffect, "none");
+  const packets = buildUnifiedFindingDisplayPackets({
+    reviewFindingCandidates: [],
+    runtimeArtifacts: { consentControlAssessment: assessment },
+    validationFindingLookup: new Map(),
+    validationFindings: []
+  });
+  const paidFinding = packets.find((packet) =>
+    packet.unifiedFindingId === "paid_alternative_required_to_decline_tracking"
+  );
+  assert.ok(paidFinding);
+  assert.equal(paidFinding.presentationDecision.status, "surface");
+  assert.equal(paidFinding.severity, "medium");
 });
 
 test("normalizes complete no-surface evidence and classified activity into a reject review signal", () => {
@@ -2359,7 +2413,7 @@ test("ambiguous GDPR Transparency Article 13 evidence receives no checklist cred
   assert.equal(concern.regulatoryChecklistEligibility, "none");
 });
 
-test("GDPR Transparency concerns keep stale transfer frameworks as review-only evidence", () => {
+test("GDPR Transparency concerns separate transfer disclosure from stale framework validity", () => {
   const concerns = buildNormalizedConcerns({
     reviewFindingCandidates: [],
     runtimeArtifacts: {
@@ -2380,7 +2434,7 @@ test("GDPR Transparency concerns keep stale transfer frameworks as review-only e
   );
 
   assert.ok(concern);
-  assert.equal(concern.regulatoryChecklistEligibility, "review_signal");
+  assert.equal(concern.regulatoryChecklistEligibility, "observed");
   assert.equal(
     concern.evidenceBundle.rawEvidence?.staleLegalFrameworkReferenceObserved,
     true,
@@ -2459,6 +2513,20 @@ test("off-topic Privacy Shield wording receives no processing-purposes checklist
     concern.evidenceBundle.rawEvidence?.processingPurposesEvidenceSubstantive,
     false,
   );
+});
+
+test("legacy approved privacy navigation cannot become observed controller contact", () => {
+  const concerns = buildNormalizedConcerns({
+    reviewFindingCandidates: [], validationFindings: [],
+    runtimeArtifacts: { policyDisclosureSummary: makeGdprTransparencyPolicyDisclosureSummary({ signals: [makeApprovedGdprTransparencyArticle13Signal({
+      disclosureType: "controller_contact", evidenceText: "Privacy contact Facebook Instagram Twitter Shop Parts Privacy Contact Us Affiliate Disclosure. All rights reserved.",
+    })] }) },
+  });
+  const concern = concerns.find(item => item.originKey === "gdpr_transparency.article13.controller_contact");
+  assert.ok(concern);
+  assert.equal(concern.regulatoryChecklistEligibility, "none");
+  assert.equal(concern.evidenceBundle.rawEvidence?.controllerContactConfirmed, false);
+  assert.equal(concern.evidenceBundle.rawEvidence?.gdprTransparencyArticle13ConcernState, "ambiguous");
 });
 
 test("missing GDPR Transparency classifier evidence alone does not create Article 13 gaps", () => {

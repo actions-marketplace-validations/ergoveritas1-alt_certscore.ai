@@ -186,7 +186,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck validation worker
-        run: pnpm --filter @website-signal-risk-scanner/validation-worker typecheck
+        run: |
+          pnpm --filter @certscore/contracts build
+          pnpm --filter @website-signal-risk-scanner/shared build
+          pnpm --filter @website-signal-risk-scanner/validation-worker typecheck
 
       - name: Run validation pipeline tests
         run: pnpm test:scan-pipeline
@@ -306,7 +309,8 @@ jobs:
                     | .environment = (
                         (.environment // [])
                         | map(select(
-                            .name != "CERTSCORE_V2_DAG_LAMBDA_RESULT_POLL_ENABLED"
+                            .name != "CERTSCORE_FULL_SITE_INTERNAL_ENABLED"
+                            and .name != "CERTSCORE_V2_DAG_LAMBDA_RESULT_POLL_ENABLED"
                             and .name != "CERTSCORE_V2_DAG_LAMBDA_RESULT_POLL_SECONDS"
                             and .name != "CERTSCORE_V2_DAG_LAMBDA_DISPATCH_PUBLISH_ENABLED"
                             and .name != "CERTSCORE_V2_DAG_LAMBDA_DISPATCH_PUBLISH_SECONDS"
@@ -326,6 +330,7 @@ jobs:
                             and .name != "CERTSCORE_PARALLEL_POLICY_PROJECTION_ENABLED"
                           ))
                         + [
+                            {"name": "CERTSCORE_FULL_SITE_INTERNAL_ENABLED", "value": "1"},
                             {
                               "name": "CERTSCORE_V2_DAG_LAMBDA_RESULT_POLL_ENABLED",
                               "value": env.VALIDATION_WORKER_LAMBDA_RESULT_POLL_ENABLED

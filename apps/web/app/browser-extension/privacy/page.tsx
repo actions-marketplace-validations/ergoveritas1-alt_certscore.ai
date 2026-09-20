@@ -4,7 +4,8 @@ import { SiteFooter } from "../../../components/layout/site-footer";
 import { SiteHeader } from "../../../components/layout/site-header";
 
 export const metadata: Metadata = {
-  title: "Chrome extension privacy | CertScore.ai",
+  title: "Chrome extension privacy",
+  alternates: { canonical: "https://certscore.ai/browser-extension/privacy" },
   description: "How the CertScore.ai Chrome extension handles browser-observed scan evidence."
 };
 

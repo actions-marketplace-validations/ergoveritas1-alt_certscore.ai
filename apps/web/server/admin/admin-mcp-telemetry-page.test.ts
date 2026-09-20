@@ -42,7 +42,10 @@ test("MCP operations page makes the request ledger the primary navigable workspa
   assert.ok(page.indexOf("Tool distribution and latency") < page.indexOf("{hasActivity ? ("));
   assert.ok(page.indexOf("Source and access signals") < page.indexOf("{hasActivity ? ("));
   assert.ok(page.indexOf("<AdminOperationalSnapshot") < page.indexOf("MCP request activity"));
-  assert.ok(page.indexOf("<AdminOperationalSnapshot") < page.indexOf("Tool distribution and latency"));
+  assert.ok(page.indexOf("<UsageSummary />") < page.indexOf("<UsageLedger />"));
+  assert.ok(page.indexOf("<UsageLedger />") < page.indexOf("<UsageSummary details />"));
+  assert.ok(page.indexOf("Frequently requested hostnames") < page.indexOf("<CardTitle>MCP growth funnel</CardTitle>"));
+  assert.ok(page.indexOf("Source and access signals") < page.indexOf("<CardTitle>MCP growth funnel</CardTitle>"));
   assert.doesNotMatch(page, /Tool activity and latency/);
   assert.doesNotMatch(page, /Provider and access signals/);
   assert.match(page, /<AdminScansFilterForm[^>]+submitFirst>/);
@@ -73,7 +76,7 @@ test("MCP operations page makes the request ledger the primary navigable workspa
   assert.match(page, /From scan/);
   for (const heading of [
     "Requested", "Page", "Tranco", "Score", "Top", "Privacy / CMP", "A/R/O", "Access",
-    "Transparency", "Transport", "Runtime", "Time", "Outcome", "From", "Freshness", "Language",
+    "Transparency", "Transport", "Runtime", "Time", "Current scan outcome", "From", "Freshness", "Language",
     "Industry", "Mode", "Usage", "Scan ID", "Scanner egress",
   ]) {
     assert.match(page, new RegExp(`label: "${heading.replaceAll("/", "\\/")}"`));
@@ -131,15 +134,16 @@ test("MCP telemetry dashboard queries bounded periods and never reads request pa
   assert.match(repository, /events\.requester_ip::text as retained_requester_ip/);
   assert.match(repository, /events\.requested_resource/);
   assert.match(repository, /events\.client_name/);
-  assert.match(repository, /from public\.pulse_requests request[\s\S]*request\.scan_id::text = events\.scan_id/);
-  assert.match(repository, /from public\.scan_requests request[\s\S]*fulfilled_by_scan_id[\s\S]*events\.scan_id/);
+  assert.match(repository, /from public\.pulse_requests request[\s\S]*request\.scan_id = events\.linked_scan_id/);
+  assert.match(repository, /from public\.scan_requests request[\s\S]*fulfilled_by_scan_id[\s\S]*events\.linked_scan_id/);
   assert.match(repository, /canonical_scan\.scan_config_json ->> 'scanFrom' in \('eu_de', 'eu_ie', 'california'\)/);
   assert.match(repository, /limit \$\{limitParameter\}/);
   assert.doesNotMatch(repository, /prompt|authorization|request_body|response_body|raw_header/i);
 });
 
-test("MCP traffic exclusions resolve linked scan identities once per query", () => {
-  assert.match(repository, /scan_id = any\(array\(/);
+test("MCP traffic exclusions resolve linked scan identities once per cache window", () => {
+  assert.match(repository, /loadCachedMcpTrafficExclusions/);
+  assert.match(repository, /scan_id = any\(\$\{scanIdsParameter\}::text\[\]/);
   assert.doesNotMatch(repository, /where request\.scan_id::text = \$\{prefix\}scan_id/);
   assert.doesNotMatch(repository, /fulfilled_by_scan_id, request\.scan_id\)::text = \$\{prefix\}scan_id/);
 });
@@ -156,4 +160,18 @@ test("MCP invocation persistence retains bounded request attribution for failed 
   assert.match(requestContextMigration, /URL paths, and URL query values/);
   assert.match(requestContextMigration, /set requested_resource_type = 'scan_id',[\s\S]*requested_resource = scan_id/);
   assert.doesNotMatch(persistence, /request_body|raw_header|authorization|prompt/i);
+});
+
+
+test("response review columns and filters retain pagination and form state", () => {
+  for (const label of ["Response at call time", "Agent next step", "Retry", "Failure source"]) assert.ok(page.includes(`label: "${label}"`));
+  for (const name of ["responseCategory", "agentNextStep", "failureSource", "responseCapture"]) {
+    assert.ok(page.includes(`name: "${name}"`));
+    assert.ok(repository.includes(`filters.${name}`));
+  }
+  assert.match(page, /searchParams=\{\{ \.\.\.responseFilters/);
+  assert.match(page, /Object.entries\(responseFilters\)/);
+  assert.match(page, /colSpan=\{32\}/);
+  assert.match(page, /Missing capture is shown as Not recorded/);
+  assert.match(repository, /MCP_RESPONSE_CATEGORY_SQL\} as response_category/);
 });

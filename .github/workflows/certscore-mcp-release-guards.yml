@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/certscore-mcp-release-guards.yml"
       - ".github/workflows/certscore-mcp-linux-release.yml"
+      - ".github/workflows/certscore-mcp-npm-release.yml"
       - "Casks/certscore-mcp.rb"
       - "Formula/certscore-mcp.rb"
       - "apps/web/app/.well-known/certscore-ai.json/route.ts"
@@ -26,6 +27,7 @@ on:
     paths:
       - ".github/workflows/certscore-mcp-release-guards.yml"
       - ".github/workflows/certscore-mcp-linux-release.yml"
+      - ".github/workflows/certscore-mcp-npm-release.yml"
       - "Casks/certscore-mcp.rb"
       - "Formula/certscore-mcp.rb"
       - "apps/web/app/.well-known/certscore-ai.json/route.ts"
@@ -61,7 +63,7 @@ jobs:
 
       - name: Build MCP dependencies
         run: |
-          pnpm --filter @certscore/api-contracts build
+          pnpm --filter @certscore/api-contracts... build
           pnpm --filter @certscore/sdk build
 
       - name: Test MCP package

@@ -12,11 +12,12 @@ const source = readFileSync("scripts/smoke-hosted-mcp-production.ts", "utf8");
 
 test("hosted MCP canary protects the exact Light and full tool contracts", () => {
   assert.deepEqual([...LIGHT_TOOL_NAMES].sort(), [
+    "certscore_get_report_evidence_page",
     "certscore_get_scan_bundle",
     "certscore_get_scan_status",
     "certscore_scan_site",
   ]);
-  assert.equal(FULL_TOOL_NAMES.length, 12);
+  assert.equal(FULL_TOOL_NAMES.length, 14);
   assert.doesNotThrow(() => assertExactToolNames("mcp_light", [...LIGHT_TOOL_NAMES], LIGHT_TOOL_NAMES));
   assert.throws(
     () => assertExactToolNames("mcp_light", ["certscore_scan_site"], LIGHT_TOOL_NAMES),

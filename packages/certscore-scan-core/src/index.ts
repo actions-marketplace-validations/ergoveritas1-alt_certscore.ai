@@ -1,6 +1,11 @@
+export { buildGpcProductionAssessment, buildGpcProductionObservation } from "./gpc-production-observation.js";
+export { buildGpcImpactAssessment } from "./gpc-impact-assessment.js";
+import { createHash } from "node:crypto";
+import type { FormSnapshotReviewer } from "./collection-surface-snapshots";
+import { inventoryConfiguration, inventoryHash } from "./full-site-inventory";
 import path from "node:path";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
   type CanonicalEvidenceBundle,
   type CmpRuntimeObservation,
@@ -18,6 +23,7 @@ import {
   type RuntimeCoverageSummary,
   type RuntimeEvidenceEvent,
   type ScanProfile,
+  type ScannerBuildProvenance,
   type ScanNoGoAssessment,
   type ScanEvidenceLaneAssessment,
   type ScreenshotArtifact,
@@ -30,8 +36,9 @@ import {
   deriveConsentSurfaceInspectionOutcome,
   derivePolicySurfaceInspectionOutcome,
   isVerifiedTerminalConsentPacket,
+  verifyConsentControlInspection,
 } from "@certscore/contracts";
-import { resolveVendorObservations } from "@certscore/vendor-resolver";
+import { resolveCanonicalVendor, resolveVendorObservations } from "@certscore/vendor-resolver";
 import type { ScanNoGoReasonCode } from "@website-signal-risk-scanner/shared";
 import { chromium, type Browser } from "playwright";
 import { createArtifactWriter, type ArtifactWriter } from "./artifact-writer.js";
@@ -59,6 +66,7 @@ import {
   applyGoverningPolicySelection,
   countRecoveredPolicySurfaceObservations,
   mergePolicySurfaceObservations,
+  retainPolicyPacketObservations,
   policySurfaceObservationsFromRetainedRenderedLinks,
   policySurfaceScanner,
   recoverPolicyDocumentsFromRetainedRenderedLinks,
@@ -122,6 +130,19 @@ export {
 } from "./post-refusal-observer.js";
 
 export {
+  runPostAcceptObserver,
+  type PostAcceptActionRecipe,
+  type PostAcceptObserverInput,
+} from "./post-accept-observer.js";
+
+export {
+  buildCanonicalPostAcceptActionRecipes,
+  buildPostAcceptCmpActionRecipe,
+  CANONICAL_POST_ACCEPT_RECIPE_SET_ID,
+  CERTSCORE_OWNED_ANALYTICS_ACCEPT_RECIPE,
+} from "./post-accept-cmp-recipes.js";
+
+export {
   authorizePostRefusalTarget,
   ERGOVERITAS_POST_REFUSAL_CANARY_AUTHORIZATION_ID,
   isLoopbackPostRefusalTarget,
@@ -141,6 +162,11 @@ export {
   buildPostRefusalReconciliationEnvelope,
   canonicalSha256,
 } from "./post-refusal-reconciliation.js";
+
+export {
+  buildGpcResponseAssessment,
+  type GpcVerifiedArtifactPointer,
+} from "./gpc-response-assessment.js";
 
 export {
   buildCanonicalPostRefusalActionRecipes,
@@ -179,11 +205,18 @@ export {
 } from "./consent-geometry-visual-review.js";
 
 export interface RunScanInput {
+  /** Server-owned production capture; only takes effect in the isolated GPC lane. */
+  retainGpcObservation?: boolean;
+  /** In-process local calibration callback; never exposed by Lambda/public dispatch. */
+  onGpcObservationSession?: (packet: import("@certscore/contracts").GpcObservationSession) => void;
+  /** Coordinator-owned identity shared by isolated evidence lanes. */
+  scanId?: string;
   signal?: AbortSignal;
   url: string;
   profile?: ScanProfile["profileId"];
   outDir?: string;
   region?: string;
+  scannerBuildProvenance?: ScannerBuildProvenance;
   captureReplay?: boolean;
   captureReplayAuxiliaryProbes?: "all" | "none" | "form" | "accessibility";
   captureReplayTrace?: boolean;
@@ -206,6 +239,7 @@ export interface RunScanInput {
    * but must not infer findings from screenshot pixels.
    */
   onPreConsentScreenshotCaptured?: (screenshot: ScreenshotArtifact) => void;
+  formSnapshotReviewer?: FormSnapshotReviewer;
   /** Local diagnostic override; production callers retain the 10s default. */
   lateConsentGateMs?: number;
   /** Diagnostic-only override that holds otherwise eligible partial consent packets through the 18s audit gate. */
@@ -231,7 +265,11 @@ export interface RunScanInput {
    * Isolates independently mergeable evidence work for Lambda fan-out. The
    * default preserves the existing single-process scan behavior.
    */
-  evidenceLane?: "combined" | "consent_proof" | "runtime_evidence" | "policy_evidence";
+  resourceInventoryCrawl?: boolean;
+  resourceInventoryDiscovery?: boolean;
+  evidenceLane?: "combined" | "consent_proof" | "runtime_evidence" | "policy_evidence" | "gpc_observation";
+  /** Trusted immutable per-scan profile; never inferred from target content or public debug fields. */
+  runtimeGraph?: { scanId: string; mode: "capture_only" | "project" };
   /**
    * Allows a dedicated runtime-evidence worker to finish only the deterministic
    * canonical projection after its parent capture deadline is observed. This
@@ -314,6 +352,13 @@ export function buildRetainedRenderedPolicyFallbackResult(input: {
   };
 }
 
+/** Capture stops inside the output budget so cleanup and typed handoff can finish. */
+export function policyCaptureDeadlineBeforeOutput(outputDeadlineAtMs: number | undefined, nowMs = Date.now()): number | undefined {
+  if (outputDeadlineAtMs === undefined) return undefined;
+  const remaining = Math.max(0, outputDeadlineAtMs - nowMs);
+  return outputDeadlineAtMs - Math.min(2_000, Math.floor(remaining * 0.2));
+}
+
 /**
  * Normalize the dedicated policy lane before exposing its non-blocking early
  * handoff. The terminal bundle applies the same canonical URL/type merge, so
@@ -323,12 +368,17 @@ export function buildRetainedRenderedPolicyFallbackResult(input: {
 export function normalizePolicySurfaceResultForEarlyHandoff(
   result: PolicySurfaceScannerResult,
 ): PolicySurfaceScannerResult {
+  const merged = mergePolicySurfaceObservations(result.policySurfaceObservations, []);
+  const retained = retainPolicyPacketObservations(merged);
+  const omitted = merged.length - retained.length;
   return {
     ...result,
-    policySurfaceObservations: mergePolicySurfaceObservations(
-      result.policySurfaceObservations,
-      [],
-    ),
+    moduleRun: omitted ? {
+      ...result.moduleRun,
+      status: result.moduleRun.status === "completed" ? "partial" : result.moduleRun.status,
+      errors: [...(result.moduleRun.errors ?? []), `policy_observation_retention_limit: omitted ${omitted} lower-priority observations from the 32-entry evidence packet.`],
+    } : result.moduleRun,
+    policySurfaceObservations: retained,
   };
 }
 
@@ -338,9 +388,13 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
   const scanProfile = getScanProfile(input.profile ?? "tiny");
+  let resourceInventoryContext: CanonicalEvidenceBundle["resourceInventoryContext"];
   const evidenceLane = input.evidenceLane ?? "combined";
   const normalizedUrl = normalizeUrl(input.url);
-  const scanId = `scan_${startedAtMs}_${safeHostname(normalizedUrl)}`;
+  const scanId = input.scanId ?? `scan_${startedAtMs}_${safeHostname(normalizedUrl)}`;
+  if (input.scanId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.test(scanId)) {
+    throw new Error("Invalid canonical scan identity.");
+  }
   const outDir = input.outDir ?? path.join(process.cwd(), "artifacts", scanId);
   const phaseRecorder = createScanPhaseRecorder(outDir, startedAtMs);
   if (input.postConsentFlowsEnabled === true) {
@@ -357,6 +411,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
 
   const preConsentEnabled = evidenceLane === "consent_proof" ||
     evidenceLane === "runtime_evidence" ||
+    evidenceLane === "gpc_observation" ||
     (evidenceLane === "combined" && scanProfile.enabledModules.includes("preConsentRuntimeScanner"));
   const policySurfaceEnabled = evidenceLane === "policy_evidence" ||
     (evidenceLane === "combined" && scanProfile.enabledModules.includes("policySurfaceScanner"));
@@ -376,7 +431,9 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
   const leanPreConsent = input.scenarioResourceMode === "lean" ||
     input.scenarioResourceMode === "cmp_safe" ||
     input.captureReplay === true;
-  const effectivePreConsentScreenshotMode = evidenceLane === "runtime_evidence" || evidenceLane === "policy_evidence"
+  const effectivePreConsentScreenshotMode = evidenceLane === "runtime_evidence" ||
+    evidenceLane === "gpc_observation" ||
+    evidenceLane === "policy_evidence"
     ? "never"
     : input.preConsentScreenshotMode ?? (leanPreConsent ? "selective" : "always");
   if (input.localPolicyNanoAssistProvider && !isLoopbackPostRefusalTarget(input.url)) {
@@ -458,6 +515,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
         cookieEvents: checkpoint.cookieEvents,
         cookieSnapshots: checkpoint.cookieSnapshots,
         networkEvents: checkpoint.networkEvents,
+        iframeEvents: checkpoint.iframeEvents,
         normalizedVendorObservations,
         runtimeCoverage: {
           coverageStatus: "limited_partial",
@@ -498,16 +556,31 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
         artifactWriter,
         captureScope: evidenceLane === "consent_proof"
           ? "consent_proof"
-          : evidenceLane === "runtime_evidence"
+          : evidenceLane === "runtime_evidence" || evidenceLane === "gpc_observation"
             ? "runtime_evidence"
             : "combined",
+        globalPrivacyControlEnabled: evidenceLane === "gpc_observation",
+        gpcOptOutPrototype: evidenceLane === "gpc_observation" && (input.retainGpcObservation === true || typeof input.onGpcObservationSession === "function") ? { scanId } : undefined,
+        gpcImpactScanId: evidenceLane === "runtime_evidence" ? scanId : undefined,
+        onInventoryPage: input.resourceInventoryCrawl && evidenceLane === "runtime_evidence" ? async page => {
+          const configuration = inventoryConfiguration(input.region ?? "local", input.profile === "tiny" ? "tiny" : "standard", leanPreConsent ? "fast" : "full");
+          resourceInventoryContext = { finalUrl: page.url(), configuration, configurationHash: inventoryHash(configuration),
+            links: input.resourceInventoryDiscovery ? (await page.locator("a[href]").evaluateAll(nodes => nodes.slice(0, 5000).map(node => (node as HTMLAnchorElement).href))).filter(url => url.length <= 2000) : [] };
+        } : undefined,
+        runtimeGraph: input.runtimeGraph && evidenceLane !== "consent_proof" ? {
+          ...input.runtimeGraph, captureId: `${input.runtimeGraph.scanId}:${evidenceLane}`,
+          scenario: evidenceLane === "gpc_observation" ? "gpc" : "pre_consent", startedAt,
+        } : undefined,
         browser: sharedBrowser,
         stubHeavyResources: input.captureReplay,
         screenshotCaptureMode: "viewport_first",
         screenshotMode: effectivePreConsentScreenshotMode,
         screenshotTimeoutMs: input.preConsentScreenshotTimeoutMs,
         onScreenshotCaptured: input.onPreConsentScreenshotCaptured,
-        onPassiveRuntimeCheckpoint: notifyPreConsentRuntimePreview,
+        formSnapshotReviewer: evidenceLane === "runtime_evidence" || evidenceLane === "combined" ? input.formSnapshotReviewer : undefined,
+        onPassiveRuntimeCheckpoint: evidenceLane === "runtime_evidence"
+          ? notifyPreConsentRuntimePreview
+          : undefined,
         lateConsentGateMs: input.lateConsentGateMs,
         consentGateAuditHoldout: input.consentGateAuditHoldout,
         lateConsentGeometryShadowEnabled,
@@ -516,7 +589,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
         },
         softDeadlineSignal,
         waitMode: leanPreConsent ? "fast" : "full",
-        retainRenderedPolicyRecoverySession: evidenceLane === "combined",
+        retainRenderedPolicyRecoverySession: evidenceLane === "combined" && policySurfaceEnabled,
         signal: input.signal,
       }),
     })
@@ -528,7 +601,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       region: input.region,
       scanStartedAtMs: startedAtMs,
       internalBudgetMs: scanProfile.internalBudgetMs,
-      absoluteDeadlineAtMs: input.policySurfaceDeadlineAtMs,
+      absoluteDeadlineAtMs: policyCaptureDeadlineBeforeOutput(input.policySurfaceDeadlineAtMs),
       artifactWriter,
       browser: sharedBrowser,
       nanoAssistProvider: nanoPolicyAssistProvider,
@@ -556,6 +629,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       cookieEvents: preConsentResult.cookieEvents,
       cookieSnapshots: preConsentResult.cookieSnapshots,
       networkEvents: preConsentResult.networkEvents,
+      iframeEvents: preConsentResult.iframeEvents,
       observedAtMs: Math.max(0, Date.now() - startedAtMs),
       vendorResolverInputs: preConsentResult.vendorResolverInputs,
     });
@@ -599,18 +673,31 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
         artifactWriter,
         captureScope: evidenceLane === "consent_proof"
           ? "consent_proof"
-          : evidenceLane === "runtime_evidence"
+          : evidenceLane === "runtime_evidence" || evidenceLane === "gpc_observation"
             ? "runtime_evidence"
             : "combined",
+        globalPrivacyControlEnabled: evidenceLane === "gpc_observation",
+        gpcOptOutPrototype: evidenceLane === "gpc_observation" && (input.retainGpcObservation === true || typeof input.onGpcObservationSession === "function") ? { scanId } : undefined,
+        gpcImpactScanId: evidenceLane === "runtime_evidence" ? scanId : undefined,
+        onInventoryPage: input.resourceInventoryCrawl && evidenceLane === "runtime_evidence" ? async page => {
+          const configuration = inventoryConfiguration(input.region ?? "local", input.profile === "tiny" ? "tiny" : "standard", leanPreConsent ? "fast" : "full");
+          resourceInventoryContext = { finalUrl: page.url(), configuration, configurationHash: inventoryHash(configuration),
+            links: input.resourceInventoryDiscovery ? (await page.locator("a[href]").evaluateAll(nodes => nodes.slice(0, 5000).map(node => (node as HTMLAnchorElement).href))).filter(url => url.length <= 2000) : [] };
+        } : undefined,
+        runtimeGraph: input.runtimeGraph && evidenceLane !== "consent_proof" ? {
+          ...input.runtimeGraph, captureId: `${input.runtimeGraph.scanId}:${evidenceLane}`,
+          scenario: evidenceLane === "gpc_observation" ? "gpc" : "pre_consent", startedAt,
+        } : undefined,
         browserMode: "headed",
         stubHeavyResources: input.captureReplay,
         screenshotCaptureMode: "viewport_first",
         screenshotMode: effectivePreConsentScreenshotMode,
         screenshotTimeoutMs: input.preConsentScreenshotTimeoutMs,
         onScreenshotCaptured: input.onPreConsentScreenshotCaptured,
+        formSnapshotReviewer: evidenceLane === "runtime_evidence" || evidenceLane === "combined" ? input.formSnapshotReviewer : undefined,
         consentGateAuditHoldout: input.consentGateAuditHoldout,
         waitMode: leanPreConsent ? "fast" : "full",
-        retainRenderedPolicyRecoverySession: evidenceLane === "combined",
+        retainRenderedPolicyRecoverySession: evidenceLane === "combined" && policySurfaceEnabled,
       });
       preConsentResult = {
         ...headedRetryResult,
@@ -628,9 +715,11 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       });
     }
   }
-  const shouldCaptureIncompleteConsentVisualFallback = preConsentEnabled &&
+  const retainedStructuredConsentComplete = preConsentEnabled &&
+    await hasVerifiedRetainedStructuredConsentEvidence(preConsentResult, artifactWriter.artifactPath("ConsentControlGeometryEvidence.json"));
+  const shouldCaptureIncompleteConsentVisualFallback = preConsentEnabled && !retainedStructuredConsentComplete &&
     shouldAttemptIncompleteConsentVisualFallback(preConsentResult, effectivePreConsentScreenshotMode);
-  const shouldCaptureScreenshotOnlyFallback = preConsentEnabled &&
+  const shouldCaptureScreenshotOnlyFallback = preConsentEnabled && !retainedStructuredConsentComplete &&
     shouldAttemptScreenshotOnlyFallback(preConsentResult, effectivePreConsentScreenshotMode);
   const visualFallbackDeadlineMs = boundedPreConsentVisualFallbackDeadlineMs({
     absoluteDeadlineAtMs:
@@ -673,28 +762,19 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
           // evidence capture or projection when a consumer fails locally.
         }
       }
-      const fallbackConsentUiObservations = screenshotFallback.consentUiObservation
-        ? [screenshotFallback.consentUiObservation]
+      // Screenshot-only work is a different browser session and cannot replace
+      // the retained typed inventory or its geometry evidence.
+      const recoveryConsentObservation = shouldCaptureIncompleteConsentVisualFallback
+        ? screenshotFallback.consentUiObservation : undefined;
+      const fallbackConsentUiObservations = recoveryConsentObservation
+        ? [recoveryConsentObservation]
         : [];
       const fallbackDomSnapshots = screenshotFallback.domSnapshot ? [screenshotFallback.domSnapshot] : [];
       const currentConsentObservation = preConsentResult.consentUiObservations.at(-1);
-      const recoveryResolution = currentConsentObservation && screenshotFallback.consentUiObservation
-        ? reconcileConsentUiRecapture({
-          current: currentConsentObservation,
-          candidate: screenshotFallback.consentUiObservation,
-          strongerBasis: "recovery:independent_consent_capture_stronger_controls",
-          completedWithoutControlsBasis: "recovery:independent_consent_capture_completed_without_first_layer_controls",
-        })
-        : null;
-      const typedCompletedNegativeRecovery =
-        currentConsentObservation?.captureStatus === "incomplete" &&
-        currentConsentObservation.controls.length === 0 &&
-        screenshotFallback.consentRecoveryCompleted &&
-        screenshotFallback.consentUiObservation?.captureStatus === "no_evidence";
-      const baseReconciledConsentObservation = typedCompletedNegativeRecovery
-        ? screenshotFallback.consentUiObservation
-        : recoveryResolution?.observation ?? screenshotFallback.consentUiObservation;
-      const recoveryGeometryPath = screenshotFallback.consentUiObservation?.evidenceRefs.find((reference) =>
+      const baseReconciledConsentObservation = screenshotFallback.consentRecoveryCompleted
+        ? recoveryConsentObservation
+        : currentConsentObservation;
+      const recoveryGeometryPath = recoveryConsentObservation?.evidenceRefs.find((reference) =>
         reference.artifactId === "consent_control_geometry"
       )?.path;
       const reconciledConsentObservation = baseReconciledConsentObservation &&
@@ -1254,6 +1334,8 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
     policySurfaceObservations: policySurfaceResult?.policySurfaceObservations ?? [],
   });
   const bundle = compactCanonicalEvidenceBundleForRetention(canonicalEvidenceBundleSchema.parse({
+    resourceInventoryContext,
+    runtimeEvidenceGraphs: preConsentResult.runtimeEvidenceGraph ? [preConsentResult.runtimeEvidenceGraph] : undefined,
     scanId,
     url: input.url,
     normalizedUrl,
@@ -1270,6 +1352,17 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
     networkResponseEvents,
     automatedAccessObservation: preConsentResult.automatedAccessObservation,
     siteResourceSizeSummary: summarizeSiteResourceSizes(networkResponseEvents),
+    gpcSignalObservation: preConsentResult.gpcSignalObservation,
+    ...(preConsentResult.gpcImpactCapture ? { gpcImpactCapture: preConsentResult.gpcImpactCapture } : {}),
+    ...(preConsentResult.gpcImpactSemanticObservation ? { gpcImpactSemanticObservation: preConsentResult.gpcImpactSemanticObservation } : {}),
+    ...(input.retainGpcObservation && preConsentResult.gpcObservationSession ? { gpcObservationSession: preConsentResult.gpcObservationSession } : {}),
+    ...(preConsentResult.gpcObservationSession ? { gpcPrototypeSessionBinding: {
+      contractVersion: "certscore.gpc-prototype-session-binding.v1" as const,
+      captureId: preConsentResult.gpcObservationSession.captureId,
+      sessionSha256: createHash("sha256").update(JSON.stringify(preConsentResult.gpcObservationSession)).digest("hex"),
+      documentToken: preConsentResult.gpcObservationSession.mainDocument?.documentToken ?? null,
+      documentUrlSha256: preConsentResult.gpcObservationSession.mainDocument?.documentUrlSha256 ?? null,
+    } } : {}),
     cookieEvents,
     cookieSnapshots,
     storageSnapshots: preConsentResult.storageSnapshots,
@@ -1279,6 +1372,8 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       ...preConsentResult.consentUiObservations,
       ...(consentFlowResult?.consentUiObservations ?? []),
     ],
+    ...(preConsentResult.collectionSurfaceSnapshots ? { collectionSurfaceSnapshots: preConsentResult.collectionSurfaceSnapshots } : {}),
+    ...(preConsentResult.formDestinationTrace ? { formDestinationTrace: preConsentResult.formDestinationTrace } : {}),
     ...(preConsentResult.collectionSurfaceInventory
       ? { collectionSurfaceInventory: preConsentResult.collectionSurfaceInventory }
       : {}),
@@ -1289,6 +1384,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
     consentActionAttempts: consentFlowResult?.consentActionAttempts ?? [],
     consentFlowComparisons: consentFlowResult?.consentFlowComparisons ?? [],
     policySurfaceObservations: policySurfaceResult?.policySurfaceObservations ?? [],
+    ...(preConsentResult.siteIntegrityObservation ? { siteIntegrityObservation: preConsentResult.siteIntegrityObservation } : {}),
     transportSecurityObservations: preConsentResult.transportSecurityObservations,
     cmpRuntimeObservations: preConsentResult.cmpRuntimeObservations,
     screenshots: [
@@ -1333,6 +1429,9 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
       ...(policySurfaceResult?.artifactRefs ?? []),
       ...(consentFlowResult?.artifactRefs ?? []),
     ],
+    ...(input.scannerBuildProvenance
+      ? { scannerBuildProvenance: input.scannerBuildProvenance }
+      : {}),
     scannerVersion: "certscore-scan-core-v2-alpha",
     schemaVersion: SCHEMA_VERSION,
   }));
@@ -1340,6 +1439,7 @@ export async function runScan(input: RunScanInput): Promise<CanonicalEvidenceBun
   await phaseRecorder.record("canonical_bundle_write", "started");
   await artifactWriter.writeJsonArtifact("CanonicalEvidenceBundle.json", bundle);
   await phaseRecorder.record("canonical_bundle_write", "completed");
+  if (preConsentResult.gpcObservationSession && typeof input.onGpcObservationSession === "function") input.onGpcObservationSession(preConsentResult.gpcObservationSession);
   if (runtimeEvidenceFinalizationAfterAbort) {
     await phaseRecorder.record("runtime_evidence_deadline_finalization", "completed", {
       coverageStatus: bundle.runtimeCoverage?.coverageStatus ?? "limited_none",
@@ -1382,13 +1482,25 @@ export function isRuntimeEvidenceFinalizationOnly(input: {
 }): boolean {
   return input.signal?.aborted === true &&
     input.allowRuntimeEvidenceFinalizationAfterAbort === true &&
-    input.evidenceLane === "runtime_evidence";
+    (input.evidenceLane === "runtime_evidence" || input.evidenceLane === "gpc_observation");
 }
 
 export function compactCanonicalEvidenceBundleForRetention(
   bundle: CanonicalEvidenceBundle,
   maxSerializedBytes = 400 * 1024,
 ): CanonicalEvidenceBundle {
+  // The new graph has a separate hard cap; its bytes must never displace existing retained evidence.
+  const coreBytes = (value: CanonicalEvidenceBundle) => {
+    const { runtimeEvidenceGraphs: _graphs, runtimeEvidenceGraphDiagnostics: _diagnostics, ...core } = value;
+    const withoutGraph = <T extends { runtimeEvidenceGraph?: unknown; runtimeEvidenceGraphDiagnostics?: unknown }>(packet: T | undefined) => {
+      if (!packet) return packet;
+      const { runtimeEvidenceGraph: _graph, runtimeEvidenceGraphDiagnostics: _diagnostic, ...facts } = packet;
+      return facts;
+    };
+    // Form JPEGs have their own per-image and form-count bounds. They must not
+    // consume the runtime evidence budget and evict network/cookie observations.
+    return serializedBytes({ ...core, collectionSurfaceSnapshots: core.collectionSurfaceSnapshots?.map(({ data: _data, ...metadata }) => metadata), postAcceptEvidence: withoutGraph(core.postAcceptEvidence), postRefusalEvidence: withoutGraph(core.postRefusalEvidence) });
+  };
   const typedEventIds = new Set([
     ...bundle.networkEvents,
     ...bundle.networkResponseEvents,
@@ -1437,8 +1549,25 @@ export function compactCanonicalEvidenceBundleForRetention(
       : undefined,
   });
 
-  if (serializedBytes(compacted) <= maxSerializedBytes) {
-    return compacted;
+  // Restore only original, already-sanitized window events. Never displace the
+  // priority-selected evidence or recompute a digest from a truncated sample.
+  const completeNetworkEvents = compacted.networkEvents;
+  const finishRetention = (result: CanonicalEvidenceBundle): CanonicalEvidenceBundle => {
+    const capture = result.gpcImpactCapture;
+    if (!capture?.document || !capture.windows.length) return result;
+    const start = capture.document.committedAtMs;
+    const end = start + Math.max(...capture.windows.map(window => window.durationMs));
+    const retainedIds = new Set(result.networkEvents.map(event => event.eventId));
+    const missing = completeNetworkEvents.filter(event => event.timestampMs >= start && event.timestampMs < end && !retainedIds.has(event.eventId));
+    if (!missing.length) return result;
+    const restoreIds = new Set(missing.map(event => event.eventId));
+    const restored = { ...result, networkEvents: completeNetworkEvents.filter(event => retainedIds.has(event.eventId) || restoreIds.has(event.eventId)) };
+    if (serializedBytes(restored.networkEvents) - serializedBytes(result.networkEvents) <= 16 * 1024 && coreBytes(restored) <= maxSerializedBytes) return restored;
+    return { ...result, gpcImpactCapture: { ...capture, retentionStatus: "incomplete" } };
+  };
+
+  if (coreBytes(compacted) <= maxSerializedBytes) {
+    return finishRetention(compacted);
   }
 
   const referencedEventIds = collectReferencedEventIds(compacted);
@@ -1451,18 +1580,18 @@ export function compactCanonicalEvidenceBundleForRetention(
     runtimeTimeline: retainPriorityEvents(compacted.runtimeTimeline, referencedEventIds, 80),
   });
 
-  if (serializedBytes(compacted) <= maxSerializedBytes) {
-    return compacted;
+  if (coreBytes(compacted) <= maxSerializedBytes) {
+    return finishRetention(compacted);
   }
 
-  return canonicalEvidenceBundleSchema.parse({
+  return finishRetention(canonicalEvidenceBundleSchema.parse({
     ...compacted,
     networkEvents: retainPriorityEvents(compacted.networkEvents, referencedEventIds, 80),
     networkResponseEvents: retainPriorityEvents(compacted.networkResponseEvents, referencedEventIds, 60),
     scriptEvents: retainPriorityEvents(compacted.scriptEvents, referencedEventIds, 40),
     iframeEvents: retainPriorityEvents(compacted.iframeEvents, referencedEventIds, 40),
     runtimeTimeline: retainPriorityEvents(compacted.runtimeTimeline, referencedEventIds, 40),
-  });
+  }));
 }
 
 function journeyEstablishesPreConsentTracking(journey: ObservedJourney): boolean {
@@ -1940,7 +2069,7 @@ export function buildPreConsentRuntimePreview(
     "networkEvents" |
     "normalizedVendorObservations" |
     "runtimeCoverage"
-  >,
+  > & Partial<Pick<CanonicalEvidenceBundle, "iframeEvents">>,
 ): PreConsentRuntimePreview {
   const cookiesByIdentity = new Map<string, PreConsentRuntimePreview["cookies"][number]>();
   for (const event of bundle.cookieEvents) {
@@ -1994,6 +2123,33 @@ export function buildPreConsentRuntimePreview(
   const operationalPurposes = new Set(["consent_management", "infrastructure", "security"]);
   const trackers = uniqueVendorCandidates.filter((candidate) => !operationalPurposes.has(candidate.purpose));
   const operationalVendors = uniqueVendorCandidates.filter((candidate) => operationalPurposes.has(candidate.purpose));
+  // Resource identities are observational only. Resolve each endpoint independently;
+  // never borrow a product from a host-wide or multi-observation match.
+  const resourcesByIdentity = new Map<string, NonNullable<PreConsentRuntimePreview["resources"]>[number]>();
+  for (const event of [...bundle.networkEvents, ...(bundle.iframeEvents ?? [])]) {
+    if (event.consentStateAtTime !== "pre_consent" && event.consentStateAtTime !== "no_ui_observed") continue;
+    const domain = previewDomain(event.hostname);
+    if (!domain) continue;
+    const kind = event.eventType === "iframe" ? "embed" as const : "request" as const;
+    const vendor = resolveCanonicalVendor({ type: kind === "embed" ? "iframe" : "request", url: event.url, hostname: event.hostname, evidenceId: event.eventId }).observation;
+    // Keep unknown third-party resources; omit unrelated first-party assets.
+    if (!vendor && !event.thirdParty && kind !== "embed") continue;
+    const key = JSON.stringify([kind, vendor?.vendor ?? domain, vendor?.product ?? null]);
+    const party = event.thirdParty === true ? "third_party" : event.firstParty === true ? "first_party" : "unknown";
+    const retained = resourcesByIdentity.get(key);
+    if (retained) {
+      retained.domains = uniqueStrings([...retained.domains, domain]).slice(0, 8);
+      retained.observedAtMs = Math.min(retained.observedAtMs, event.timestampMs);
+      retained.requestCount += kind === "request" ? 1 : 0;
+      if (retained.party !== party) retained.party = retained.party === "unknown" || party === "unknown" ? "unknown" : "mixed";
+    } else {
+      resourcesByIdentity.set(key, { kind, vendor: vendor?.vendor.slice(0, 160) ?? null,
+        product: vendor?.product?.slice(0, 160) ?? null, purpose: vendor?.servicePurpose ?? "Unknown",
+        confidence: vendor?.confidence ?? null, domains: [domain], party,
+        observedAtMs: event.timestampMs, requestCount: kind === "request" ? 1 : 0 });
+    }
+  }
+  const resources = [...resourcesByIdentity.values()].sort((left, right) => left.observedAtMs - right.observedAtMs);
   const runtimeCoverage = bundle.runtimeCoverage ?? {
     coverageStatus: "limited_none" as const,
     limitationKeys: ["runtime_coverage_summary_unavailable"],
@@ -2026,10 +2182,12 @@ export function buildPreConsentRuntimePreview(
     cookies: cookies.slice(0, PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS),
     trackers: trackers.slice(0, PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS),
     operationalVendors: operationalVendors.slice(0, PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS),
+    resources: resources.slice(0, PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS),
     truncated: {
       cookies: cookies.length > PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS,
       trackers: trackers.length > PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS,
       operationalVendors: operationalVendors.length > PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS,
+      resources: resources.length > PRE_CONSENT_RUNTIME_PREVIEW_MAX_ROWS,
     },
     mustContinuePolling: true,
     observationOnlyDisclaimer: PRE_CONSENT_RUNTIME_PREVIEW_DISCLAIMER,
@@ -2464,7 +2622,8 @@ export function buildScanNoGoAssessment(input: {
   // settled page is corroborated. A screenshot is never sufficient by itself:
   // require a second independent representative-page channel.
   const representativeAccessBlockContradiction =
-    settledPageState?.reasonCode === "access_denied_or_forbidden_page" &&
+    (settledPageState?.reasonCode === "access_denied_or_forbidden_page" ||
+      settledPageState?.reasonCode === "authentication_required") &&
     visuallySubstantiveScreenshotObserved &&
     (
       (
@@ -2590,16 +2749,30 @@ export function buildScanEvidenceLaneAssessment(input: {
   transportSecurityObservationCount: number;
 }): ScanEvidenceLaneAssessment {
   const homepageNoGo = input.scanNoGoAssessment?.decision === "no_go";
+  // A policy reachable from a sign-in screen does not make the protected
+  // target assessable. Preserve that terminal result after all lanes finish.
+  // The status check also handles retained assessments with the older generic reason.
+  const authenticationNoGo = homepageNoGo && (
+    input.scanNoGoAssessment?.reasonCodes.includes("authentication_required") ||
+    input.scanNoGoAssessment?.supportingSignals.mainDocumentStatus === 401
+  );
   const usablePolicySurfaces = input.policySurfaceObservations.filter((observation) =>
     isIndependentlyUsablePolicySurface(observation, input.normalizedUrl)
   );
+  // Policy artifacts retain full identities. The compact lane summary has a
+  // narrower contract; omit overlong summaries rather than truncate a URL into
+  // a different identity or fail the entire independent-lane scan.
+  const policyUrls = usablePolicySurfaces.map(o => o.normalizedUrl ?? o.url);
+  const policyRefs = usablePolicySurfaces.flatMap(o => o.evidenceRefs.map(ref => ref.refId));
   const runtimeUsable = !homepageNoGo && input.runtimeCoverage.coverageStatus === "usable";
   const runtimeLimited = !homepageNoGo && input.runtimeCoverage.coverageStatus === "limited_partial";
-  const outcome: ScanEvidenceLaneAssessment["outcome"] = runtimeUsable || runtimeLimited
-    ? "usable"
-    : usablePolicySurfaces.length > 0
-      ? "partial_with_diagnostics"
-      : "no_go";
+  const outcome: ScanEvidenceLaneAssessment["outcome"] = authenticationNoGo
+    ? "no_go"
+    : runtimeUsable || runtimeLimited
+      ? "usable"
+      : usablePolicySurfaces.length > 0
+        ? "partial_with_diagnostics"
+        : "no_go";
   const runtimeLane = runtimeUsable ? "usable" as const : runtimeLimited ? "limited" as const : "unusable" as const;
   const policyLane = usablePolicySurfaces.length > 0
     ? "usable" as const
@@ -2617,18 +2790,20 @@ export function buildScanEvidenceLaneAssessment(input: {
       policyGdpr: policyLane,
       transport: input.transportSecurityObservationCount > 0 ? "usable" : "not_testable",
     },
-    usablePolicySurfaceUrls: usablePolicySurfaces
-      .map((observation) => observation.normalizedUrl ?? observation.url)
+    usablePolicySurfaceUrls: policyUrls.filter(url => url.length <= 500)
       .slice(0, 8),
     limitationKeys: uniqueStrings([
       ...input.runtimeCoverage.limitationKeys,
       ...(input.consentLimitationKeys ?? []),
       homepageNoGo ? "homepage_runtime_no_go" : null,
+      authenticationNoGo ? "authentication_required" : null,
       outcome === "partial_with_diagnostics" ? "partial_policy_evidence_only" : null,
       policyLane !== "usable" ? "verified_policy_surface_unavailable" : null,
+      policyUrls.some(url => url.length > 500) ? "policy_url_summary_limited" : null,
+      policyRefs.some(ref => ref.length > 160) ? "policy_reference_summary_limited" : null,
     ].filter((value): value is string => Boolean(value))).slice(0, 24),
     evidenceRefs: uniqueStrings([
-      ...usablePolicySurfaces.flatMap((observation) => observation.evidenceRefs.map((ref) => ref.refId)),
+      ...policyRefs.filter(ref => ref.length <= 160),
       ...(homepageNoGo ? ["scan_runtime_artifacts.scan_no_go_assessment"] : []),
     ]).slice(0, 24),
   };
@@ -2850,7 +3025,10 @@ function classifyMainDocumentStatus(status: number | null): ClassifiedNoGoPageSt
   if (status === 429) {
     return { confidence: 0.99, evidenceText: "The main document returned HTTP 429.", hardTerminal: true, reasonCode: "rate_limited_429", visualPageState: "access_blocked" };
   }
-  if ([401, 403, 407, 451].includes(status)) {
+  if (status === 401) {
+    return { confidence: 0.99, evidenceText: "The main document returned HTTP 401 and required authentication.", hardTerminal: true, reasonCode: "authentication_required", visualPageState: "access_blocked" };
+  }
+  if ([403, 407, 451].includes(status)) {
     return { confidence: 0.99, evidenceText: `The main document returned HTTP ${status}.`, hardTerminal: true, reasonCode: "access_denied_or_forbidden_page", visualPageState: "access_blocked" };
   }
   if ([500, 502, 503, 504].includes(status)) {
@@ -2955,6 +3133,37 @@ function isThirdPartyNetworkEvent(event: NetworkEvent) {
 
 function uniqueStrings<T extends string>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+/** A missing visual cannot replace verified structured 2.1 evidence with a
+ * fresh-session recovery. This gate preserves evidence; it creates no finding. */
+export async function hasVerifiedRetainedStructuredConsentEvidence(
+  result: Pick<PreConsentRuntimeScannerResult, "consentUiObservations">,
+  geometryPath: string,
+): Promise<boolean> {
+  try {
+    if (statSync(geometryPath).size > 1_000_000) return false;
+    const geometry = JSON.parse(await readFile(geometryPath, "utf8"));
+    const proof = verifyConsentControlInspection(geometry.controlInspection, geometry.candidates);
+    if (proof?.structuralCoverage !== "complete" || !geometry.documentIdentity?.token ||
+      !proof.captureCoverage.documentAndFramesStable || proof.captureCoverage.documentReadyState !== "complete") return false;
+    return result.consentUiObservations.some(observation => {
+      const diagnostics = observation.captureDiagnostics;
+      const coherent = observation.inventoryOutcome === "complete_with_controls"
+        ? observation.captureStatus === "observed" && observation.controls.length > 0
+        : observation.inventoryOutcome === "complete_empty" && observation.captureStatus === "no_evidence" && observation.controls.length === 0;
+      return coherent && observation.layerInspected === "first_layer" && observation.documentReadyState === "complete" &&
+        observation.documentIdentity?.token === geometry.documentIdentity.token &&
+        observation.documentIdentity?.source === geometry.documentIdentity.source &&
+        observation.documentUrl === geometry.pageUrl &&
+        diagnostics?.completedChannels.includes("dom_inventory") === true &&
+        diagnostics.completedChannels.includes("geometry") &&
+        !diagnostics.timedOutChannels.some(channel => channel !== "screenshot") &&
+        !diagnostics.failedChannels.some(channel => channel !== "screenshot") &&
+        (observation.inventoryDiagnostics?.blockingInaccessibleFrameCount ?? 0) === 0 &&
+        observation.evidenceRefs.some(ref => ref.artifactId === "consent_control_geometry" && ref.path === geometryPath);
+    });
+  } catch { return false; }
 }
 
 export function shouldAttemptScreenshotOnlyFallback(
@@ -3201,6 +3410,20 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
       await installWebBotAuthRoute(context);
       await installPublicNetworkGuardRoute(context);
       const page = await context.newPage();
+      const recoveryCdp = input.recoverConsentEvidence ? await context.newCDPSession(page) : undefined;
+      const readRecoveryDocument = async () => {
+        if (!recoveryCdp) return undefined;
+        const timeoutMs = optionalTimeoutForStep(250);
+        if (timeoutMs === null) return undefined;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const tree = await Promise.race([
+          recoveryCdp.send("Page.getFrameTree").catch(() => undefined),
+          new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), timeoutMs); }),
+        ]).finally(() => { if (timer) clearTimeout(timer); });
+        const frame = tree?.frameTree.frame;
+        return frame?.loaderId ? { url: frame.url, identity: { source: "cdp_loader_id" as const, token: frame.loaderId } } : undefined;
+      };
+
       const navigationUrls = input.navigationUrls?.length
         ? input.navigationUrls
         : [input.navigationUrl ?? input.normalizedUrl];
@@ -3283,6 +3506,7 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
         )
         : undefined;
       const documentLanguage = await readDeclaredDocumentLanguage(page);
+      const recoveryDocumentBefore = await readRecoveryDocument();
       const consentUiTimeoutMs = optionalTimeoutForStep(input.recoverConsentEvidence ? 1_250 : 1_500);
       let consentUiObservation = consentUiTimeoutMs === null
         ? undefined
@@ -3313,17 +3537,23 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
             supplementalBodyText: domText,
           });
           const geometry = await captureConsentControlGeometry(page, {
-            screenshotArtifactRef: input.retainedScreenshotArtifactRef,
+            documentIdentity: recoveryDocumentBefore?.identity,
             timeoutMs: geometryTimeoutMs,
           });
+          const recoveryDocumentAfter = await readRecoveryDocument();
+          const recoveryDocumentStable = recoveryDocumentBefore && recoveryDocumentAfter &&
+            recoveryDocumentBefore.url === geometry.pageUrl && recoveryDocumentAfter.url === geometry.pageUrl &&
+            recoveryDocumentBefore.identity.token === recoveryDocumentAfter.identity.token;
           const geometryDocumentMatches = normalizedDocumentIdentity(geometry.pageUrl) === normalizedDocumentIdentity(page.url());
           const geometryComplete =
+            Boolean(recoveryDocumentStable) &&
             access.status === "loaded" &&
             geometryDocumentMatches &&
             geometry.pageUrl !== "about:blank" &&
             geometry.viewport.width > 0 &&
             geometry.viewport.height > 0 &&
-            geometry.summary.confidence > 0;
+            geometry.summary.confidence > 0 &&
+            verifyConsentControlInspection(geometry.controlInspection, geometry.candidates)?.structuralCoverage === "complete";
           const geometryArtifactPath = await input.artifactWriter.writeJsonArtifact(
             geometryComplete
               ? "ConsentControlGeometryEvidence.json"
@@ -3357,6 +3587,7 @@ export async function capturePreConsentScreenshotOnlyFallback(input: {
             consentUiObservation.captureDiagnostics?.completedChannels.includes("dom_inventory") === true;
           consentRecoveryCompleted = inventoryComplete && geometryComplete;
           if (consentRecoveryCompleted) {
+            consentUiObservation = { ...consentUiObservation, documentIdentity: recoveryDocumentBefore!.identity };
             consentUiObservation = markConsentRecoveryCompleted(consentUiObservation, geometryArtifactPath);
           }
         }
@@ -3777,3 +4008,5 @@ function emptyPreConsentResult(startedAt: string): PreConsentRuntimeScannerResul
     renderedPolicyLinks: [],
   };
 }
+
+export * from "./full-site-inventory";

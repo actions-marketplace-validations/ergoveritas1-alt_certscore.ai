@@ -1,22 +1,38 @@
+import { projectFormDestinationPriority } from "../../../lib/scans/form-destination-report";
+import { formDestinationProjectionSchema } from "@certscore/contracts";
+import { projectCmsSecurityPriority } from "../../../lib/scans/cms-security-report";
+import { cmsSecurityProjectionSchema } from "@certscore/contracts";
+import { projectExecutiveRuntimeCards } from "../../../lib/scans/executive-runtime-cards";
+import { selectSiteIntegrityFinding, projectStartingPageSiteIntegrityReport, projectSiteIntegrityPriority } from "../../../lib/scans/site-integrity-report";
+import { isAfterActionReportEligible, retainedConsentAssessment } from "../../../lib/scans/after-action-report-eligibility";
+import { readChoicePathExecution } from "../../../lib/scans/choice-path-execution";
+import { consentInspectionNotice } from "../../../lib/scans/consent-inspection-presentation";
+import type { ReviewedPolicy } from "../../../lib/scans/full-site-resource-context";
+import { buildRetainedRequestInventory } from "../../../lib/scans/retained-request-inventory";
+import { buildSinglePageResourceInventory } from "../../../lib/scans/single-page-resource-inventory";
+import { afterClickCoverage } from "../after-action-summary";
+import { projectScanReportNoGo } from "../../../lib/scans/scan-report-disposition";
+import { siteMetadataProjectionSchema, consentControlAssessmentSchema } from "@certscore/contracts";
 import { KNOWN_CMP_REGISTRY } from "@website-signal-risk-scanner/shared";
+import { acceptPathIncompleteReason } from "./accept-path-reason";
 import type { GdprEprivacyCoverageChecklistItem } from "../../../lib/scans/gdpr-eprivacy-coverage-checklist";
 import { deriveGdprEprivacyCoverageChecklistRowRationale } from "../../../lib/scans/gdpr-eprivacy-checklist-rationale";
 import { getReportableGdprEprivacyCoverageItems } from "../../../lib/scans/gdpr-eprivacy-reportable-rows";
 import { GDPR_TRANSPARENCY_REPORT_ROW_ID_SET } from "../../../lib/scans/gdpr-transparency-report-contract";
 import { hydrateChecklistPolicyEvidence } from "../../../lib/scans/checklist-evidence-index";
+import type { UnifiedFindingDisplayPacket } from "../../../lib/scans/unified-findings";
 import {
   buildChecklistConcernTopFindings,
   selectCanonicalHighPriorityFindings,
 } from "../../../lib/scans/checklist-concern-top-findings";
+import { projectExecutiveFindingsFromUnifiedPackets } from "../../../lib/scans/executive-findings-projection";
 import type { CertScoreFinding } from "../../../lib/scans/finding-registry";
 import { getHybridRuntimeEvidence } from "../../../lib/scans/hybrid-runtime-evidence";
 import {
-  buildPreConsentStorageAssessment,
-  projectPreConsentStorageMetric,
-} from "../../../lib/scans/runtime-cookie-evidence";
-import {
+  buildNonEssentialInventoryTallies,
   buildRuntimeInventoryProjectionFromScan,
   classifyInventoryEvidence,
+  getInventoryObservationNames,
 } from "../../../lib/scans/runtime-inventory-projection";
 import type { ScanDetailResponse } from "../../../server/scans/get-scan-by-id";
 import { deriveCanonicalOverallScoreForReport } from "../../../server/scans/canonical-overall-score";
@@ -31,8 +47,10 @@ import type {
   ShadowEvidenceStatus,
   ShadowFinding,
   ShadowReportData,
+  TimelineReportData,
 } from "./shadow-report-data";
 import { buildExecutiveOverview } from "./executive-overview-copy";
+import { buildGpcResponseReportProjection } from "./gpc-report-projection";
 
 const CHECKLIST_GROUPS = {
   consent: new Set([
@@ -88,6 +106,75 @@ function recordString(source: Record<string, unknown> | null, keys: string[]) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return null;
+}
+
+export function getPolicySurfaceLinkObserved(
+  runtimeArtifacts: Record<string, unknown> | null | undefined,
+): boolean {
+  const hybrid = getHybridRuntimeEvidence(runtimeArtifacts);
+  const inspection = record(
+    runtimeArtifacts?.policySurfaceInspection ?? runtimeArtifacts?.policy_surface_inspection ??
+    hybrid?.policySurfaceInspection ?? hybrid?.policy_surface_inspection,
+  );
+  // Present the persisted canonical inspection outcome; do not infer discovery
+  // from an arbitrary URL, page label, or incomplete document.
+  return inspection?.outcome === "privacy_policy_observed" &&
+    (inspection.privacyPolicyObserved ?? inspection.privacy_policy_observed) === true;
+}
+
+export function getPolicySurfaceCoverageStatus(
+  runtimeArtifacts: Record<string, unknown> | null | undefined,
+): ShadowReportData["policySurfaceCoverage"] {
+  const hybrid = getHybridRuntimeEvidence(runtimeArtifacts);
+  const inspection = record(
+    runtimeArtifacts?.policySurfaceInspection ??
+    runtimeArtifacts?.policy_surface_inspection ??
+    hybrid?.policySurfaceInspection ??
+    hybrid?.policy_surface_inspection,
+  );
+  if (!inspection) return "unavailable";
+
+  const coverageStatus = recordString(inspection, ["coverageStatus", "coverage_status"]);
+  const linkCoverageStatus = recordString(inspection, [
+    "linkDiscoveryCoverageStatus",
+    "link_discovery_coverage_status",
+  ]);
+  const retrievalCoverageStatus = recordString(inspection, [
+    "documentRetrievalCoverageStatus",
+    "document_retrieval_coverage_status",
+  ]);
+  const outcome = recordString(inspection, ["outcome"]);
+  const limitationKeys = inspection.limitationKeys ?? inspection.limitation_keys;
+
+  if (
+    coverageStatus === "limited" ||
+    linkCoverageStatus === "limited" ||
+    retrievalCoverageStatus === "limited" ||
+    outcome?.includes("limited") ||
+    (Array.isArray(limitationKeys) && limitationKeys.length > 0)
+  ) {
+    return "limited";
+  }
+  return coverageStatus === "complete" ? "complete" : "unavailable";
+}
+
+export function getConsentControlSummaryLabel(
+  controls: ShadowReportData["controls"],
+): string {
+  const values = Object.values(controls);
+  const observed = values.filter((value) => value === "Observed").length;
+  const notObserved = values.filter((value) => value === "Not observed").length;
+  const unknown = values.length - observed - notObserved;
+
+  if (unknown === values.length) return "Coverage limited";
+  if (unknown > 0) {
+    return [
+      observed > 0 ? `${observed} observed` : null,
+      notObserved > 0 ? `${notObserved} not observed` : null,
+      "Inspection limited",
+    ].filter(Boolean).join(" · ");
+  }
+  return `${observed} of ${values.length} observed`;
 }
 
 function formatDuration(milliseconds: number | null | undefined) {
@@ -180,6 +267,22 @@ function checklistEvidenceJson(item: GdprEprivacyCoverageChecklistItem) {
   };
 }
 
+function isPersistenceOnlyRejectEvidence(value: unknown) {
+  const evidence = record(value);
+  if (!evidence) return false;
+  const count = recordNumber(evidence, [
+    "preConsentStorageNotClearedCount",
+    "pre_consent_storage_not_cleared_count",
+  ]) ?? 0;
+  return count > 0 &&
+    evidence.storagePresenceDoesNotEstablishActiveUse === true &&
+    evidence.scoreEffect === "none" &&
+    evidence.postRejectNonEssentialActivityRetained !== true &&
+    evidence.post_reject_non_essential_activity_retained !== true &&
+    evidence.refusalSignalContradictsAction !== true &&
+    evidence.refusal_signal_contradicts_action !== true;
+}
+
 function collectKeyedStrings(
   value: unknown,
   keyPattern: RegExp,
@@ -227,8 +330,13 @@ function policyEvidenceForRow(item: GdprEprivacyCoverageChecklistItem, capturedA
 
 function mapChecklistRow(item: GdprEprivacyCoverageChecklistItem, capturedAt: string): ShadowEvidenceRow {
   const evidenceJson = checklistEvidenceJson(item);
+  const retainedEvidence = record(evidenceJson.retainedEvidence);
+  const persistenceOnly = item.id === "post_reject_tracking_reduction" &&
+    isPersistenceOnlyRejectEvidence(retainedEvidence);
   const title = item.id === "post_reject_tracking_reduction"
-    ? "Non-essential activity after confirmed Reject"
+    ? persistenceOnly
+      ? "Same non-essential identifier remained stored after Reject"
+      : "Non-essential activity after confirmed Reject"
     : item.label;
   return {
     canonicalEvidenceJson: JSON.stringify(evidenceJson, (_key, value) => typeof value === "bigint" ? value.toString() : value, 2),
@@ -240,6 +348,29 @@ function mapChecklistRow(item: GdprEprivacyCoverageChecklistItem, capturedAt: st
     status: checklistStatus(item),
     summary: deriveGdprEprivacyCoverageChecklistRowRationale(item),
     title,
+  };
+}
+
+function mapAcceptContradictionFinding(
+  finding: UnifiedFindingDisplayPacket | null,
+): ShadowEvidenceRow | null {
+  if (!finding) return null;
+  const evidenceJson = {
+    confidenceBand: finding.confidenceBand,
+    evidence: finding.evidence ?? null,
+    sourceRefs: finding.sourceRefs,
+    unifiedFindingId: finding.unifiedFindingId,
+  };
+  return {
+    canonicalEvidenceJson: JSON.stringify(evidenceJson, null, 2),
+    correctionSteps: finding.presentation.suggestedFix
+      ? [finding.presentation.suggestedFix]
+      : [],
+    evidenceJson,
+    id: finding.unifiedFindingId,
+    status: "Partial concern",
+    summary: "The visitor clicked Accept, but the consent record saved afterward still said analytics and advertising were not allowed. The saved record should match the visitor’s choice.",
+    title: "Saved consent did not match Accept",
   };
 }
 
@@ -285,6 +416,12 @@ function mapChecklistFinding(
   const postRejectCopy = (() => {
     if (row?.id !== "post_reject_tracking_reduction") return null;
     const retainedEvidence = record(row.evidenceJson.retainedEvidence);
+    if (isPersistenceOnlyRejectEvidence(retainedEvidence)) {
+      return {
+        summary: "The same classified non-essential identifier remained stored after confirmed Reject. No qualifying post-Reject request or storage write was retained; stored presence alone does not show active use.",
+        title: "Same non-essential identifier remained stored after Reject",
+      };
+    }
     if (retainedEvidence?.refusalSignalContradictsAction === true) {
       return {
         summary: "The cookie banner’s Reject control was confirmed, but the retained consent state still encoded granted purposes afterward.",
@@ -298,6 +435,9 @@ function mapChecklistFinding(
   })();
   const summary = (() => {
     if (postRejectCopy) return postRejectCopy.summary;
+    if (finding.id === "acceptance_signal_contradicts_action") {
+      return "The visitor clicked Accept, but the consent record saved afterward still said analytics and advertising were not allowed. The saved record should match the visitor’s choice.";
+    }
     if (row?.id !== "pre_consent_cookies_storage") return finding.shortSummary;
     const retainedEvidence = record(row.evidenceJson.retainedEvidence);
     const evidenceRefs = retainedEvidence?.evidenceRefs;
@@ -312,8 +452,17 @@ function mapChecklistFinding(
     : finding.evidencePreview;
   return {
     correctionSteps: row?.correctionSteps.length ? row.correctionSteps : [finding.remediation],
-    evidence,
-    evidenceJson: row?.evidenceJson ?? {
+    evidence: [...evidence, ...[finding.evidenceDetails?.policyEvidenceDetails?.primaryRuntimeSignal,
+      ...(Array.isArray(finding.evidenceDetails?.policyEvidenceDetails?.groupedRuntimeSignals) ? finding.evidenceDetails.policyEvidenceDetails.groupedRuntimeSignals : [])]
+      .flatMap(signal => signal && typeof signal === "object" && "shortSummary" in signal && typeof signal.shortSummary === "string" ? [signal.shortSummary] : [])],
+    evidenceJson: {
+      ...(row?.evidenceJson ?? {}),
+      groupedEvidence: Array.isArray(policyEvidence?.groupedRuntimeSignals)
+        ? policyEvidence.groupedRuntimeSignals.flatMap(signal => {
+            const id = record(signal)?.id;
+            const supportingRow = evidenceRows.find(candidate => candidate.id === id);
+            return supportingRow ? [{ id, label: supportingRow.title, evidence: supportingRow.evidenceJson }] : [];
+          }) : [],
       evidenceDetails: finding.evidenceDetails,
       evidenceRefs: finding.evidenceRefs,
       findingId: finding.id,
@@ -321,7 +470,9 @@ function mapChecklistFinding(
     focus: category,
     id: finding.id,
     rank,
-    status: concernKind === "partial_rating" ? "Partial concern" : "Potential gap",
+    status: concernKind === "partial_rating" || finding.id === "acceptance_signal_contradicts_action"
+      ? "Partial concern"
+      : "Potential gap",
     summary,
     title: postRejectCopy?.title ?? finding.label,
     vendors: [],
@@ -334,14 +485,9 @@ function scoreLabel(score: number) {
   return "Strong";
 }
 
-function projectedControlLabel(
-  rows: ShadowEvidenceRow[],
-  rowId: "accept_consent_control" | "options_settings_preferences_control" | "reject_all_path_availability",
-) {
-  const status = rows.find((row) => row.id === rowId)?.status;
-  if (status === "Observed") return "Observed";
-  if (status === "Not observed" || status === "Potential gap") return "Not observed";
-  return "Unknown";
+export function projectedConsentControlLabels(controls?: Record<"accept" | "reject" | "options", { state: "observed" | "not_observed" | "unknown" }>) {
+  const label = (key: "accept" | "reject" | "options") => controls?.[key].state === "observed" ? "Observed" : controls?.[key].state === "not_observed" ? "Not observed" : "Unknown";
+  return { accept: label("accept"), reject: label("reject"), options: label("options") };
 }
 
 function siteRelationshipLabel(value: "same_site" | "cross_site" | "mixed" | "unknown") {
@@ -375,24 +521,199 @@ function displayLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-export function buildTimelineReportModel(scanRecord: ScanDetailResponse): ShadowReportData {
+function surfacedFinding(
+  findings: UnifiedFindingDisplayPacket[],
+  findingId: string,
+) {
+  return Array.isArray(findings)
+    ? findings.find((finding) =>
+        finding.unifiedFindingId === findingId && finding.presentationDecision.status === "surface"
+      ) ?? null
+    : null;
+}
+
+function formatPostAcceptActivity(row: Record<string, unknown>) {
+  const activityType = recordString(row, ["activityType"]);
+  const vendor = recordString(row, ["vendor"]);
+  const hostname = recordString(row, ["hostname"]);
+  const storageName = recordString(row, ["storageName"]);
+  const atMs = recordNumber(row, ["msAfterAccept"]);
+  return {
+    atMs,
+    detail: [vendor, hostname, storageName]
+      .filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
+      .join(" · ") || null,
+    label: activityType === "storage_write" ? "Non-essential storage write" : "Non-essential request",
+  };
+}
+
+export function buildAcceptPathProjection(
+  runtimeArtifacts: Record<string, unknown> | null,
+  ownerUnifiedFindings: NonNullable<ReturnType<typeof getPersistedCanonicalReportProjection>>["ownerUnifiedFindings"],
+): ShadowReportData["acceptPath"] {
+  if (!isAfterActionReportEligible(retainedConsentAssessment(runtimeArtifacts), "accept")) return null;
+  const projection = record(runtimeArtifacts?.postAcceptEvidenceProjection);
+  // Coverage-only outcomes do not establish that an Accept interaction occurred.
+  // Keep them in retained diagnostics, not the After Accept report projection.
+  if (!projection) return null;
+
+  const captureCoverage = afterClickCoverage(projection, "accept");
+  const execution = readChoicePathExecution(projection, "accept");
+  const click = record(record(projection.interactionDiagnostics)?.click);
+  if (!captureCoverage && click?.outcome !== "completed" && projection.acceptanceExercised !== true) return null;
+  const confirmedEvidenceUsable = projection.registrationStatus === "confirmed" &&
+    projection.acceptanceExercised === true &&
+    projection.productionProjectable === true;
+  const registrationConfirmed = execution?.consentConfirmed ?? confirmedEvidenceUsable;
+  const activityRows = Array.isArray(projection.postAcceptActivity)
+    ? projection.postAcceptActivity.map(record).filter((row): row is Record<string, unknown> => Boolean(row))
+    : [];
+  const events = activityRows
+    .map(formatPostAcceptActivity)
+    .filter((event): event is { atMs: number; detail: string | null; label: string } => event.atMs !== null)
+    .sort((left, right) => left.atMs - right.atMs);
+  const contradiction = surfacedFinding(ownerUnifiedFindings, "acceptance_signal_contradicts_action");
+  const activity = surfacedFinding(ownerUnifiedFindings, "post_accept_consent_dependent_activity");
+  const requestCount = activityRows.filter((row) => row.activityType === "network_request").length;
+  const storageCount = activityRows.filter((row) => row.activityType === "storage_write").length;
+  const countSummary = [
+    requestCount > 0 ? `${requestCount} request${requestCount === 1 ? "" : "s"}` : null,
+    storageCount > 0 ? `${storageCount} storage write${storageCount === 1 ? "" : "s"}` : null,
+  ].filter((value): value is string => Boolean(value)).join(" and ");
+
+  const state = !confirmedEvidenceUsable
+    ? "incomplete" as const
+    : contradiction
+      ? "review_signal" as const
+      : activity
+        ? "activity_observed" as const
+        : "no_activity_observed" as const;
+  const label = state === "review_signal"
+    ? "Saved consent did not match Accept"
+    : state === "activity_observed"
+      ? "Consent-dependent activity observed"
+      : state === "no_activity_observed"
+        ? "No qualifying post-Accept activity observed"
+        : captureCoverage ? "After-Accept observation recorded" : "Accept path limited";
+  const note = state === "review_signal"
+    ? "The visitor clicked Accept, but the consent record saved afterward still said analytics and advertising were not allowed. The saved record should match the visitor’s choice."
+    : state === "activity_observed"
+      ? `A confirmed Accept was followed by ${countSummary || "qualifying non-essential activity"}, establishing the post-Accept comparison baseline.`
+      : state === "no_activity_observed"
+        ? "A confirmed Accept and bounded observation window were retained without qualifying post-Accept activity."
+        : acceptPathIncompleteReason(projection);
+
+  return {
+    evidenceRows: activityRows.map((row) => {
+      const formatted = formatPostAcceptActivity(row);
+      return { detail: formatted.detail, label: formatted.label };
+    }).slice(0, 3),
+    label,
+    note,
+    execution,
+    afterClickCoverage: captureCoverage,
+    registrationConfirmed,
+    observationWindowMs: recordNumber(projection, ["observationWindowMs"]),
+    resolverMethod: recordString(projection, ["resolverMethod"]),
+    scoreEffect: "none",
+    state,
+    timelineEvents: events,
+  };
+}
+
+function buildChoicePathComparison(
+  acceptPath: ShadowReportData["acceptPath"],
+  rejectPath: ShadowReportData["rejectPath"],
+  ownerUnifiedFindings: NonNullable<ReturnType<typeof getPersistedCanonicalReportProjection>>["ownerUnifiedFindings"],
+): ShadowReportData["choicePathComparison"] {
+  const indistinguishable = surfacedFinding(ownerUnifiedFindings, "accept_reject_outcomes_indistinguishable");
+  if (indistinguishable) {
+    return {
+      label: "Shared observed activity",
+      note: "Some retained activity identities appeared after both confirmed choices. This is shared observed activity, not proof that the overall outcomes were identical.",
+      state: "indistinguishable",
+    };
+  }
+  if (
+    acceptPath?.state === "activity_observed" &&
+    rejectPath?.state === "no_issue_observed"
+  ) {
+    return {
+      label: "Different outcomes retained",
+      note: "Consent-dependent activity followed Accept, while no qualifying activity followed Reject in the retained windows.",
+      state: "different",
+    };
+  }
+  return null;
+}
+
+function buildReportIdentity(scanRecord: ScanDetailResponse): ShadowReportData["scan"] {
+  const visualEvidence = getVisualEvidenceArtifacts(scanRecord.runtimeArtifacts)
+    .find((artifact) => artifact.status === "available" && artifact.key);
+  return {
+    benchmark: scanRecord.domainBenchmark?.industry ?? "Comparable public websites",
+    createdAt: formatTimestamp(scanRecord.scan.createdAt),
+    startedAt: formatTimestamp(scanRecord.scan.startedAt),
+    completedAt: formatTimestamp(scanRecord.scan.completedAt),
+    duration: formatHeaderDuration(retainedScanDurationMs(scanRecord)),
+    host: scanRecord.scan.domainHostname ?? "Public website",
+    id: scanRecord.scan.id,
+    observedWindow: formatDuration(retainedScanDurationMs(scanRecord) ?? 0),
+    origin: scanRecord.scan.scanFromLabel,
+    originCode: scanRecord.scan.scanFromValue || scanRecord.scan.scanFromLabel,
+    reportUrl: `/scan/${encodeURIComponent(scanRecord.scan.id)}`,
+    url: reportUrl(scanRecord),
+    visualEvidenceHref: visualEvidence
+      ? `/api/scans/${encodeURIComponent(scanRecord.scan.id)}/visual-evidence/${encodeURIComponent(visualEvidence.id)}`
+      : null,
+  };
+}
+
+export function buildTimelineReportModel(scanRecord: ScanDetailResponse, reviewedPolicies: ReviewedPolicy[] = []): TimelineReportData {
+  const noGo = projectScanReportNoGo(scanRecord);
+  if (noGo) {
+    return { ...noGo, scan: buildReportIdentity(scanRecord), score: { label: "Not scored" as const, value: null } };
+  }
   const canonical = getPersistedCanonicalReportProjection(scanRecord);
   if (!canonical) {
     throw new Error(`Canonical persisted report projection is unavailable for scan ${scanRecord.scan.id}`);
   }
   const checklistRows = hydrateChecklistPolicyEvidence(canonical.checklistRows, canonical.evidenceIndex);
-  const reportableChecklistRows = getReportableGdprEprivacyCoverageItems(checklistRows);
+  const reportableChecklistRows = getReportableGdprEprivacyCoverageItems(checklistRows, {
+    consentControlAssessment:
+      scanRecord.snapshot?.consentControlAssessment ??
+      scanRecord.snapshot?.consent_control_assessment ??
+      scanRecord.runtimeArtifacts?.consentControlAssessment ??
+      scanRecord.runtimeArtifacts?.consent_control_assessment ??
+      (scanRecord.runtimeArtifacts?.hybridRuntimeEvidence as Record<string, unknown> | undefined)?.consentControlAssessment ??
+      (scanRecord.runtimeArtifacts?.hybrid_runtime_evidence as Record<string, unknown> | undefined)?.consent_control_assessment,
+  });
   const capturedAt = formatTimestamp(scanRecord.scan.completedAt ?? scanRecord.scan.createdAt);
   const evidenceRows = reportableChecklistRows.map((item) => mapChecklistRow(item, capturedAt));
-  const controls = {
-    accept: projectedControlLabel(evidenceRows, "accept_consent_control"),
-    options: projectedControlLabel(evidenceRows, "options_settings_preferences_control"),
-    reject: projectedControlLabel(evidenceRows, "reject_all_path_availability"),
-  };
-  const findings = selectCanonicalHighPriorityFindings(
-    buildChecklistConcernTopFindings(checklistRows),
-  ).map((finding, index) => mapChecklistFinding(finding, index + 1, evidenceRows));
+  const assessment = consentControlAssessmentSchema.safeParse(scanRecord.snapshot?.consent_control_assessment ?? scanRecord.runtimeArtifacts?.consentControlAssessment ?? scanRecord.runtimeArtifacts?.consent_control_assessment);
+  const controls = projectedConsentControlLabels(assessment.success ? assessment.data.controls : undefined);
+  const executiveUnifiedFindings = projectExecutiveFindingsFromUnifiedPackets(
+    canonical.ownerUnifiedFindings.filter(
+      (finding) => finding.unifiedFindingId === "acceptance_signal_contradicts_action",
+    ),
+  ).topFindings;
+  const findings = selectCanonicalHighPriorityFindings([
+    ...buildChecklistConcernTopFindings(reportableChecklistRows),
+    ...executiveUnifiedFindings,
+  ]).map((finding, index) => mapChecklistFinding(finding, index + 1, evidenceRows));
+  const formDestinationPriority = projectFormDestinationPriority(canonical.ownerUnifiedFindings);
+  if (formDestinationPriority) findings.unshift({ ...formDestinationPriority, rank: 1, focus: "Form destinations", vendors: [] });
+  const cmsPriority = projectCmsSecurityPriority(canonical.ownerUnifiedFindings);
+  if (cmsPriority) findings.unshift({ ...cmsPriority, rank: 1, focus: "CMS security", vendors: [] });
+  const integrityPriority = projectSiteIntegrityPriority(canonical.ownerUnifiedFindings);
+  if (integrityPriority) findings.push({ ...integrityPriority, rank: findings.length + 1, focus: "Site integrity", vendors: [] });
+  findings.sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high"));
+  findings.forEach((finding, index) => { finding.rank = index + 1; });
   const inventoryProjection = buildRuntimeInventoryProjectionFromScan(scanRecord);
+  const retainedRequests = buildRetainedRequestInventory(getHybridRuntimeEvidence(scanRecord.runtimeArtifacts));
+  const resourceInventory = buildSinglePageResourceInventory(scanRecord.scan.id, inventoryProjection.ungroupedRows, retainedRequests, reviewedPolicies);
+  const inventorySummary = inventoryProjection.inventorySummary.map(metric =>
+    ["Requests", "Network requests"].includes(metric.label) && resourceInventory.requestMetric ? resourceInventory.requestMetric : metric);
   const inventory = inventoryProjection.ungroupedRows.map((row) => ({
     category: row.macroCategory,
     confidence: row.confidence.replace(/_/g, " "),
@@ -401,8 +722,10 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Shadow
     evidence: classifyInventoryEvidence(row),
     evidenceJson: {
       attributionSignatures: row.attributionSignatures,
+      storageDetails: row.storageDetails,
       canonicalEntity: row.canonicalEntity,
       cookieDetails: row.cookieDetails,
+      embedDetails: row.embedDetails,
       cookieNames: row.cookieNames,
       dataFlows: row.dataFlows,
       domains: row.domains,
@@ -418,6 +741,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Shadow
       vendor: row.vendor,
     },
     entityRelationship: entityRelationshipLabel(row.entityRelationship),
+    name: getInventoryObservationNames(row).join(", ") || "Not retained",
     observed: row.firstSeenMs === null ? "Timing unavailable" : formatTimelineTime(row.firstSeenMs),
     priority: row.priority.replace(/_/g, " "),
     purpose: row.purpose,
@@ -425,7 +749,7 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Shadow
     requestNames: [...row.cookieNames, ...(row.requestDetails ?? []).flatMap((request) => request.path ? [request.path] : [])].slice(0, 8).join(", ") || "Not retained",
     serverLocation: row.dataFlows[0]?.networkDestination.country ?? row.dataFlows[0]?.networkDestination.label ?? "Location not retained",
     transferMechanism: row.dataFlows[0]?.transferMechanism.basis ?? "Unknown",
-    type: row.type === "cookie" ? "Cookie / storage" : "Tracker / request",
+    type: row.type === "embed" ? "Embed / iframe" : row.type === "storage" ? "Browser storage" : row.type === "cookie" ? "Cookie / storage" : "Tracker / request",
     vendor: row.vendor,
     recordCount: row.observedRecordCount,
     requestCount: row.requestCount,
@@ -434,16 +758,37 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Shadow
   const retainedDurationMs = retainedScanDurationMs(scanRecord);
   const durationMs = retainedDurationMs ?? 0;
   const consentVendor = retainedConsentVendor(scanRecord);
-  const rejectPath = buildExecutiveRejectPathProjection(
-    checklistRows.find((item) => item.id === "post_reject_tracking_reduction"),
+  const runtimeArtifacts = record(scanRecord.runtimeArtifacts);
+  const policySurfaceCoverage = getPolicySurfaceCoverageStatus(runtimeArtifacts);
+  const acceptPath = buildAcceptPathProjection({ ...runtimeArtifacts, consentControlAssessment: retainedConsentAssessment(scanRecord) }, canonical.ownerUnifiedFindings);
+  const acceptContradictionRow = mapAcceptContradictionFinding(
+    surfacedFinding(canonical.ownerUnifiedFindings, "acceptance_signal_contradicts_action"),
   );
+  const rejectPath = buildExecutiveRejectPathProjection(
+    reportableChecklistRows.find((item) => item.id === "post_reject_tracking_reduction"),
+  );
+  const choicePathComparison = buildChoicePathComparison(
+    acceptPath,
+    rejectPath,
+    canonical.ownerUnifiedFindings,
+  );
+  const gpcResponse = buildGpcResponseReportProjection(canonical.ownerUnifiedFindings);
+  const executionConfig = record(scanRecord.scan.scanConfigJson)?.execution;
+  const gpcLambdaConfig = record(record(executionConfig)?.v2DagLambda);
+  const gpcObservationEnabled = gpcLambdaConfig?.gpcObservationEnabled === true ||
+    gpcLambdaConfig?.gpcObservationRequested === true;
+  const gpcLaneStatus = gpcResponse
+    ? "completed" as const
+    : gpcObservationEnabled
+      ? "unavailable" as const
+      : "not_requested" as const;
   const timeline: ShadowReportData["timeline"] = [
     { at: "0s", atMs: 0, detail: "Public page observation began", label: "Scan start", tone: "neutral" },
     ...buildExecutiveTimelineEvents(scanRecord.runtimeArtifacts, reportableChecklistRows).map((event) => ({
       at: formatTimelineTime(event.atMs),
       atMs: event.atMs,
       detail: event.label === "Consent banner"
-        ? `Accept ${controls.accept.toLowerCase()} · Reject ${controls.reject.toLowerCase()} · Options ${controls.options.toLowerCase()}`
+        ? Object.entries(controls).filter(([, state]) => state !== "Unknown").map(([name, state]) => `${name}: ${state}`).join(" · ") || "Consent inspection incomplete"
         : `${event.label} first observed`,
       label: event.label,
       tone: event.label === "Consent banner" ? "positive" as const : event.tone === "rose" || event.tone === "amber" ? "concern" as const : "neutral" as const,
@@ -463,18 +808,19 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Shadow
   // by this report. This keeps retained reports aligned when the versioned
   // reportable-row policy changes after their persisted presentation summary.
   const summaryCounts = summarizeEvidenceRows(evidenceRows);
-  const canonicalScore = deriveCanonicalOverallScoreForReport({
+  const canonicalScore = deriveCanonicalOverallScoreForReport({ scanRecord: scanRecord,
     checklistRows,
     unifiedFindings: canonical.ownerUnifiedFindings,
   });
   const score = Math.max(0, Math.min(100, recordNumber(snapshot, ["certscore_overall"]) ?? canonicalScore ?? 0));
   const forms = canonical.collectionSurfaceAssessment?.forms ?? [];
-  const privacyRows = evidenceRows.filter((row) => GDPR_TRANSPARENCY_REPORT_ROW_ID_SET.has(row.id));
+  const privacyRows = evidenceRows.filter((row) => GDPR_TRANSPARENCY_REPORT_ROW_ID_SET.has(row.id) || row.id === "outdated_transfer_framework_reference");
   const verdict = buildExecutiveOverview({
+    acceptPath,
     controls,
     findings,
     limitedCount: summaryCounts.technical_limitation,
-    limitedItems: checklistRows.filter((row) => checklistStatus(row) === "Limited").map((row) => row.label),
+    limitedItems: reportableChecklistRows.filter((row) => checklistStatus(row) === "Limited").map((row) => row.label),
     positiveCount: summaryCounts.positive_signal,
     rejectPath,
     timeline,
@@ -503,25 +849,44 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Shadow
     pageUrl: form.pageUrl,
     title: form.title ?? `${displayLabel(form.surfaceType)} ${index + 1}`,
   }));
-  const visualEvidence = getVisualEvidenceArtifacts(scanRecord.runtimeArtifacts)
-    .find((artifact) => artifact.status === "available" && artifact.key);
-  const preConsentStorageMetric = projectPreConsentStorageMetric(buildPreConsentStorageAssessment({
-    hybridRuntimeEvidence: getHybridRuntimeEvidence(scanRecord.runtimeArtifacts),
-    runtimeArtifacts: scanRecord.runtimeArtifacts,
-    runtimeCookieRows: inventoryProjection.cookieRows,
-  }));
+  const nonEssentialInventoryTallies = buildNonEssentialInventoryTallies(
+    inventoryProjection.ungroupedRows,
+  );
   const vendorSurface = inventoryProjection.vendorSurfaceProjection.execSummary;
 
+  const scanConfig = record(scanRecord.scan.scanConfigJson);
+  const crawlOptions = record(scanConfig?.crawlOptions);
+  const metadata = siteMetadataProjectionSchema.safeParse(record(scanRecord.runtimeArtifacts)?.siteMetadata);
   return {
+    ...(scanConfig?.fullSite === true && crawlOptions ? { fullSite: { maxPages: Number(crawlOptions.maxPages), concurrency: Number(crawlOptions.concurrency), waitSeconds: Number(crawlOptions.waitSeconds) } } : {}),
+    siteMetadata: metadata.success ? metadata.data : null,
+    formDestinations: (() => { const parsed = formDestinationProjectionSchema.safeParse(runtimeArtifacts?.formDestinations); return parsed.success ? parsed.data : null; })(),
+    formDestinationWarning: Boolean(formDestinationPriority),
+    cmsSecurity: (() => { const cms = cmsSecurityProjectionSchema.safeParse(runtimeArtifacts?.cmsSecurity); return cms.success ? cms.data : null; })(),
     collectionFields,
+    runtimeEvidenceGraph: inventoryProjection.runtimeEvidenceGraph,
     collectionLimitations: canonical.collectionSurfaceAssessment?.limitationKeys.map(displayLabel) ?? [],
     collectionStatus: canonical.collectionSurfaceAssessment?.assessmentStatus
       ? displayLabel(canonical.collectionSurfaceAssessment.assessmentStatus)
       : "Unavailable",
     collectionSurfaces,
     consentVendor,
-    consentRows: evidenceRows.filter((row) => CHECKLIST_GROUPS.consent.has(row.id)),
+    policySurfaceCoverage,
+    policySurfaceLinkObserved: getPolicySurfaceLinkObserved(runtimeArtifacts),
+    gpcResponse,
+    gpcLaneStatus,
+    acceptPath,
+    choicePathComparison,
+    consentRows: [
+      ...evidenceRows.filter((row) => CHECKLIST_GROUPS.consent.has(row.id)),
+      ...(acceptContradictionRow ? [acceptContradictionRow] : []),
+    ],
     controls,
+    consentControlBehavior: (() => {
+      const behavior = record(reportableChecklistRows.find(row => row.id === "accept_consent_control")?.criticalEvidence.retainedEvidence?.consentControlBehavior);
+      return recordString(behavior, ["description"]);
+    })(),
+    consentInspectionNotice: consentInspectionNotice(controls, assessment.success ? assessment.data : undefined),
     coverage: {
       concern: summaryCounts.gap_observed,
       contextual: summaryCounts.neutral_signal,
@@ -533,41 +898,40 @@ export function buildTimelineReportModel(scanRecord: ScanDetailResponse): Shadow
       usableEvidence: Math.max(0, reportableChecklistRows.length - summaryCounts.technical_limitation),
     },
     findings,
+    siteIntegrity: selectSiteIntegrityFinding(canonical.ownerUnifiedFindings),
+    siteIntegritySummary: projectStartingPageSiteIntegrityReport(runtimeArtifacts?.siteIntegrity, canonical.ownerUnifiedFindings),
     executiveHeadline: "Executive overview",
     gdprTransparencyRows: privacyRows,
     inventory,
+    inventorySummary,
+    resourceInventory,
+    collectionTableRows: forms.map(form => {
+      const candidates = record(scanRecord.runtimeArtifacts)?.formSnapshots;
+      const snapshot = Array.isArray(candidates) ? candidates.map(record).find(item => item?.formRef === form.formRef && item?.sourceInventoryHash === canonical.collectionSurfaceAssessment?.sourceHash && item?.pageUrl === form.pageUrl) : null;
+      return { id: form.formRef, form, capturedAt: typeof snapshot?.capturedAt === "string" ? snapshot.capturedAt : "", snapshot: snapshot?.status === "available"
+        ? { status: "available" as const, url: `/api/scans/${encodeURIComponent(scanRecord.scan.id)}/form-snapshot?formRef=${encodeURIComponent(form.formRef)}` }
+        : { status: snapshot?.status === "withheld" ? "withheld" as const : "unavailable" as const, ...(typeof snapshot?.reason === "string" ? { reason: snapshot.reason } : {}) } };
+    }),
     metrics: {
       domains: vendorSurface.thirdPartyDomains.length,
       fields: countFormFields(forms),
       forms: forms.length,
-      nonEssentialStorage: preConsentStorageMetric.available ? preConsentStorageMetric.value : null,
-      thirdPartyRequests: recordNumber(snapshot, ["third_party_request_count", "third_party_requests_count"]) ?? inventoryProjection.trackerRows.reduce((total, row) => total + (row.requestCount ?? 1), 0),
+      nonEssentialCookiesStorage: nonEssentialInventoryTallies.cookiesStorage,
+      nonEssentialRequests: nonEssentialInventoryTallies.requests,
+      thirdPartyEmbeds: inventoryProjection.embedRows.filter((row) => row.party === "third_party").length,
       vendors: vendorSurface.resolvedVendorNames.length + vendorSurface.unresolvedVendorHosts.length,
     },
     nextStep,
+    executiveRuntimeCards: projectExecutiveRuntimeCards(reportableChecklistRows.map(row => ({ ...row, retainedEvidence: row.criticalEvidence.retainedEvidence }))),
     preConsentRuntimeRows: evidenceRows.filter((row) => CHECKLIST_GROUPS.runtime.has(row.id)),
     rejectPath,
     relatedRows: [],
-    scan: {
-      benchmark: scanRecord.domainBenchmark?.industry ?? "Comparable public websites",
-      createdAt: formatTimestamp(scanRecord.scan.createdAt),
-      duration: formatHeaderDuration(retainedDurationMs),
-      host: scanRecord.scan.domainHostname ?? "Public website",
-      id: scanRecord.scan.id,
-      observedWindow: formatDuration(durationMs),
-      origin: scanRecord.scan.scanFromLabel,
-      originCode: scanRecord.scan.scanFromValue || scanRecord.scan.scanFromLabel,
-      reportUrl: `/scan/${encodeURIComponent(scanRecord.scan.id)}`,
-      url: reportUrl(scanRecord),
-      visualEvidenceHref: visualEvidence
-        ? `/api/scans/${encodeURIComponent(scanRecord.scan.id)}/visual-evidence/${encodeURIComponent(visualEvidence.id)}`
-        : null,
-    },
+    scan: buildReportIdentity(scanRecord),
     score: { label: scoreLabel(score), value: score },
     timeline,
     trackingExternalRows: evidenceRows.filter((row) => CHECKLIST_GROUPS.tracking.has(row.id)),
     trackerVendors: [...vendorSurface.resolvedVendorNames, ...vendorSurface.unresolvedVendorHosts],
     transportRows: evidenceRows.filter((row) => CHECKLIST_GROUPS.transport.has(row.id)),
-    verdict,
+    verdict: formDestinationPriority ? `${formDestinationPriority.title}: ${formDestinationPriority.summary} ${verdict}` : cmsPriority ? `${cmsPriority.title}: ${cmsPriority.summary} ${verdict}` : verdict,
   };
 }

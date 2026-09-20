@@ -188,6 +188,12 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
   let scanCreateRequestCount = 0;
   const apiServer = createHttpServer((request, response) => {
     const requestUrl = new URL(request.url ?? "/", apiOrigin);
+    if (request.method === "GET" && requestUrl.pathname === "/api/v2/scans/00000000-0000-4000-8000-000000000124/report-evidence") {
+      const second = requestUrl.searchParams.has("cursor");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ type: "certscore_report_evidence_page", version: 1, scanId: "00000000-0000-4000-8000-000000000124", snapshot: "a".repeat(64), reportUrl: "https://certscore.ai/scan/00000000-0000-4000-8000-000000000124", entries: [{ path: second ? "/coverage" : "/findings", value: second ? "limited" : [] }], pagination: { offset: second ? 1 : 0, returned: 1, total: 2, complete: second, nextCursor: second ? null : `v1.${"a".repeat(64)}.1` }, coverage: { scope: "public_report_projection", exportTruncated: false, observationCompleteness: "see_report_coverage", exclusions: [] }, reconstruction: "JSON Pointer entries" }));
+      return;
+    }
     if (request.method === "GET" && request.url === "/microsoft-jwks") {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ keys: [{ ...microsoftPublicJwk, alg: "RS256", kid: microsoftKid, use: "sig" }] }));
@@ -338,6 +344,9 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
       CERTSCORE_MICROSOFT_RESOURCE_AUDIENCE: microsoftAudience,
       CERTSCORE_MICROSOFT_ALLOWED_CLIENT_ID: microsoftClientId,
       CERTSCORE_MICROSOFT_REQUIRED_ROLE: "Mcp.Access",
+      CERTSCORE_MICROSOFT_DELEGATED_ENABLED: "1",
+      CERTSCORE_MICROSOFT_DELEGATED_CLIENT_ID: "55555555-5555-4555-8555-555555555555",
+      CERTSCORE_MICROSOFT_DELEGATED_SCOPE: "Mcp.Invoke",
       CERTSCORE_MICROSOFT_JWKS_URL: `${apiOrigin}/microsoft-jwks`
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -403,8 +412,8 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     const microsoftClient = new Client({ name: "certscore-microsoft-http-integration", version: "0.1.0" });
     await microsoftClient.connect(microsoftTransport);
     const microsoftTools = await microsoftClient.listTools();
-    assert.equal(microsoftTools.tools.length, 3);
-    assert.deepEqual(microsoftTools.tools.map((tool) => tool.name).sort(), ["certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
+    assert.equal(microsoftTools.tools.length, 4);
+    assert.deepEqual(microsoftTools.tools.map((tool) => tool.name).sort(), ["certscore_get_report_evidence_page", "certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
     const microsoftCreated = await microsoftClient.callTool({
       name: "certscore_scan_site",
       arguments: { url: "https://example.com", waitForCompletion: false }
@@ -418,6 +427,51 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     assert.equal(apiAuthorization, undefined, "the Entra bearer token must not be forwarded as a CertScore API credential");
     await microsoftClient.close();
 
+    const delegatedClaims = {
+      azp: "55555555-5555-4555-8555-555555555555",
+      oid: "66666666-6666-4666-8666-666666666666",
+      scp: "Mcp.Invoke",
+      roles: undefined
+    };
+    const delegatedToken = await signMicrosoftToken(delegatedClaims);
+    const delegatedTransport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp/microsoft`), {
+      requestInit: { headers: { authorization: `Bearer ${delegatedToken}`, "x-forwarded-for": "198.51.100.82" } }
+    });
+    const delegatedClient = new Client({ name: "delegated-pilot", version: "0.1.0" });
+    await delegatedClient.connect(delegatedTransport);
+    assert.deepEqual((await delegatedClient.listTools()).tools.map(tool => tool.name).sort(), microsoftTools.tools.map(tool => tool.name).sort());
+    const refreshToken = await signMicrosoftToken({ ...delegatedClaims, exp: Math.floor(Date.now() / 1000) + 600 });
+    for (const [name, bearer, expected] of [
+      ["same user refreshed token", refreshToken, 200],
+      ["different user", await signMicrosoftToken({ ...delegatedClaims, oid: wrongMicrosoftClientId }), 401],
+      ["application cannot reuse user session", microsoftToken, 401],
+      ["scope lost", await signMicrosoftToken({ ...delegatedClaims, scp: "Other.Scope" }), 403],
+      ["expired user token", await signMicrosoftToken({ ...delegatedClaims, exp: Math.floor(Date.now() / 1000) - 60 }), 401]
+    ] as const) {
+      const result = await fetch(`${origin}/mcp/microsoft`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          "mcp-session-id": delegatedTransport.sessionId!,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "x-forwarded-for": "198.51.100.82"
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 9010, method: "tools/list" })
+      });
+      assert.equal(result.status, expected, name);
+      await result.text();
+    }
+    const delegatedScan = await delegatedClient.callTool({ name: "certscore_scan_site", arguments: { url: "https://example.com", waitForCompletion: false } });
+    assert.equal(delegatedScan.isError, undefined);
+    assert.equal(apiAuthorization, undefined, "delegated Entra credentials never enter private workspace APIs");
+    assert.equal(anonymousSurface, "mcp_light");
+    assert.equal(anonymousRequesterIp, "198.51.100.82");
+    await delegatedClient.close();
+    assert.equal(diagnostics.includes(delegatedToken), false);
+    assert.equal(diagnostics.includes(refreshToken), false);
+    assert.equal(diagnostics.includes(delegatedClaims.oid), false);
+
     assert.equal(diagnostics.includes(microsoftToken), false);
     assert.equal(diagnostics.includes("sensitive-malformed-jwt-marker"), false);
     assert.equal(diagnostics.includes(wrongMicrosoftClientId), false);
@@ -428,6 +482,7 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
     });
     assert.equal(unauthenticated.status, 401);
+    assert.match(unauthenticated.headers.get("x-request-id") ?? "", /^[a-f0-9-]{36}$/);
     assert.match(unauthenticated.headers.get("www-authenticate") ?? "", /oauth-protected-resource\/mcp/);
 
     const token = signCertScoreAccessToken({
@@ -474,6 +529,12 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     assert.equal(authenticatedInternalOperation, "scan_bundle");
     assert.match(authenticatedInternalTimestamp ?? "", /^\d+$/);
     assert.match(authenticatedInternalProof ?? "", /^[A-Za-z0-9_-]+$/);
+    const authenticatedPage = await client.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124" } });
+    assert.equal(authenticatedPage.isError, undefined, JSON.stringify(authenticatedPage));
+    assert.equal((authenticatedPage.structuredContent as any).pagination.complete, false);
+    const authenticatedNextPage = await client.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124", cursor: (authenticatedPage.structuredContent as any).pagination.nextCursor } });
+    assert.equal(authenticatedNextPage.isError, undefined, JSON.stringify(authenticatedNextPage));
+    assert.equal((authenticatedNextPage.structuredContent as any).pagination.complete, true);
     await client.close();
 
     const anonymousTransport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp/anonymous`), {
@@ -796,6 +857,9 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     assert.equal(toolsListObservation.reasonCode, "session_requester_changed_allowed");
     assert.equal(getObservation.requesterSessionIdentityMatched, false);
     assert.equal(getObservation.reasonCode, "session_requester_changed_allowed");
+    assert.match(String(unknownSessionObservation.requestId), /^[a-f0-9-]{36}$/);
+    assert.match(String(initializeObservation.requestId), /^[a-f0-9-]{36}$/);
+    assert.notEqual(initializeObservation.requestId, unknownSessionObservation.requestId);
     assert.equal(unknownSessionObservation.finalHttpStatus, 404);
     assert.equal(missingSessionObservation.finalHttpStatus, 400);
     assert.equal(mismatchObservation.finalHttpStatus, 401);
@@ -833,13 +897,20 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     const lightClient = new Client({ name: "certscore-light-http-integration", version: "0.1.0" });
     await lightClient.connect(lightTransport);
     const lightTools = await lightClient.listTools();
+    const lightPage = await lightClient.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124" } });
+    assert.equal(lightPage.isError, undefined, JSON.stringify(lightPage));
+    assert.equal((lightPage.structuredContent as any).pagination.complete, false);
+    const lightNextPage = await lightClient.callTool({ name: "certscore_get_report_evidence_page", arguments: { scanId: "00000000-0000-4000-8000-000000000124", cursor: (lightPage.structuredContent as any).pagination.nextCursor } });
+    assert.equal(lightNextPage.isError, undefined, JSON.stringify(lightNextPage));
+    assert.equal((lightNextPage.structuredContent as any).pagination.complete, true);
+
     const parityProjection = (tool: (typeof microsoftTools.tools)[number]) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema
     });
     assert.deepEqual(microsoftTools.tools.map(parityProjection), lightTools.tools.map(parityProjection));
-    assert.deepEqual(lightTools.tools.map((tool) => tool.name).sort(), ["certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
+    assert.deepEqual(lightTools.tools.map((tool) => tool.name).sort(), ["certscore_get_report_evidence_page", "certscore_get_scan_bundle", "certscore_get_scan_status", "certscore_scan_site"]);
     const lightScanTool = lightTools.tools.find((tool) => tool.name === "certscore_scan_site");
     assert.match(lightScanTool?.description ?? "", /Creates a public-website privacy scan or reuses an eligible recent completed scan/);
     assert.match(lightScanTool?.description ?? "", /preConsentPreview/);
@@ -891,7 +962,7 @@ test("Streamable HTTP runtime initializes, lists tools, enforces auth, CORS, and
     });
     const lightBundleTool = lightTools.tools.find((tool) => tool.name === "certscore_get_scan_bundle");
     assert.match(lightBundleTool?.description ?? "", /Returns the completed or completed-limited CertScore evidence bundle/i);
-    assert.match(lightBundleTool?.description ?? "", /Reject Path content is present only for confirmed, evidence-qualified post-refusal observations/i);
+    assert.match(lightBundleTool?.description ?? "", /Accept and Reject results distinguish registered decisions from retained after-click facts/i);
     assert.match(lightBundleTool?.description ?? "", /not legal advice, certification, or a compliance determination/i);
     for (const tool of lightTools.tools) {
       assert.doesNotMatch(tool.description ?? "", /\b(?:never|must|should|do not|call|wait|continue polling|stop polling)\b/i);

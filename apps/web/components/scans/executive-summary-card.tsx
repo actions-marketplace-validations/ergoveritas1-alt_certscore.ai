@@ -1,3 +1,7 @@
+import { choicePathExecutionLabel } from "@certscore/contracts";
+import type { ChoicePathExecution } from "@certscore/contracts";
+import { consentInspectionNotice } from "../../lib/scans/consent-inspection-presentation";
+import { afterClickCoverageLabel } from "./after-action-summary";
 import type { AgencyMapping, RegulatoryRiskAssessment } from "@website-signal-risk-scanner/shared";
 import { KNOWN_CMP_REGISTRY } from "../../../../packages/shared/src/known-cmps";
 import React from "react";
@@ -97,12 +101,16 @@ export type ExecutivePolicySurface = {
 };
 
 export type ExecutiveConsentControlProjection = {
+  inspectionNotice?: string | null;
   accept: boolean | null;
   options: boolean | null;
   reject: boolean | null;
 };
 
 export type ExecutiveRejectPathProjection = {
+  execution?: ChoicePathExecution;
+  afterClickCoverage?: "complete" | "partial";
+  registrationConfirmed?: boolean;
   evidenceRows: Array<{
     detail: string | null;
     label: string;
@@ -1458,19 +1466,23 @@ export function buildRegulatoryLenses(
     unifiedContext?: UnifiedRegulatoryContext | null;
   }
 ): RegulatoryLens[] {
-  const findingIds = new Set(findings.map((finding) => finding.id));
+  const regulatoryFindings = findings.filter((finding) => {
+    if (finding.id !== "reject_tracking_persists_after_reject") return true;
+    return finding.evidenceDetails?.evidenceFlags?.includes("reject_evidence_confirmed") === true;
+  });
+  const findingIds = new Set(regulatoryFindings.map((finding) => finding.id));
   const trackingFinding =
-    findings.find((finding) => finding.id === "pre_consent_tracking_detected") ??
-    findings.find((finding) => finding.id === "rtb_cookie_sync_observed") ??
-    findings.find((finding) => finding.id === "reject_tracking_persists_after_reject") ??
-    findings.find((finding) => finding.id === "third_party_tracking_pre_consent") ??
-    findings.find((finding) => finding.id === "third_party_cookie_pre_consent") ??
-    findings.find((finding) => finding.id === "analytics_cookie_pre_consent") ??
-    findings.find((finding) => finding.id === "adtech_cookie_pre_consent") ??
-    findings.find((finding) => /pre[- ]consent|before consent/i.test(`${finding.label} ${finding.shortSummary}`));
+    regulatoryFindings.find((finding) => finding.id === "pre_consent_tracking_detected") ??
+    regulatoryFindings.find((finding) => finding.id === "rtb_cookie_sync_observed") ??
+    regulatoryFindings.find((finding) => finding.id === "reject_tracking_persists_after_reject") ??
+    regulatoryFindings.find((finding) => finding.id === "third_party_tracking_pre_consent") ??
+    regulatoryFindings.find((finding) => finding.id === "third_party_cookie_pre_consent") ??
+    regulatoryFindings.find((finding) => finding.id === "analytics_cookie_pre_consent") ??
+    regulatoryFindings.find((finding) => finding.id === "adtech_cookie_pre_consent") ??
+    regulatoryFindings.find((finding) => /pre[- ]consent|before consent/i.test(`${finding.label} ${finding.shortSummary}`));
   const sensitiveTrackingFinding =
-    findings.find((finding) => finding.id === "sensitive_data_collection_with_third_party_tracking_present") ??
-    findings.find((finding) => finding.id === "possible_session_replay_on_sensitive_input_surface");
+    regulatoryFindings.find((finding) => finding.id === "sensitive_data_collection_with_third_party_tracking_present") ??
+    regulatoryFindings.find((finding) => finding.id === "possible_session_replay_on_sensitive_input_surface");
   const hasTrackingConcern =
     options?.unifiedContext?.hasTrackingConcern ??
     (findingIds.has("pre_consent_tracking_detected") ||
@@ -1512,7 +1524,7 @@ export function buildRegulatoryLenses(
     ...buildMappedRegulatoryLensFindings({
       context: { lens: "GDPR / ePrivacy", reason: "mapped_regulatory_finding" },
       findingIds: gdprRegulatoryFindingIds,
-      findings
+      findings: regulatoryFindings
     }),
     beforeConsentCookieCount > 0
         ? buildObservedCountLensFinding({
@@ -1930,6 +1942,7 @@ function BenchmarkMetricCard(input: {
   actualValue: number | null;
   benchmarkValue: number | null;
   benchmarkIndustry?: string | null;
+  displayValue?: string | null;
   label: string;
   maxValue?: number;
   note?: string | null;
@@ -1970,7 +1983,7 @@ function BenchmarkMetricCard(input: {
           deltaPositive: "text-sky-700",
           deltaNegative: "text-cyan-700"
         }
-      : input.label === "Third-party requests"
+      : input.label === "All 3rd-party requests"
         ? {
             card: "bg-white",
             rail: "bg-amber-100/90",
@@ -1980,7 +1993,7 @@ function BenchmarkMetricCard(input: {
             deltaPositive: "text-amber-700",
             deltaNegative: "text-orange-700"
           }
-        : input.label === "Non-essential storage"
+        : input.label === "Pre-consent storage" || input.label === "Classified non-essential storage"
           ? {
               card: "bg-white",
               rail: "bg-rose-100/90",
@@ -2006,24 +2019,18 @@ function BenchmarkMetricCard(input: {
     : benchmarkValue !== null
       ? `Expected ${benchmarkValue}.`
       : null;
-  const metricNote = input.label === "Non-essential storage"
-    ? [
-        "Counts non-essential storage found before consent. Essential storage is excluded.",
-        input.note
-      ].filter(Boolean).join(" ")
-    : input.label === "Pre-consent storage"
+  const metricNote = input.label === "Pre-consent storage" || input.label === "Classified non-essential storage"
       ? [
-        "Cookie/storage observations before a recorded consent action, deduped by name and domain. This total can include essential security and consent storage; it is not a count of confirmed nonessential trackers.",
+        input.label === "Classified non-essential storage"
+          ? "Counts storage identities classified as non-essential and observed before consent. This is separate from the narrower subset with direct write-level timing."
+          : "Cookie/storage observations before a recorded consent action require classification review; this is not a count of confirmed non-essential trackers.",
         input.note
       ].filter(Boolean).join(" ")
       : input.note;
   const benchmarkTooltip = [benchmarkTooltipBase, metricNote].filter(Boolean).join(" ");
-  const isStorageMetric = input.label === "Non-essential storage" || input.label === "Pre-consent storage";
-  const displayLabel =
-    input.label === "Third-party requests"
-      ? "3rd-party requests"
-      : input.label;
-  const displayValue = actualValue === null && isScoreMetric ? "Not scored" : actualValue ?? "—";
+  const isStorageMetric = input.label === "Pre-consent storage" || input.label === "Classified non-essential storage";
+  const displayLabel = input.label;
+  const displayValue = input.displayValue ?? (actualValue === null && isScoreMetric ? "Not scored" : actualValue ?? "—");
   return (
     <div className={`relative overflow-visible rounded-[1.1rem] border border-slate-200 px-3.5 py-2 ${tone.card}`}>
       <div className="flex items-start justify-between gap-3">
@@ -2148,7 +2155,7 @@ function NotScoredHeroMetrics() {
       <NotScoredMetricCard
         label="Automated runtime signal"
         value="Unavailable"
-        helper="Substantive automated scoring was withheld."
+        helper="The retained run did not support a representative assessment."
       />
       <NotScoredMetricCard
         label="Report status"
@@ -2165,14 +2172,14 @@ function NotScoredSnapshotPane() {
       <div className="space-y-1">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Scan quality snapshot</p>
         <p className="text-sm leading-6 text-slate-600">
-          The scan retained evidence explaining why the report was not scored.
+          The scan retained evidence explaining why the public page was not representative.
         </p>
       </div>
       <div className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3.5">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Report status</p>
         <p className="mt-2 text-sm font-semibold text-slate-950">Not scored</p>
         <p className="mt-1 text-sm leading-6 text-slate-600">
-          CertScore.ai did not issue privacy, consent, accessibility, or regulatory scores from this run.
+          Re-run when the normal public site is available.
         </p>
       </div>
     </div>
@@ -2290,20 +2297,25 @@ function CompactConsentControlState(input: {
 export function CompactConsentControlsCard(input: {
   projection?: ExecutiveConsentControlProjection | null;
 }) {
+  const states = { accept: input.projection?.accept, reject: input.projection?.reject, options: input.projection?.options };
+  const label = (value: boolean | null | undefined) => value === true ? "Observed" : value === false ? "Not observed" : "Unknown";
+  const notice = input.projection?.inspectionNotice ?? consentInspectionNotice({ accept: label(states.accept), reject: label(states.reject), options: label(states.options) });
   return (
     <div className="rounded-[1rem] border border-slate-200 bg-gradient-to-b from-white to-slate-50/90 px-3 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_2px_7px_rgba(15,23,42,0.06)]">
       <p className="mb-0.5 text-[10px] font-semibold uppercase leading-[10px] tracking-[0.16em] text-slate-500">
         Consent controls
       </p>
+      {notice ? <p role="status" className="my-1 text-xs text-slate-600">{notice}</p> : null}
       <div
         aria-label="Accept, Reject, and Options control detection"
-        className="grid grid-cols-3 gap-1.5"
+        className="grid grid-flow-col auto-cols-fr gap-1.5"
         data-testid="executive-consent-controls-card"
       >
-        <CompactConsentControlState label="Accept" state={input.projection?.accept ?? null} />
-        <CompactConsentControlState label="Reject" state={input.projection?.reject ?? null} />
-        <CompactConsentControlState label="Options" state={input.projection?.options ?? null} />
+        {typeof states.accept === "boolean" ? <CompactConsentControlState label="Accept" state={states.accept} /> : null}
+        {typeof states.reject === "boolean" ? <CompactConsentControlState label="Reject" state={states.reject} /> : null}
+        {typeof states.options === "boolean" ? <CompactConsentControlState label="Options" state={states.options} /> : null}
       </div>
+      <p className="mt-1 text-[10px] text-slate-500">Initial visit · first layer</p>
     </div>
   );
 }
@@ -2358,10 +2370,16 @@ function formatRejectResolverMethod(resolverMethod: string) {
 export function CompactRejectPathCard(input: {
   projection?: ExecutiveRejectPathProjection | null;
 }) {
+  if (input.projection?.state === "incomplete" && !input.projection.afterClickCoverage) {
+    return <div className="rounded-md border border-zinc-200 p-3 text-xs text-zinc-600" data-reject-path-state="incomplete" data-testid="executive-reject-path-card">
+      <p className="font-semibold text-zinc-900">Independent Reject test · Incomplete</p>
+      <p className="mt-1">Post-Reject behavior was not assessed. This test does not establish whether a control was present in the initial inspection.</p>
+    </div>;
+  }
   if (
     !input.projection
-    || input.projection.state === "incomplete"
-    || input.projection.observationWindowMs === null
+    || (input.projection.state === "incomplete" && !input.projection.afterClickCoverage)
+    || (input.projection.observationWindowMs === null && !input.projection.afterClickCoverage)
   ) {
     return null;
   }
@@ -2386,11 +2404,13 @@ export function CompactRejectPathCard(input: {
           After Reject
         </p>
         <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${presentation.badgeTone}`}>
-          {presentation.badge}
+          {input.projection.execution ? choicePathExecutionLabel(input.projection.execution) : input.projection.state === "incomplete" ? afterClickCoverageLabel(input.projection.afterClickCoverage) : presentation.badge}
         </span>
       </div>
       <p className="mt-1 text-xs font-semibold leading-4 text-slate-950">{input.projection.label}</p>
-      <p className="mt-1 text-[11px] leading-4 text-slate-600">{input.projection.note}</p>
+      {input.projection.note ? (
+        <p className="mt-1 text-[11px] leading-4 text-slate-600">{input.projection.note}</p>
+      ) : null}
       {context.length > 0 ? (
         <p className="mt-1 text-[10px] font-medium leading-4 text-slate-500">{context.join(" · ")}</p>
       ) : null}
@@ -2404,9 +2424,6 @@ export function CompactRejectPathCard(input: {
           ))}
         </ul>
       ) : null}
-      <p className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-        {input.projection.scoreEffect === "deduction" ? "Included in score" : "No score effect"}
-      </p>
     </div>
   );
 }
@@ -2439,11 +2456,12 @@ function ExecutiveSignalSnapshotPane(input: {
     : "Runtime not retained";
   const cookieOnlyRuntimeNote =
     runtimeMetricsReliable && input.trackerFootprintRichDetails.length === 0 && input.beforeConsentCookieCount > 0
-      ? `${input.beforeConsentCookieCount} ${input.beforeConsentCookieCount === 1 ? "cookie was" : "cookies were"} observed before consent; no third-party tracker vendor or domain was resolved for this scan.`
+      ? `${input.beforeConsentCookieCount} classified non-essential storage ${input.beforeConsentCookieCount === 1 ? "identity was" : "identities were"} observed before consent; no tracking-classified third-party vendor or domain was resolved for this scan.`
       : null;
   const consentSurfaceStatus = input.consentSurfaceStatus ?? "Not determined";
+  const cmpTechnologyName = input.cmpDisplayName.replace(/\s+(?:(?:consent|cookie)\s+banner|banner|cmp)$/i, "");
   const cmpDetectedLabel = input.cmpVendorName
-    ? `${input.cmpDisplayName.replace(/\s+(?:banner|cmp)$/i, "")} CMP detected`
+    ? `${cmpTechnologyName} CMP detected`
     : null;
   const consentSurfaceLabel =
     consentSurfaceStatus === "Observed"
@@ -2457,7 +2475,7 @@ function ExecutiveSignalSnapshotPane(input: {
     input.cmpVendorName && consentSurfaceStatus === "Not observed"
       ? `${input.cmpDisplayName} technology was observed, but no visible consent banner was retained in this scan context.`
       : input.cmpVendorName && (consentSurfaceStatus === "Not determined" || consentSurfaceStatus === "Not testable")
-        ? `${input.cmpDisplayName} CMP technology was observed, but visible banner presence could not be determined because consent inspection was incomplete or not representative.`
+        ? `${input.cmpDisplayName} technology was observed, but visible banner presence could not be determined because consent inspection was incomplete or not representative.`
         : consentSurfaceStatus === "Not determined" || consentSurfaceStatus === "Not testable"
           ? "Consent inspection was incomplete or not representative; banner presence was not determined."
           : null;
@@ -3986,7 +4004,7 @@ function getCookieCountMismatchNote(input: {
 
   const notes: string[] = [];
   if (typeof findingCount === "number" && findingCount !== input.beforeConsentCookieCount) {
-    notes.push("Executive metric includes non-essential cookies explicitly observed in the pre-consent runtime; this finding shows the subset with promotion-grade write timing.");
+    notes.push("Executive metric includes classified non-essential storage identities observed in the pre-consent runtime; this finding shows the narrower subset with direct write-level timing.");
   }
   return notes.length > 0 ? notes.join(" ") : null;
 }
@@ -4422,6 +4440,8 @@ export function ExecutiveSummaryCard(input: {
   beforeConsentCookieCount: number;
   beforeConsentStorageLimitation?: string | null;
   beforeConsentStorageMetricAvailable?: boolean;
+  beforeConsentStorageMetricLabel?: "Classified non-essential storage" | "Pre-consent storage";
+  beforeConsentStorageMetricStatus?: "measured_positive" | "measured_zero" | "partially_classified" | "unavailable";
   beforeConsentStorageScope?: "all_observed" | "nonessential_only";
   unclassifiedPreConsentStorageCount?: number;
   coverageMicrocards?: Array<{
@@ -4754,22 +4774,29 @@ export function ExecutiveSummaryCard(input: {
                       actualValue={input.score}
                       benchmarkValue={null}
                       maxValue={100}
-                      note={input.score === null
-                        ? "Insufficient evidence to calculate a GDPR/ePrivacy posture score for this scan."
-                        : "Higher scores indicate stronger observed GDPR/ePrivacy posture. Lower scores indicate more issues requiring attention."}
+                      note={null}
                     />
                     <BenchmarkMetricCard
-                      label="Third-party requests"
+                      label="All 3rd-party requests"
                       actualValue={runtimeMetricsReliable ? input.thirdPartyRequestCount : null}
                       benchmarkValue={input.domainBenchmark?.expectedThirdPartyRequests ?? null}
                       benchmarkIndustry={input.domainBenchmark?.industry ?? null}
+                      note="Counts retained third-party requests across all purposes, including embedded services. This is broader than the separate tracking-classified checklist row."
                     />
                     <BenchmarkMetricCard
-                      label={input.beforeConsentStorageScope === "nonessential_only"
-                        ? "Non-essential storage"
-                        : "Pre-consent storage"}
+                      label={input.beforeConsentStorageMetricLabel ?? (
+                        input.beforeConsentStorageMetricStatus === "partially_classified" ||
+                        input.beforeConsentStorageMetricStatus === "unavailable"
+                          ? "Pre-consent storage"
+                          : input.beforeConsentStorageScope === "nonessential_only"
+                            ? "Classified non-essential storage"
+                            : "Pre-consent storage"
+                      )}
                       actualValue={runtimeMetricsReliable && input.beforeConsentStorageMetricAvailable !== false
                         ? input.beforeConsentCookieCount
+                        : null}
+                      displayValue={runtimeMetricsReliable && input.beforeConsentStorageMetricStatus === "partially_classified"
+                        ? "Review"
                         : null}
                       benchmarkValue={input.domainBenchmark?.expectedCookiesBeforeConsent ?? null}
                       benchmarkIndustry={input.domainBenchmark?.industry ?? null}

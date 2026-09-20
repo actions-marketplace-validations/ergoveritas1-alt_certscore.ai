@@ -6,6 +6,7 @@ import { useReportWebVitals } from "next/web-vitals";
 import { ANALYTICS_CONSENT_CHANGE_EVENT } from "../../lib/analytics/consent";
 import { analyticsRouteIdentifier } from "../../lib/product-analytics/contract";
 import { clearProductAnalyticsIdentity, trackProductEvent } from "../../lib/product-analytics/client";
+import { isPublicPagePath, pageRequestTokenFromNavigation, PUBLIC_PAGE_UNLINKED_FEATURE } from "../../lib/product-analytics/public-page-request";
 
 function stableElementId(element: HTMLElement) {
   const declared = element.dataset.analyticsId ?? element.dataset.analyticsEvent;
@@ -34,13 +35,29 @@ export function ProductAnalyticsTracker() {
   });
 
   useEffect(() => {
-    const eventName = pathname.includes("/scans/") ? "scan_viewed" : pathname.includes("/reports/") ? "report_viewed" : "page_viewed";
-    const isInitialAuthenticatedAppView = pathname.startsWith("/app") && previousRoute.current === undefined;
+    if (previousRoute.current === pathname) return;
+    const eventName = (pathname.includes("/scans/") || pathname.includes("/scanso/")) ? "scan_viewed" : pathname.includes("/reports/") ? "report_viewed" : "page_viewed";
+    const initial = previousRoute.current === undefined;
+    const isInitialAuthenticatedAppView = (pathname === "/app" || pathname.startsWith("/app/")) && initial;
+    const initialPublicView = initial && isPublicPagePath(pathname);
+    const navigation = initialPublicView ? performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined : undefined;
+    const pageRequestToken = initialPublicView ? pageRequestTokenFromNavigation(pathname, navigation) : undefined;
     if (!isInitialAuthenticatedAppView) {
-      trackProductEvent({ eventName, category: eventName === "scan_viewed" ? "scan" : eventName === "report_viewed" ? "report" : "navigation", feature: "route", outcome: "observed", previousRoute: previousRoute.current, route: pathname });
+      trackProductEvent({ eventName, category: eventName === "scan_viewed" ? "scan" : eventName === "report_viewed" ? "report" : "navigation",
+        feature: initialPublicView && !pageRequestToken ? PUBLIC_PAGE_UNLINKED_FEATURE : "route",
+        pageRequestToken, anonymousAggregate: initialPublicView,
+        outcome: "observed", previousRoute: previousRoute.current, route: pathname });
     }
     previousRoute.current = pathname;
   }, [pathname]);
+
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) trackProductEvent({ eventName: "page_viewed", category: "navigation", feature: "browser_history_restore", outcome: "observed" });
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
 
   useEffect(() => {
     function onClick(event: MouseEvent) {
@@ -52,6 +69,7 @@ export function ProductAnalyticsTracker() {
         category: isLink ? "navigation" : "interaction",
         feature: target.dataset.analyticsFeature ?? "ui_control",
         elementId: stableElementId(target),
+        targetPath: isLink ? target.getAttribute("href") ?? undefined : undefined,
         outcome: "observed"
       });
     }

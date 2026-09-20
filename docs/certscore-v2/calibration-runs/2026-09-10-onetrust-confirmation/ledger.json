@@ -1,0 +1,36 @@
+{
+  "entries": {
+    "https://otomoto.pl/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-08T21:58:18.313Z",
+      "lastContactAt": "2026-09-10T21:58:18.313Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://otomoto.pl/"
+    },
+    "https://olx.pl/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-08T21:57:59.602Z",
+      "lastContactAt": "2026-09-10T21:57:59.602Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://olx.pl/"
+    },
+    "https://streamable.com/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-08T21:56:59.012Z",
+      "lastContactAt": "2026-09-10T21:56:59.012Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://streamable.com/"
+    }
+  },
+  "ledgerVersion": "certscore.scan_quality_calibration_ledger.1",
+  "updatedAt": "2026-09-10T21:59:41.748Z"
+}

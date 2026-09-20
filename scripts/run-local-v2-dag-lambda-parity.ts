@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { runtimeGraphDispatchSchema, type RuntimeGraphDispatch } from "../packages/certscore-contracts/src/runtime-evidence-graph";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { InvokeCommand } from "@aws-sdk/client-lambda";
@@ -11,6 +13,7 @@ import {
   LOCAL_V2_DAG_LAMBDA_DEFAULT_PRECONSENT_VISUAL_FALLBACK_DEADLINE_MS,
   type LocalV2DagLambdaAwsRegion,
   LOCAL_V2_DAG_SCAN_PROCESSOR,
+  POST_ACCEPT_WORKER_FEATURE_FLAG,
   POST_REFUSAL_REJECT_WORKER_FEATURE_FLAG,
   handler
 } from "../apps/v2-dag-lambda/src/handler";
@@ -18,13 +21,20 @@ import {
 type PostRefusalWorkerMode = "normal" | "failure" | "timeout";
 
 type Args = {
+  resourceInventoryCrawl: boolean;
+  resourceInventoryDiscovery: boolean;
   artifactDir: string;
   awsRegion: LocalV2DagLambdaAwsRegion;
   debugOverrides: Record<string, unknown> | null;
   functionName: string;
+  gpcConfig: Record<string, unknown> | null;
+  gpcEnabled: boolean;
+  runtimeGraph: RuntimeGraphDispatch | null;
   messageStreamPath: string | null;
   outPath: string;
   profile: "full" | "standard" | "tiny";
+  postAcceptConfig: Record<string, unknown> | null;
+  postAcceptEnabled: boolean;
   postRefusalConfig: Record<string, unknown> | null;
   postRefusalEnabled: boolean;
   postRefusalWorkerMode: PostRefusalWorkerMode;
@@ -227,6 +237,7 @@ async function main() {
     "CERTSCORE_V2_DAG_LAMBDA_PROXY_PASSWORD",
     "CERTSCORE_V2_DAG_LAMBDA_PROXY_SERVER",
     "CERTSCORE_V2_DAG_LAMBDA_PROXY_USERNAME",
+    POST_ACCEPT_WORKER_FEATURE_FLAG,
     POST_REFUSAL_REJECT_WORKER_FEATURE_FLAG,
     "CERTSCORE_V2_DAG_LAMBDA_SCENARIO_CONCURRENCY",
     "CERTSCORE_V2_DAG_LAMBDA_SCENARIO_RESOURCE_MODE",
@@ -272,8 +283,15 @@ async function main() {
     } else {
       delete process.env[POST_REFUSAL_REJECT_WORKER_FEATURE_FLAG];
     }
+    if (args.postAcceptEnabled) {
+      process.env[POST_ACCEPT_WORKER_FEATURE_FLAG] = "1";
+    } else {
+      delete process.env[POST_ACCEPT_WORKER_FEATURE_FLAG];
+    }
 
     const payload = {
+      resourceInventoryCrawl: args.resourceInventoryCrawl,
+      resourceInventoryDiscovery: args.resourceInventoryDiscovery,
       artifactOnly: true,
       awsRegion: args.awsRegion,
       callbackCorrelationId: args.scanId,
@@ -286,6 +304,10 @@ async function main() {
       productionFindingIntegration: false,
       profile: args.profile,
       ...(args.debugOverrides ? { debugOverrides: args.debugOverrides } : {}),
+      ...(args.runtimeGraph ? { runtimeGraph: args.runtimeGraph } : {}),
+      ...(args.gpcEnabled && args.gpcConfig
+        ? { gpcObservation: args.gpcConfig }
+        : {}),
       ...(args.postRefusalEnabled
         ? {
             postRefusalObservation: args.postRefusalConfig ?? {
@@ -305,6 +327,9 @@ async function main() {
               observationWindowMs: 8_000,
             },
           }
+        : {}),
+      ...(args.postAcceptEnabled && args.postAcceptConfig
+        ? { postAcceptObservation: args.postAcceptConfig }
         : {}),
       resultHandoff: "sqs",
       resultPurpose: "synthetic_verification",
@@ -401,6 +426,7 @@ async function buildSummary(input: {
       screenshots: arrayLength(bundleRecord.screenshots)
     },
     postRefusal: summarizePostRefusal(bundleRecord),
+    postAccept: summarizePostAccept(bundleRecord),
     manifest: {
       auxiliaryArtifactCount: arrayLength(asRecord(manifest).auxiliaryArtifacts),
       hasCoordinatorPlanSummary: Boolean(asRecord(manifest).coordinatorPlanSummary),
@@ -485,8 +511,10 @@ function summarizeShardSummary(value: unknown) {
   };
 }
 
-function parseArgs(argv: string[]): Args {
+export function parseArgs(argv: string[]): Args {
   const args: Args = {
+    resourceInventoryCrawl: false,
+    resourceInventoryDiscovery: false,
     artifactDir: "artifacts/local-v2-dag-lambda-parity",
     awsRegion: "eu-central-1",
     debugOverrides: {
@@ -500,9 +528,14 @@ function parseArgs(argv: string[]): Args {
       strongEvidenceMode: "webmd"
     },
     functionName: "certscore-v2-dag-local-lambda",
+    gpcConfig: null,
+    gpcEnabled: false,
+    runtimeGraph: null,
     messageStreamPath: null,
     outPath: "artifacts/local-v2-dag-lambda-parity/latest.json",
     profile: "full",
+    postAcceptConfig: null,
+    postAcceptEnabled: false,
     postRefusalConfig: null,
     postRefusalEnabled: false,
     postRefusalWorkerMode: "normal",
@@ -514,6 +547,10 @@ function parseArgs(argv: string[]): Args {
     const arg = argv[index];
     if (arg === "--") {
       continue;
+    } else if (arg === "--resource-inventory-crawl") {
+      args.resourceInventoryCrawl = true;
+    } else if (arg === "--resource-inventory-discovery") {
+      args.resourceInventoryDiscovery = true;
     } else if (arg === "--artifact-dir") {
       args.artifactDir = requiredValue(argv, ++index, arg);
     } else if (arg === "--aws-region") {
@@ -522,6 +559,13 @@ function parseArgs(argv: string[]): Args {
       args.debugOverrides = parseJsonObjectArg(requiredValue(argv, ++index, arg), arg);
     } else if (arg === "--function-name") {
       args.functionName = requiredValue(argv, ++index, arg);
+    } else if (arg === "--gpc-config") {
+      args.gpcConfig = parseJsonObjectArg(requiredValue(argv, ++index, arg), arg);
+      args.gpcEnabled = true;
+    } else if (arg === "--runtime-graph-config") {
+      args.runtimeGraph = runtimeGraphDispatchSchema.parse(
+        parseJsonObjectArg(requiredValue(argv, ++index, arg), arg),
+      );
     } else if (arg === "--message-stream") {
       args.messageStreamPath = requiredValue(argv, ++index, arg);
     } else if (arg === "--no-debug-overrides") {
@@ -538,6 +582,9 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === "--post-refusal-worker-mode") {
       args.postRefusalEnabled = true;
       args.postRefusalWorkerMode = normalizePostRefusalWorkerMode(requiredValue(argv, ++index, arg));
+    } else if (arg === "--post-accept-config") {
+      args.postAcceptConfig = parseJsonObjectArg(requiredValue(argv, ++index, arg), arg);
+      args.postAcceptEnabled = true;
     } else if (arg === "--scan-id") {
       args.scanId = requiredValue(argv, ++index, arg);
     } else if (arg === "--target-url") {
@@ -547,6 +594,9 @@ function parseArgs(argv: string[]): Args {
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
+  }
+  if (args.runtimeGraph && args.runtimeGraph.scanId !== args.scanId) {
+    throw new Error("Runtime graph configuration must match the local scan ID.");
   }
   return args;
 }
@@ -562,9 +612,12 @@ function printUsage() {
     "  --target-url <url>       Site to scan. Default: https://www.webmd.com/",
     "  --aws-region <region>    eu-central-1, eu-west-1, or us-west-1. Default: eu-central-1",
     "  --profile <profile>      full, standard, or tiny. Default: full",
+    "  --gpc-config <json>       Enable the passive GPC lane with the typed WC01 dispatch configuration.",
+    "  --runtime-graph-config <json> Preserve the typed WC01 relationship-capture configuration for this scan.",
     "  --post-refusal           Enable the local four-lane Reject Path barrier.",
     "  --post-refusal-config <json> Enable Reject Path with the typed WC01 dispatch configuration.",
     "  --post-refusal-worker-mode <mode> normal, failure, or timeout. Implies --post-refusal.",
+    "  --post-accept-config <json> Enable Accept Path with the typed WC01 dispatch configuration.",
     "  --scan-id <id>           Stable scan ID. Default: local-lambda-parity-<uuid>",
     "  --artifact-dir <path>    Artifact base directory. Default: artifacts/local-v2-dag-lambda-parity",
     "  --message-stream <path>  Optional NDJSON stream of fake SQS messages, constrained to artifact-dir.",
@@ -636,6 +689,21 @@ function summarizePostRefusal(bundleRecord: Record<string, unknown>) {
     observationTypes: observations.map((observation) => asRecord(observation).observationType ?? null),
     productionProjectable: packet.productionProjectable ?? null,
     refusalExercised: registration.refusalExercised ?? null,
+    registrationStatus: registration.status ?? null,
+  };
+}
+
+function summarizePostAccept(bundleRecord: Record<string, unknown>) {
+  const laneOutcome = asRecord(bundleRecord.postAcceptLaneOutcome);
+  const packet = asRecord(bundleRecord.postAcceptEvidence);
+  const registration = asRecord(packet.acceptanceRegistration);
+  const observations = Array.isArray(packet.observations) ? packet.observations : [];
+  return {
+    acceptanceExercised: registration.acceptanceExercised ?? null,
+    laneOutcome: Object.keys(laneOutcome).length > 0 ? laneOutcome : null,
+    observationCount: observations.length,
+    observationTypes: observations.map((observation) => asRecord(observation).observationType ?? null),
+    productionProjectable: packet.productionProjectable ?? null,
     registrationStatus: registration.status ?? null,
   };
 }
@@ -787,7 +855,7 @@ function restoreEnv(values: Map<string, string | undefined>) {
   }
 }
 
-void main().then(
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) void main().then(
   () => {
     // This executable is the local simulated-Lambda boundary. All evidence,
     // manifests, and the captured terminal message have been synchronously

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import {
   boundedPreConsentVisualFallbackDeadlineMs,
   capturePreConsentScreenshotOnlyFallback,
   consentInspectionNeedsRecovery,
+  hasVerifiedRetainedStructuredConsentEvidence,
 } from "./index.js";
 import { classifyVisualCaptureFailureReason } from "./scanners/pre-consent-runtime-scanner.js";
 import { startStaticFixtureServer } from "./test-fixtures/static-server.js";
@@ -220,6 +221,21 @@ test("bounded consent recovery retains canonical DOM inventory and geometry evid
     assert.ok(result.consentUiObservation?.basis.includes("recovery:independent_consent_capture_completed"));
     assert.equal(result.consentUiObservation?.rejectControlObserved, true);
     await access(path.join(tempRoot, "ConsentControlGeometryEvidence.json"));
+    const geometryPath = path.join(tempRoot, "ConsentControlGeometryEvidence.json");
+    const geometry = JSON.parse(await readFile(geometryPath, "utf8"));
+    assert.ok(result.consentUiObservation?.documentIdentity?.token);
+    assert.deepEqual(geometry.documentIdentity, result.consentUiObservation?.documentIdentity);
+    assert.equal(geometry.screenshotArtifactRef, undefined, 'fresh recovery must not borrow an earlier-session screenshot');
+    const retained = { consentUiObservations: [result.consentUiObservation!] };
+    assert.equal(await hasVerifiedRetainedStructuredConsentEvidence(retained, geometryPath), true,
+      'verified structured evidence remains authoritative without an available screenshot');
+    await writeFile(geometryPath, JSON.stringify({ ...geometry, documentIdentity: { ...geometry.documentIdentity, token: 'another-document' } }));
+    assert.equal(await hasVerifiedRetainedStructuredConsentEvidence(retained, geometryPath), false);
+    await writeFile(geometryPath, JSON.stringify({ ...geometry, controlInspection: { ...geometry.controlInspection,
+      structuralCoverage: 'limited', captureCoverage: { ...geometry.controlInspection.captureCoverage, documentReadyState: 'interactive' } } }));
+    assert.equal(await hasVerifiedRetainedStructuredConsentEvidence(retained, geometryPath), false,
+      'the production interactive-document geometry must not count as complete');
+
   } finally {
     await server.close();
     await rm(tempRoot, { recursive: true, force: true });

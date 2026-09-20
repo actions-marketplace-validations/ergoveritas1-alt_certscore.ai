@@ -113,6 +113,7 @@ export default async function DashboardPage() {
         <p className="mt-1 text-sm text-slate-500">Scan a website, review what needs attention, and track meaningful changes over time.</p>
       </div>
 
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="scroll-mt-6 border-sky-100 bg-[linear-gradient(145deg,#ffffff_0%,#f5fbff_100%)] shadow-sm" id="scan-a-site">
           <CardHeader className="pb-2 pt-5">

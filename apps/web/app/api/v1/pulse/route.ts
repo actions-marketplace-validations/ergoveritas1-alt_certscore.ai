@@ -379,6 +379,9 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
   const url = new URL(request.url);
   const gptAction = isGptActionRequest(url, options);
   const routeName = options.routeName ?? (gptAction ? "pulse-gpt" : "pulse");
+  if ((url.searchParams.has("fullSite") && url.searchParams.get("fullSite")!=="false") || ["crawlOptions","maxPages","concurrency"].some(key=>url.searchParams.has(key))) {
+    return new Response(JSON.stringify({error:"Unsupported scan option."}),{status:403,headers:{"Content-Type":"application/json"}});
+  }
   const format = gptAction ? parseGptPulseFormat(url) : parsePulseFormat(url.searchParams.get("format"));
   const requestedDetail = url.searchParams.get("detail");
   const detail = parsePulseDetail(
@@ -430,8 +433,10 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
           code: auth.reason === "missing_scope" ? "forbidden" : "unauthorized",
           message:
             auth.reason === "missing_scope"
-              ? "This CertScore.ai API key does not include the required Pulse scope."
-              : "This CertScore.ai API key is invalid, expired, or revoked.",
+              ? `This credential lacks the required permission: ${requiredScopesForPulseRequest({ hasUrl: Boolean(rawUrl), hasScanId: Boolean(scanId), hasJobId: Boolean(jobId) }).filter((scope) => !auth.key.scopes.includes(scope)).map((scope) => auth.key.tokenPrefix === "oauth" ? scope === "pulse:scan" ? "scan:create" : scope === "pulse:read" ? "scan:read" : scope : scope).join(" ")}.`
+              : "This CertScore.ai credential is invalid, expired, or revoked.",
+          recommendedNextAction: auth.reason === "missing_scope" ? "For an active workspace, reconnect requesting scan:read scan:create mcp and approve access. Use certscore_get_latest_domain_scan to read an existing scan while read access remains available. No manual CertScore approval is required for active workspace members." : "Reconnect to CertScore to authorize a valid credential.",
+          resolution: { label: "OAuth setup and permissions", url: "https://certscore.ai/developers/mcp" },
           detail,
           format
         }),
@@ -742,7 +747,7 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
       return pulseJson(
         buildPulseError({
           code: dnsStatus.retryable ? "internal_error" : "invalid_url",
-          reasonCode: dnsStatus.reasonCode === "non_public_target" ? "non_public_target" : null,
+          reasonCode: dnsStatus.reasonCode,
           message: dnsStatus.reason,
           retryAfterSeconds: dnsStatus.retryable ? 60 : null,
           url: rawUrl,
@@ -963,7 +968,7 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
       minimumReusablePagesRequested: PULSE_MIN_REUSABLE_PAGES_REQUESTED,
       normalizedUrl: normalized.normalizedUrl,
       provenance: {
-        source: gptAction ? "gpt_action" : "pulse_api",
+        source: contextBase.source,
         host: request.headers.get("host"),
         userAgent: requester.userAgent,
         originIp: requester.ipHash
@@ -1038,7 +1043,7 @@ async function handlePulseGET(request: Request, options: PulseRouteOptions = {})
           provenance: {
             host: request.headers.get("host"),
             originIp: requester.ipHash,
-            source: gptAction ? "gpt_action" : "pulse_api",
+            source: contextBase.source,
             userAgent: requester.userAgent
           },
           pulseRequestId: publicId,

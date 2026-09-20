@@ -18,6 +18,7 @@ RUN corepack enable
 WORKDIR /app
 
 COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY patches ./patches
 COPY apps/browser-extension/package.json ./apps/browser-extension/package.json
 COPY apps/v2-dag-lambda/package.json ./apps/v2-dag-lambda/package.json
 COPY apps/validation-worker/package.json ./apps/validation-worker/package.json
@@ -62,10 +63,10 @@ RUN rm -rf \
   ./packages/db/dist \
   ./packages/validation-shared/dist
 
-RUN pnpm --filter @certscore/api-contracts build
 RUN pnpm --filter @certscore/contracts build
 RUN pnpm --filter @certscore/vendor-resolver build
 RUN pnpm --filter @website-signal-risk-scanner/shared build
+RUN pnpm --filter @certscore/api-contracts build
 RUN pnpm --filter @website-signal-risk-scanner/web-bot-auth build
 RUN pnpm --filter @certscore/scan-core build
 RUN pnpm --filter @website-signal-risk-scanner/db build
@@ -115,6 +116,15 @@ COPY --from=build /app/packages/certscore-scan-core/dist ./node_modules/@certsco
 # but its contents can lag a resolver-only release. Always copy the resolver
 # built with this application image so the canonical version tracks this SHA.
 COPY --from=build /app/packages/certscore-vendor-resolver/dist ./node_modules/@certscore/vendor-resolver/dist
+
+# Refresh every workspace runtime dependency, not just scanner contracts. The
+# cached base supplies third-party dependencies and Chromium, never app logic.
+COPY --from=build /app/packages/shared/dist ./node_modules/@website-signal-risk-scanner/shared/dist
+COPY --from=build /app/packages/db/dist ./node_modules/@website-signal-risk-scanner/db/dist
+COPY --from=build /app/packages/validation-shared/dist ./node_modules/@website-signal-risk-scanner/validation-shared/dist
+COPY --from=build /app/packages/web-bot-auth/dist ./node_modules/@website-signal-risk-scanner/web-bot-auth/dist
+COPY apps/validation-worker/scripts/verify-installed-compaction.cjs ./verify-installed-compaction.cjs
+RUN node ./verify-installed-compaction.cjs
 
 RUN node -e "const contracts=require('@certscore/contracts'); if (contracts.VERIFIED_POLICY_EVIDENCE_PACKET_VERSION !== 'certscore.verified-policy-evidence.v1' || typeof contracts.verifiedPolicyEvidencePacketSchema?.parse !== 'function') throw new Error('validation worker runtime is missing the current verified policy evidence contract');" \
   && node -e "const pw=require('playwright'); const pkg=require('playwright/package.json'); console.log(JSON.stringify({validationWorkerRuntime:{playwrightVersion:pkg.version,chromiumExecutablePath:pw.chromium.executablePath()}}));" \

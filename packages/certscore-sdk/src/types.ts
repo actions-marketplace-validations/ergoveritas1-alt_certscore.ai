@@ -121,7 +121,19 @@ export interface ScanCreationMetadata {
   recommendedNextTool?: "certscore_get_scan_status" | "certscore_get_scan_bundle";
 }
 
+export interface AfterActionSummary {
+  policyVersion: "bounded_after_action_capture.v1" | "bounded_after_action_capture.v2";
+  action: "accept" | "reject";
+  activationStatus: "completed" | "uncertain";
+  stopReason: "window_elapsed" | "aborted" | "target_changed" | "click_uncertain";
+  requestsDropped: number;
+  requestCount: number;
+  storageWriteCount: number;
+  storageSnapshotRetained: boolean;
+}
+
 export interface PostRefusalObservation {
+  afterAction?: AfterActionSummary;
   status:
     | "confirmed_observation"
     | "confirmed_clean"
@@ -132,6 +144,8 @@ export interface PostRefusalObservation {
   refusalExercised: boolean;
   observationCount: number;
   productionProjectable: boolean;
+  evidenceDisposition: "confirmed" | "indeterminate";
+  indeterminateReason: string | null;
   verdict:
     | "eligible_nonessential_activity_observed_after_confirmed_refusal"
     | "retained_consent_signal_contradiction_observed_after_confirmed_refusal"
@@ -157,6 +171,108 @@ export interface PostRefusalObservation {
   limitations: string[];
 }
 
+export interface PostAcceptObservation {
+  afterAction?: AfterActionSummary;
+  status:
+    | "confirmed_observation"
+    | "confirmed_clean"
+    | "unconfirmed"
+    | "not_attempted"
+    | "unsupported"
+    | "aborted";
+  acceptanceExercised: boolean;
+  observationCount: number;
+  productionProjectable: boolean;
+  evidenceDisposition: "confirmed" | "indeterminate";
+  indeterminateReason: string | null;
+  verdict:
+    | "eligible_nonessential_activity_observed_after_confirmed_acceptance"
+    | "retained_consent_signal_contradiction_observed_after_confirmed_acceptance"
+    | "no_eligible_nonessential_activity_observed_during_completed_window"
+    | "no_confirmed_post_accept_verdict";
+  interpretation: string;
+  observationStrategy: "stop_on_first_eligible_activity" | "not_applicable";
+  termination: {
+    kind: "evidence_satisfied" | "window_elapsed" | "unavailable";
+    intentional: boolean;
+    trigger:
+      | "non_essential_request_observed"
+      | "non_essential_storage_write_observed"
+      | "acceptance_signal_contradiction_observed"
+      | "window_elapsed"
+      | "accept_control_not_observed"
+      | "accept_path_timeout"
+      | "accept_observation_window_truncated"
+      | "worker_failed"
+      | "unavailable";
+  };
+  completedAt: string | null;
+  coverageLimitations: string[];
+  /** @deprecated Use coverageLimitations. */
+  limitations: string[];
+}
+
+export interface GpcComparisonDelta {
+  baselineCount: number;
+  gpcCount: number;
+  countDelta: number;
+  baselineOnly: string[];
+  gpcOnly: string[];
+  shared: string[];
+  /** V2 full-set counts; arrays above are bounded evidence samples. */
+  baselineOnlyCount?: number;
+  gpcOnlyCount?: number;
+  sharedCount?: number;
+  samplesTruncated?: boolean;
+}
+
+export interface GpcResponse {
+  observation?: import("./gpc-bounded-observation.js").GpcBoundedObservation;
+  contractVersion?: "certscore.gpc-response-assessment.v1" | "certscore.gpc-response-assessment.v2" | "certscore.gpc-response-assessment.v3";
+  status: "responsive" | "no_observable_response" | "indeterminate";
+  findingTitle: "GPC response" | "No observable GPC response";
+  summary: string;
+  scoreEffect: "none";
+  legalInterpretation: "not_assessed";
+  comparison: {
+    comparable: boolean;
+    protocol: "passive_baseline_with_sec_gpc";
+    baselineArtifact: {
+      lane: "runtime_evidence";
+      sha256: string;
+      sizeBytes: number;
+    } | null;
+    gpcArtifact: {
+      lane: "gpc_observation";
+      sha256: string;
+      sizeBytes: number;
+    } | null;
+    enabledProof: {
+      secGpcHeaderValue: "1" | null;
+      requestsWithSecGpc: number;
+      requestEventIds: string[];
+      navigatorGlobalPrivacyControl: boolean | null;
+    };
+    deltas: {
+      cookies: GpcComparisonDelta;
+      trackers: GpcComparisonDelta;
+      advertisingOrMeasurementActivity: GpcComparisonDelta;
+      consentOrCmpBehavior: GpcComparisonDelta;
+      webStorage?: GpcComparisonDelta;
+      advertisingOrMarketingActivity?: GpcComparisonDelta;
+    };
+    delivery?: { status: "verified" | "limited" | "unavailable" };
+    coverage?: { status: "complete" | "limited" | "unavailable"; comparedThroughMs: number | null };
+    responseBasis?: "qualified_activity_reduction" | "no_qualified_reduction" | "insufficient_evidence";
+    limitationKeys: string[];
+  };
+  californiaPolicy: {
+    applied: boolean;
+    deductionPoints: 0 | 15;
+  };
+  evidenceUrl: string;
+}
+
 export interface ScanResource extends ScanCreationMetadata {
   type: "certscore_scan";
   scanId: string;
@@ -175,6 +291,8 @@ export interface ScanResource extends ScanCreationMetadata {
   scoreVersion?: string | null;
   scoreUpdatedAt?: string | null;
   riskLevel?: string | null;
+  gpcResponse?: GpcResponse | null;
+  postAcceptObservation?: PostAcceptObservation | null;
   postRefusalObservation?: PostRefusalObservation | null;
   coverage?: {
     status?: string;
@@ -208,6 +326,8 @@ export interface ScanJob extends ScanCreationMetadata {
   scoreVersion?: string | null;
   scoreUpdatedAt?: string | null;
   riskLevel?: string | null;
+  gpcResponse?: GpcResponse | null;
+  postAcceptObservation?: PostAcceptObservation | null;
   postRefusalObservation?: PostRefusalObservation | null;
   coverage?: ScanResource["coverage"] | null;
   lastUpdatedAt?: string;
@@ -451,6 +571,7 @@ export interface PreConsentCookiesTrackersRow {
 }
 
 export interface PreConsentCookiesTrackers {
+  runtimeEvidenceGraph?: import("./runtime-evidence-graph.js").RuntimeEvidenceGraphProjection;
   type: "certscore_pre_consent_cookies_trackers";
   scanId: string;
   domain?: string | null;
@@ -706,6 +827,9 @@ export interface PulseResultBase {
   scanStatus?: string;
   resultDisposition?: ScanResultDisposition;
   noGo?: ScanNoGoResult;
+  gpcResponse?: GpcResponse | null;
+  postAcceptObservation?: PostAcceptObservation | null;
+  postRefusalObservation?: PostRefusalObservation | null;
   summary?: PulseSummary;
   topFindings?: TopFinding[];
   transportSecurity?: TransportSecurityProjection;
@@ -828,4 +952,17 @@ export interface PulseErrorResponse {
   agentInterpretation?: AgentInterpretation;
   disclaimer?: string;
   [key: string]: unknown;
+}
+
+/** Versioned, lossless export of the public report projection; observation coverage is separate. */
+export interface ReportEvidencePage {
+  type: "certscore_report_evidence_page";
+  version: 1;
+  scanId: string;
+  snapshot: string;
+  reportUrl: string;
+  entries: Array<{ path: string; value: unknown; stringPart?: number; stringParts?: number }>;
+  pagination: { offset: number; returned: number; total: number; complete: boolean; nextCursor: string | null };
+  coverage: { scope: "public_report_projection"; exportTruncated: false; observationCompleteness: "see_report_coverage"; exclusions: string[] };
+  reconstruction: string;
 }

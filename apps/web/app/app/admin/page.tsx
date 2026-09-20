@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { AdminDataBoundary, AdminDataLoading } from "../../../components/admin/admin-data-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import { PendingButtonLink } from "../../../components/ui/pending-link";
 import { formatAdminDateTime } from "../../../lib/admin/date-time";
@@ -8,23 +10,15 @@ import { getAdminPulseOverviewCounts, listAdminPulseRequests } from "../../../se
 import { withServerTiming } from "../../../server/performance/log-server-timing";
 
 export default async function AdminOverviewPage() {
-  const [userOverview, scans, scanMetrics, monitorRequestCounts, pulseCounts, pulseRequests] = await withServerTiming("app.admin.overview", () =>
-    Promise.all([
-      getAdminUserOverview({ limit: 8 }),
-      listAdminOverviewScans(10),
-      getAdminScanOverviewMetrics(),
-      getMonitorSiteRequestCounts(),
-      getAdminPulseOverviewCounts(),
-      listAdminPulseRequests({ limit: 6 })
-    ])
-  );
-  const users = userOverview.recentUsers;
-  const activePlans = userOverview.metrics.activePlans;
-
-  return (
-    <div className="space-y-8">
-      <div className="grid gap-6 lg:grid-cols-5">
-        <Card className="border-slate-200 bg-white">
+  const userOverviewPromise = withServerTiming("app.admin.overview.userOverview", () => getAdminUserOverview({ limit: 8 }));
+  const scansPromise = withServerTiming("app.admin.overview.scans", () => listAdminOverviewScans(10));
+  const scanMetricsPromise = withServerTiming("app.admin.overview.scanMetrics", () => getAdminScanOverviewMetrics());
+  const monitorRequestCountsPromise = withServerTiming("app.admin.overview.monitorRequestCounts", () => getMonitorSiteRequestCounts());
+  const pulseCountsPromise = withServerTiming("app.admin.overview.pulseCounts", () => getAdminPulseOverviewCounts());
+  const pulseRequestsPromise = withServerTiming("app.admin.overview.pulseRequests", () => listAdminPulseRequests({ limit: 6 }));
+  async function OverviewUsers() {
+    const userOverview = await userOverviewPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Users</CardTitle>
           </CardHeader>
@@ -32,8 +26,11 @@ export default async function AdminOverviewPage() {
             <p className="text-2xl font-semibold text-slate-900">{userOverview.metrics.totalUsers}</p>
             <p className="text-sm text-slate-600">User records with organization bootstrap state.</p>
           </CardContent>
-        </Card>
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewWorkspaces() {
+    const userOverview = await userOverviewPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Workspaces</CardTitle>
           </CardHeader>
@@ -41,8 +38,11 @@ export default async function AdminOverviewPage() {
             <p className="text-2xl font-semibold text-slate-900">{userOverview.metrics.totalWorkspaces}</p>
             <p className="text-sm text-slate-600">Organizations currently attached to user memberships.</p>
           </CardContent>
-        </Card>
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewScans() {
+    const scanMetrics = await scanMetricsPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Scans</CardTitle>
           </CardHeader>
@@ -50,8 +50,11 @@ export default async function AdminOverviewPage() {
             <p className="text-2xl font-semibold text-slate-900">{scanMetrics.totalScans}</p>
             <p className="text-sm text-slate-600">All recorded scans across all workspaces.</p>
           </CardContent>
-        </Card>
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewScanFrom() {
+    const scanMetrics = await scanMetricsPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Scan From</CardTitle>
           </CardHeader>
@@ -66,8 +69,12 @@ export default async function AdminOverviewPage() {
               <p>No scan-location data yet.</p>
             )}
           </CardContent>
-        </Card>
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewPlanMix() {
+    const userOverview = await userOverviewPromise;
+    const activePlans = userOverview.metrics.activePlans;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Plan Mix</CardTitle>
           </CardHeader>
@@ -77,8 +84,11 @@ export default async function AdminOverviewPage() {
             <p>Pro: {activePlans.pro ?? 0}</p>
             <p>Custom: {activePlans.team ?? 0}</p>
           </CardContent>
-        </Card>
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewMonitorIntake() {
+    const monitorRequestCounts = await monitorRequestCountsPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Monitor Intake</CardTitle>
           </CardHeader>
@@ -87,8 +97,11 @@ export default async function AdminOverviewPage() {
             <p>Contacted: {monitorRequestCounts.contacted}</p>
             <p>Total: {monitorRequestCounts.total}</p>
           </CardContent>
-        </Card>
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewAPIActivity() {
+    const pulseCounts = await pulseCountsPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
           <CardTitle>API Activity</CardTitle>
           </CardHeader>
@@ -100,11 +113,12 @@ export default async function AdminOverviewPage() {
               <PendingButtonLink href="/app/admin/mcp" idleContent="Open MCP operations" pendingContent="Opening..." prefetch={false} size="sm" variant="secondary" />
             </div>
           </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-4">
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewRecentUsers() {
+    const userOverview = await userOverviewPromise;
+    const users = userOverview.recentUsers;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Recent Users</CardTitle>
           </CardHeader>
@@ -128,9 +142,11 @@ export default async function AdminOverviewPage() {
               variant="secondary"
             />
           </CardContent>
-        </Card>
-
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewRecentScans() {
+    const scans = await scansPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Recent Scans</CardTitle>
           </CardHeader>
@@ -166,9 +182,11 @@ export default async function AdminOverviewPage() {
             ))}
             <PendingButtonLink href="/app/admin/scans" idleContent="Open scan admin" pendingContent="Opening..." prefetch={false} variant="secondary" />
           </CardContent>
-        </Card>
-
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewOperationalSignals() {
+    const scanMetrics = await scanMetricsPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Operational Signals</CardTitle>
           </CardHeader>
@@ -193,9 +211,11 @@ export default async function AdminOverviewPage() {
               variant="secondary"
             />
           </CardContent>
-        </Card>
-
-        <Card className="border-slate-200 bg-white">
+        </Card>;
+  }
+  async function OverviewRecentPulseRequests() {
+    const pulseRequests = await pulseRequestsPromise;
+    return <Card className="border-slate-200 bg-white">
           <CardHeader>
             <CardTitle>Recent Pulse Requests</CardTitle>
           </CardHeader>
@@ -216,7 +236,29 @@ export default async function AdminOverviewPage() {
             ))}
             <PendingButtonLink href="/app/admin/pulse" idleContent="Open API activity" pendingContent="Opening..." prefetch={false} variant="secondary" />
           </CardContent>
-        </Card>
+        </Card>;
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="grid gap-6 lg:grid-cols-5">
+        <AdminDataBoundary label="Users"><Suspense fallback={<AdminDataLoading label="Users" />}><OverviewUsers /></Suspense></AdminDataBoundary>
+        <AdminDataBoundary label="Workspaces"><Suspense fallback={<AdminDataLoading label="Workspaces" />}><OverviewWorkspaces /></Suspense></AdminDataBoundary>
+        <AdminDataBoundary label="Scans"><Suspense fallback={<AdminDataLoading label="Scans" />}><OverviewScans /></Suspense></AdminDataBoundary>
+        <AdminDataBoundary label="Scan From"><Suspense fallback={<AdminDataLoading label="Scan From" />}><OverviewScanFrom /></Suspense></AdminDataBoundary>
+        <AdminDataBoundary label="Plan Mix"><Suspense fallback={<AdminDataLoading label="Plan Mix" />}><OverviewPlanMix /></Suspense></AdminDataBoundary>
+        <AdminDataBoundary label="Monitor Intake"><Suspense fallback={<AdminDataLoading label="Monitor Intake" />}><OverviewMonitorIntake /></Suspense></AdminDataBoundary>
+        <AdminDataBoundary label="API Activity"><Suspense fallback={<AdminDataLoading label="API Activity" />}><OverviewAPIActivity /></Suspense></AdminDataBoundary>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-4">
+        <AdminDataBoundary label="Recent Users"><Suspense fallback={<AdminDataLoading label="Recent Users" />}><OverviewRecentUsers /></Suspense></AdminDataBoundary>
+
+        <AdminDataBoundary label="Recent Scans"><Suspense fallback={<AdminDataLoading label="Recent Scans" />}><OverviewRecentScans /></Suspense></AdminDataBoundary>
+
+        <AdminDataBoundary label="Operational Signals"><Suspense fallback={<AdminDataLoading label="Operational Signals" />}><OverviewOperationalSignals /></Suspense></AdminDataBoundary>
+
+        <AdminDataBoundary label="Recent Pulse Requests"><Suspense fallback={<AdminDataLoading label="Recent Pulse Requests" />}><OverviewRecentPulseRequests /></Suspense></AdminDataBoundary>
       </div>
     </div>
   );
