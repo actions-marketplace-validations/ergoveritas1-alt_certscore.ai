@@ -294,3 +294,29 @@ new scans are refused. Ordinary workspace access remains available separately.
   Clicking it opened the Marketplace URL field with 49 remaining credits and both
   completed reports in history. No additional scan was created by this verification.
   All six PR checks passed for the deployed code revision.
+
+## September 20 ordinary-login incident
+
+A selected browser Marketplace workspace persisted in a 30-day cookie. The
+global dashboard context honored it on ordinary app routes, and the app layout
+redirected those routes back to the Marketplace hub. This affected browsers with
+a selected Marketplace workspace, including the owner test session; it was not
+evidence that authentication was down for every user. Clearing the selection
+restored the owner's ordinary dashboard immediately. Marketplace release testing
+was stopped.
+
+Hotfix `b99910aa` removes the Marketplace selection from the current request and
+expires that cookie on ordinary login and app entry. Authentication cookies and
+pending registration claims are preserved. Direct report routes retain the
+selected Marketplace workspace, and speculative prefetch does not clear the
+browser selection. Five middleware tests cover these boundaries; the canonical
+local preflight passed. No scanner, billing, database, subscription or allowance
+changes are included. Estimated incremental recurring cost: $0/month.
+
+AWS deployment `35532687653` succeeded and ECS stabilized at `b99910aa`. Live
+HTTP probes confirmed stale-selection expiry on `/login`, `/app`, and
+`/app/admin/scans`, with ordinary login destinations preserved. The signed-in
+production browser test explicitly selected the cancelled Marketplace workspace,
+then opened `/login`: it reached the ordinary `/app` dashboard instead of the
+Marketplace hub. No new subscription or scan was created. Marketplace release
+work remains stopped at the owner's request.
