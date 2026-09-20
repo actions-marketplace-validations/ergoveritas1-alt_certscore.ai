@@ -266,9 +266,15 @@ new scans are refused. Ordinary workspace access remains available separately.
   `5c115313` replaces it with a hub link and uses full navigation for refreshed
   subscription/usage/history. It passed affected preflight and all 10 existing
   scan-form tests. AWS deployment `35531480885` succeeded.
-- Real cancellation is prepared against only this agreement. AWS's dialog warns
-  of irreversible subscription-data deletion, so the required action-time owner
-  confirmation is pending. No cancellation or replacement has been claimed yet.
+- With action-time owner confirmation, the real browser agreement was cancelled
+  at `2026-09-20T19:26:43.939Z`; AWS DescribeAgreement returned `CANCELLED`.
+  A submission from the stale, previously active browser form was rejected as
+  inactive, with usage unchanged at 1/50 and 49 remaining. Reloading the existing
+  completed report still allowed access. AWS's active subscriptions list retained
+  MCP Light. The genuine lifecycle event at `2026-09-20T19:27:29Z` persisted
+  `revoked`; read-only audit confirmed unchanged usage, ordinary memberships/plans,
+  and all three MCP license/key states. Replacement subscription acceptance is
+  prepared but not yet executed. No additional scan cost was incurred.
 - This live test used an existing account with platform-admin privileges. It
   verifies browser onboarding and attributable usage, not an independent live
   non-admin cross-tenant security test. Ownership and alternate-intake denial

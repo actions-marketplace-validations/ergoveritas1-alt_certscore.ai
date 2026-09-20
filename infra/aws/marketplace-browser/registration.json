@@ -45,6 +45,6 @@
   "buyerListingUrl": "https://aws.amazon.com/marketplace/pp/prodview-gtrsswq5vpqdc",
   "realOnboardingVerified": true,
   "realFreshScanId": "9f2b9aca-88cd-4e6b-8dd9-71fb97bb2ac0",
-  "realCancellationVerified": false,
+  "realCancellationVerified": true,
   "realResubscriptionVerified": false
 }
