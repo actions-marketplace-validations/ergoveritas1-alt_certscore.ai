@@ -17,7 +17,7 @@
     "version": "2022-07-14"
   },
   "deliveryConfigured": true,
-  "publicVisibilityRequested": false,
+  "publicVisibilityRequested": true,
   "requestedBuyerAccounts": [
     "199536052647"
   ],
@@ -38,13 +38,18 @@
   "alertEmailConfirmed": true,
   "limitedReleaseChangeSetId": "bs4lizgnfd49qkmbf7ku6o7wl",
   "limitedReleaseChangeSetStatus": "SUCCEEDED",
-  "deployedWebRevision": "b99910aaca0ef0955d430b9cabdab219803ecdbe",
-  "webDeploymentRun": "35532687653",
+  "deployedWebRevision": "7903a5eef5aeeaebde7cd3f3286b45085dbc4d47",
+  "webDeploymentRun": "35534121184",
   "webDeploymentStatus": "success",
   "productState": "Active",
   "buyerListingUrl": "https://aws.amazon.com/marketplace/pp/prodview-gtrsswq5vpqdc",
   "realOnboardingVerified": true,
   "realFreshScanId": "9f2b9aca-88cd-4e6b-8dd9-71fb97bb2ac0",
   "realCancellationVerified": true,
-  "realResubscriptionVerified": false
+  "realResubscriptionVerified": false,
+  "publicVisibilityChangeSetId": "8dzi4whivsgpri2f3a35alroi",
+  "publicVisibilityChangeSetStatus": "PREPARING",
+  "publicVisibilityRequestedAt": "2026-09-20T20:12:18Z",
+  "globalEnrollmentCapRemoved": true,
+  "publicVisibilityPortalStatus": "Under review"
 }

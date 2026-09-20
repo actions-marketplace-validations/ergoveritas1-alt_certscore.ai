@@ -2,7 +2,10 @@
 
 Prepared September 20, 2026. The owner authorized moving toward Public visibility
 provided ordinary CertScore.ai operation is preserved. The request payload is
-`infra/aws/marketplace-browser/request-public.json`; **it has not been submitted**.
+`infra/aws/marketplace-browser/request-public.json`; submitted after the successful
+production release as request `8dzi4whivsgpri2f3a35alroi` at
+`2026-09-20T20:12:18Z`. Seller portal status: **Under review**; Catalog status: **PREPARING**, no reported errors. Product
+visibility is still **Limited**; Public approval has not been granted.
 
 ## Concrete configuration
 
@@ -76,3 +79,23 @@ and rerun the affected regression gates before any deployment.
 
 The capacity blocker above is an engineering assessment of the actual code and
 listing, not a claim that AWS has already rejected this product.
+
+## Deployed and submitted evidence
+
+- Web revision `7903a5ee`; AWS deployment `35534121184` succeeded. ECS has two
+  running tasks, two desired, and a single COMPLETED deployment.
+- Seventeen focused security/routing/payload tests passed, plus the isolated
+  PostgreSQL lifecycle suite with eleven additional buyer links and atomic
+  50-credit enforcement. Canonical local preflight and deployment checks passed.
+- Live stale-cookie probes passed for login, dashboard entry and admin entry.
+  The signed-in browser opened the ordinary dashboard from `/login`; the admin
+  page showed the corrected 50-scan copy and the revoked test subscription at
+  1/50 usage. No new production scan or subscription was created.
+- Four browser alarms were OK, both recovery queues empty, signed HTTPS delivery
+  confirmed. MCP Light readiness checks passed before and after submission.
+- The Public request contains exactly one UpdateVisibility operation for the
+  browser product. MCP Light, its request, pricing and subscription records were
+  not mutated. The previously documented live-testing limitations remain; this
+  submission does not convert automated coverage into real-buyer evidence.
+
+[Public review request](https://aws.amazon.com/marketplace/management/requests/8dzi4whivsgpri2f3a35alroi)

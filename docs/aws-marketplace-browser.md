@@ -322,3 +322,22 @@ production browser test explicitly selected the cancelled Marketplace workspace,
 then opened `/login`: it reached the ordinary `/app` dashboard instead of the
 Marketplace hub. No new subscription or scan was created. Marketplace release
 work remains stopped at the owner's request.
+
+## Public enrollment and visibility request — September 20, 2026
+
+The owner resumed Public submission and explicitly approved the disclosed variable
+operating cost beyond the ten-workspace pilot. Web revision `7903a5ee` removes
+only the global enrollment cap and stale admin label; each workspace retains 50
+monthly credits. The eleven-additional-buyer database regression, lifecycle/quota
+coverage, login regressions and canonical preflight passed. AWS web deployment
+`35534121184` succeeded; ECS stabilized with two of two tasks running. Live normal
+login/dashboard and admin checks passed. No new production scan was run.
+
+Public request `8dzi4whivsgpri2f3a35alroi` was submitted at
+`2026-09-20T20:12:18Z` using the isolated request-public.json payload. AWS reports
+PREPARING with no reported errors, and the seller portal confirms Under review;
+the browser product remains Limited/Active.
+This is a submission for review, not a Public release. MCP Light readiness checks
+passed before and after submission; its product and ongoing request were not
+changed. See `aws-marketplace-browser-public-readiness.md` for the approved cost
+estimate and the still-unverified live re-subscription/concurrency/non-admin cases.
