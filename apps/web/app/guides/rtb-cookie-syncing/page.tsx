@@ -17,5 +17,5 @@ export const metadata: Metadata = {
 };
 
 export default function RtbCookieSyncingGuidePage() {
-  return <AiVisibilityContent badge={guide.badge} intro={guide.intro} path={guide.path} schema={buildArticleSchema(guide)} sections={guide.sections} title={guide.title} />;
+  return <AiVisibilityContent showEvidenceExamples={false} relatedLinks={[{ href: "/guides/detect-tracking-before-consent", label: "Review pre-consent timing" }, { href: "/guides/google-analytics-meta-pixel-before-consent", label: "Investigate tag initiators" }]} badge={guide.badge} intro={guide.intro} path={guide.path} schema={buildArticleSchema(guide)} sections={guide.sections} title={guide.title} />;
 }

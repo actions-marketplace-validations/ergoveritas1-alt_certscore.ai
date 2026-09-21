@@ -48,7 +48,21 @@ export default function PrivacyScannerVsCookieScannerPage() {
       <SiteHeader />
       <AiVisibilityContent
         badge="Comparison"
-        intro="A basic cookie scanner identifies cookies. CertScore.ai observes website behavior around tracking, cookies, consent flows, accessibility signals, session recording, fingerprinting-related signals, and evidence-backed privacy risk indicators."
+        path="/compare/privacy-scanner-vs-cookie-scanner"
+        showEvidenceExamples={false}
+        intro="Cookie inventory answers what was stored. Runtime privacy testing also asks when requests or writes happened, what choice preceded them, and what the retained evidence supports. Products can overlap: compare actual tested capabilities, not the label “cookie scanner” or “privacy scanner.”"
+        evidence={<div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-5"><table className="w-full text-left text-sm leading-7 text-slate-700">
+          <caption className="pb-4 text-left text-xl font-semibold">Questions to use when evaluating a scanner</caption>
+          <thead><tr><th className="p-2" scope="col">Review task</th><th className="p-2" scope="col">Evidence to request</th></tr></thead>
+          <tbody>{[
+            ["Cookie inventory", "Names, domains, paths, expiry, and capture conditions; cookie values redacted."],
+            ["Pre-consent activity", "Request and write timing tied to a fresh session before any choice."],
+            ["Accept and Reject testing", "Separate sessions, completed click, confirmed decision, observation window, and failures."],
+            ["GPC response", "Actual signal delivery plus a comparable baseline; indeterminate coverage kept separate."],
+            ["Policy review", "Owned policy excerpts and corresponding browser evidence, with retrieval limitations."],
+            ["Team handoff", "An addressable report, retained references, export options, and reproducible test conditions."]
+          ].map(([task, evidence]) => <tr className="border-t border-slate-100" key={task}><th scope="row" className="p-2 font-medium">{task}</th><td className="p-2">{evidence}</td></tr>)}</tbody>
+        </table></div>}
         schema={schema}
         sections={[
           {
@@ -67,7 +81,7 @@ export default function PrivacyScannerVsCookieScannerPage() {
           }
         ]}
         relatedLinks={[
-          { href: "/guides/privacy-scanner-vs-cookie-scanner", label: "privacy scanner vs cookie scanner" },
+          { href: "/compare/privacy-scanner-vs-cookie-scanner", label: "privacy scanner vs cookie scanner" },
           { href: "/compare/website-consent-audit-tools", label: "website consent audit tools" },
           { href: "/guides/website-consent-audit-checklist", label: "website consent audit checklist" },
           { href: "/what-is-certscore", label: "what is CertScore.ai" }

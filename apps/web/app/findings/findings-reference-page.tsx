@@ -1,3 +1,4 @@
+import { EditorialByline } from "../../components/marketing/editorial-byline";
 import { Badge } from "@website-signal-risk-scanner/ui";
 import Link from "next/link";
 import { FindingAtlasBrowser } from "../../components/marketing/findings/finding-atlas-browser";
@@ -330,6 +331,7 @@ export function FindingsReferencePage({ activeFinding }: FindingsReferencePagePr
         <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
           {headingTitle}
         </h1>
+        <EditorialByline path={getPagePath(activeFinding)} />
         {activeFinding ? (
           <p className="text-base leading-7 text-slate-600">{pageDescription}</p>
         ) : (

@@ -6,6 +6,7 @@ import {
 } from "../../../components/marketing/solution-page";
 
 const config: SolutionPageConfig = {
+  inlineScan: true,
   badge: "Privacy policy risk scanner",
   description:
     "Review public privacy policies against observable website behavior, including tracking, cookies, vendors, session replay, and disclosure coverage signals.",
@@ -20,6 +21,10 @@ const config: SolutionPageConfig = {
     "Privacy request and contact surface signals"
   ],
   sections: [
+    {
+      title: "Turn a policy concern into a review task",
+      body: "Start with the retained policy excerpt and the corresponding browser observation. Identify the vendor or data category, confirm the policy belongs to the scanned site, and record any retrieval or coverage limitation. Missing evidence is an unknown, not proof that a disclosure is absent. Ask the policy owner and implementation team to review the same evidence."
+    },
     {
       title: "Direct answer",
       body:

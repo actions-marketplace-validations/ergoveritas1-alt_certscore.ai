@@ -45,7 +45,7 @@ export default function WebsiteScanningBasicsPage() {
       certScoreFlagExample="The scan could summarize several findings across tracking, cookies, accessibility, policy, and disclosure review categories."
       relatedGuides={[
         { href: "/guides/website-signal-check", label: "Website signal review checklist" },
-        { href: "/guides/privacy-scanner-vs-cookie-scanner", label: "Privacy scanner vs cookie scanner" },
+        { href: "/compare/privacy-scanner-vs-cookie-scanner", label: "Privacy scanner vs cookie scanner" },
         { href: "/how-it-works", label: "How CertScore.ai works" }
       ]}
     />

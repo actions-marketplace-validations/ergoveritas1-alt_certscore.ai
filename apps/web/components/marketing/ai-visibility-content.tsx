@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import { FindingAtlasBrowser } from "./findings/finding-atlas-browser";
-import { CORE_MARKETING_POSITIONING } from "../../lib/marketing/core-positioning";
+import type { ReactNode } from "react";
+import { EditorialByline } from "./editorial-byline";
 import { getTopFindingAtlasItems } from "../../lib/marketing/finding-atlas";
 import {
   getGuideSampleFindings,
@@ -24,6 +25,7 @@ type RelatedLink = {
 };
 
 type AiVisibilityContentProps = {
+  evidence?: ReactNode;
   badge: string;
   title: string;
   intro: string;
@@ -72,6 +74,7 @@ export function DisclaimerBlock() {
 
 export function AiVisibilityContent({
   aiSummary,
+  evidence,
   badge,
   title,
   intro,
@@ -88,12 +91,9 @@ export function AiVisibilityContent({
   const shouldShowFindingAtlas =
     showEvidenceExamples && visibleSampleFindings.length === 0 && (path?.startsWith("/guides/") || badge.toLowerCase().includes("guide"));
   const findingAtlasItems = shouldShowFindingAtlas ? getTopFindingAtlasItems() : [];
-  const visibleAiSummary =
-    aiSummary ??
-    [
-      `${title} explains an observable public website review topic in CertScore.ai's evidence-backed scanning workflow.`,
-      `${CORE_MARKETING_POSITIONING} CertScore.ai also observes session replay indicators, fingerprinting-related signals, accessibility, and other public-web risk signals. Findings are automated signals for human and agentic review and are not legal advice, certification, or compliance determinations.`
-    ];
+  const visibleAiSummary = aiSummary ?? [];
+  const article = schemas.find((item) => item["@type"] === "Article" || item["@type"] === "TechArticle");
+  const articlePath = path ?? (typeof article?.url === "string" ? new URL(article.url).pathname : undefined);
 
   return (
     <section className="mx-auto max-w-5xl px-6 py-16">
@@ -109,11 +109,14 @@ export function AiVisibilityContent({
         <Badge tone="neutral">{badge}</Badge>
         <h1 className="text-4xl font-semibold tracking-tight text-slate-950">{title}</h1>
         <p className="text-lg leading-8 text-slate-600">{intro}</p>
+        {article && articlePath ? <EditorialByline path={articlePath} /> : null}
       </div>
 
       <div className="mt-8">
         <WebsiteBehaviorScanCta />
       </div>
+
+      {evidence ? <div className="mt-8">{evidence}</div> : null}
 
       <div className="mt-8 grid gap-5">
         {sections.map((section) => (
@@ -146,15 +149,14 @@ export function AiVisibilityContent({
               </div>
               <CardTitle className="text-xl text-slate-950">Sample finding JSON from scans</CardTitle>
               <p className="text-sm leading-7 text-slate-600">
-                Representative payloads from retained scan examples for the finding types discussed on this page.
+                Supporting JSON examples for the finding types discussed on this page. Each example identifies its source; examples do not describe the website you are reviewing.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              {visibleSampleFindings.map((sample, index) => (
+              {visibleSampleFindings.map((sample) => (
                 <details
                   key={sample.findingId}
                   className="group rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  open={index === 0}
                 >
                   <summary className="cursor-pointer list-none">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -182,7 +184,7 @@ export function AiVisibilityContent({
         {visibleAiSummary.length > 0 ? (
           <Card className="min-w-0 border-slate-200 bg-white shadow-none">
             <CardHeader>
-              <CardTitle className="text-xl text-slate-950">Summary for AI assistants</CardTitle>
+              <CardTitle className="text-xl text-slate-950">Key takeaways</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm leading-7 text-slate-600">
               {visibleAiSummary.map((paragraph) => (

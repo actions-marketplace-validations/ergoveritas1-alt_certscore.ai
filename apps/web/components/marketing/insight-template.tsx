@@ -1,8 +1,11 @@
+import { createPublicArticleSchema } from "../../lib/seo";
+import { EditorialByline } from "./editorial-byline";
 import Link from "next/link";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import { PendingButtonLink } from "../ui/pending-link";
 
 type InsightTemplateProps = {
+  path: string;
   eyebrow: string;
   title: string;
   intro: string;
@@ -13,6 +16,7 @@ type InsightTemplateProps = {
 };
 
 export function InsightTemplate({
+  path,
   eyebrow,
   title,
   intro,
@@ -21,12 +25,7 @@ export function InsightTemplate({
   examples,
   relatedLinks
 }: InsightTemplateProps) {
-  const articleSchema = {
-    "@context": "https://schema.org",
-    "@type": "Article",
-    headline: title,
-    description: intro
-  };
+  const articleSchema = createPublicArticleSchema({ title, description: intro, path });
 
   return (
     <section className="mx-auto max-w-5xl px-6 py-16">
@@ -34,6 +33,7 @@ export function InsightTemplate({
       <div className="max-w-3xl space-y-4">
         <Badge tone="neutral">{eyebrow}</Badge>
         <h1 className="text-4xl font-semibold tracking-tight text-slate-900">{title}</h1>
+        <EditorialByline path={path} />
         <p className="text-lg text-slate-600">{intro}</p>
       </div>
 

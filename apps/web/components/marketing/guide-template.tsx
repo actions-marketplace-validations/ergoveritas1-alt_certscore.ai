@@ -1,3 +1,4 @@
+import { EditorialByline } from "./editorial-byline";
 import Link from "next/link";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import {
@@ -115,6 +116,7 @@ export function GuideTemplate({
         <Badge tone="neutral">{eyebrow}</Badge>
         <h1 className="text-4xl font-semibold tracking-tight text-slate-900">{title}</h1>
         <p className="text-lg text-slate-600">{intro}</p>
+            <EditorialByline path={pagePath} />
       </div>
 
       <div className="mt-10 grid gap-6">

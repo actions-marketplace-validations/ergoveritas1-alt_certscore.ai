@@ -7,12 +7,12 @@ import {
 
 const config: SolutionPageConfig = {
   inlineScan: true,
-  metadataTitle: "GDPR Website Scanner: Cookies & Consent",
+  metadataTitle: "GDPR Website Scanner: Cookies, Tracking & Consent",
   badge: "GDPR & ePrivacy website scanner",
   description:
     "Scan public websites for GDPR-relevant consent, cookie, tracking, policy, and disclosure review signals. CertScore.ai provides evidence-backed observations for human and agentic review, not legal advice.",
   intro:
-    "CertScore.ai helps teams review GDPR-relevant website behavior by observing public pages in a real browser and surfacing consent, cookie, tracking, policy, and disclosure signals that deserve follow-up.",
+    "Check a public website for cookies and tracking before consent, available consent controls, and privacy policy signals. CertScore.ai turns browser observations into evidence for GDPR and ePrivacy review; it cannot certify compliance.",
   path: "/solutions/gdpr-website-compliance-scanner",
   primarySignals: [
     "Pre-consent tracking",
@@ -43,7 +43,7 @@ const config: SolutionPageConfig = {
     {
       title: "What follows a confirmed choice",
       body:
-        "Consent review often stops at the banner. Where an eligible control can be actioned safely, CertScore confirms a first-layer choice and observes whether non-essential activity changes afterward—evidence for GDPR/ePrivacy review, not a determination of compliance or violation."
+        "Consent review often stops at the banner. Where an eligible control can be actioned safely, CertScore observes a first-layer choice and separately reports whether its registration was confirmed and whether non-essential activity changes afterward—evidence for GDPR/ePrivacy review, not a determination of compliance or violation."
     },
     {
       title: "How teams use it",
@@ -83,7 +83,7 @@ const config: SolutionPageConfig = {
     { href: "/guides/rtb-cookie-syncing", label: "RTB cookie syncing" },
     { href: "/sample-report", label: "Sample report" }
   ],
-  title: "GDPR & ePrivacy website scanner"
+  title: "GDPR website scanner"
 };
 
 export const metadata: Metadata = createSolutionPageMetadata(config);

@@ -92,6 +92,9 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      { source: "/guides/privacy-scanner-vs-cookie-scanner", destination: "/compare/privacy-scanner-vs-cookie-scanner", permanent: true },
+      { source: "/guides/third-party-cookies-before-consent", destination: "/guides/check-third-party-cookies-before-consent", permanent: true },
+      { source: "/findings/fingerprinting_related_signals_observed", destination: "/guides/website-fingerprinting", permanent: true },
       { source: "/guides/pre-consent-tracking-detection", destination: "/guides/detect-tracking-before-consent", permanent: true },
       { source: "/guides/detect-trackers-before-cookie-consent", destination: "/guides/detect-tracking-before-consent", permanent: true },
       { source: "/guides/check-website-tracking-before-consent", destination: "/guides/detect-tracking-before-consent", permanent: true },

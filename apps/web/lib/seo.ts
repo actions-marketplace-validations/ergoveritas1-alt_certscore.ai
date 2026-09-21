@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { EDITORIAL_AUTHOR, getEditorialDates, getSocialImage } from "./marketing/editorial-metadata";
 
 export const SITE_URL = "https://certscore.ai";
 export const SITE_NAME = "CertScore.ai";
@@ -18,7 +19,7 @@ type CreatePageMetadataInput = {
 
 export function createPageMetadata({ title, description, path, robots, socialImage }: CreatePageMetadataInput): Metadata {
   const url = new URL(path, SITE_URL).toString();
-  const resolvedSocialImage = socialImage;
+  const resolvedSocialImage = socialImage ?? getSocialImage(path);
   const imageUrl = resolvedSocialImage ? new URL(resolvedSocialImage.path, SITE_URL).toString() : null;
 
   return {
@@ -113,6 +114,10 @@ export function createPublicArticleSchema({
     "@context": "https://schema.org",
     "@type": type,
     headline: title,
+    author: EDITORIAL_AUTHOR,
+    ...getEditorialDates(path),
+    image: absoluteUrl(getSocialImage(path).path),
+    mainEntityOfPage: absoluteUrl(path),
     name: title,
     description,
     url: absoluteUrl(path),
