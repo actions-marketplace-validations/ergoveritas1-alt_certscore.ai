@@ -5,7 +5,7 @@ import { buildArticleSchema } from "../ai-guide-content";
 const guide = {
   "badge": "Forms & fields guide",
   "title": "Website form scanning: review fields, screenshots and privacy context",
-  "description": "Find retained forms and fields, open verified form screenshots, and review data collection with privacy notices and supporting website evidence.",
+  "description": "Find retained forms and fields, open verified, masked form crops when screenshot capture succeeds, and review data collection with privacy notices and supporting website evidence.",
   "path": "/guides/website-form-scanning",
   "intro": "Start with what your public website asks visitors to provide. CertScore.ai puts observed forms, field metadata and available form screenshots in the report, so developers, agencies and privacy reviewers can investigate data collection with the same evidence.",
   "sections": [
@@ -19,7 +19,7 @@ const guide = {
     {
       "title": "Open a form screenshot",
       "paragraphs": [
-        "Choose View form when a verified snapshot is available. The image is a low-resolution crop of the observed form container or the shared container of retained standalone controls, rather than a whole-page screenshot. Input values are masked before image safety review.",
+        "Choose View form for verified, masked form crops when screenshot capture succeeds. Not every detected form has an available screenshot. The image is a low-resolution crop of the observed form container or the shared container of retained standalone controls, rather than a whole-page screenshot. Input values are masked before image safety review.",
         "Snapshot unavailable or Snapshot withheld means there is no approved image to show. Capture deadlines, changing pages or controls, image bounds and safety-review failures can prevent an image. Retained field evidence can still be useful. An absent screenshot does not create a privacy finding."
       ]
     },
@@ -28,7 +28,7 @@ const guide = {
       "paragraphs": [
         "Field-review indicators help prioritize questions about contact details, credentials, financial information, free text and other potentially sensitive data. A selected marketing control may carry a review cue. These inventory labels do not establish consent validity, a legal data classification or a score deduction.",
         "Review the report’s separately supported findings and Detailed evidence. For example, retained sensitive-surface evidence alongside qualifying tracking or session-replay observations can support a review signal. Co-occurrence does not prove that a provider received field values. Compare the actual fields with the website’s privacy notices and ask the form owner to explain purpose, necessity and handling.",
-        "A declared destination identifies the form’s configured action, not a tested submission or proof of data transfer. Passive destination tracing can retain independently verified matches if native events occur during observation; ordinary unattended forms are not exercised. CertScore.ai does not fill or submit these forms."
+        "A declared destination identifies the form’s configured action, not evidence that CertScore.ai submitted the form or observed a transfer. Passive destination tracing can retain independently verified matches if native events occur during observation; ordinary unattended forms are not exercised. CertScore.ai does not fill or submit these forms."
       ]
     },
     {

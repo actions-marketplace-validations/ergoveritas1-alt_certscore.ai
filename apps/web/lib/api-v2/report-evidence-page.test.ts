@@ -16,10 +16,13 @@ test("pages reconstruct all report fields without truncation, including oversize
     evidenceRefs: [{ refId: `retained_${index}`, kind: "field" }],
   }));
   const report = { ...SHADOW_REPORT,
-    collectionTableRows: [{ id: "form_1", capturedAt: "2026-09-12T00:00:00Z", snapshot: { status: "unavailable" }, form: {
+    collectionTableRows: [{ id: "form_1", capturedAt: "2026-09-12T00:00:00Z", snapshot: { status: "unavailable", reason: "review_failed" }, form: {
       formRef: "form_1", title: "Newsletter", method: "post", pageUrl: "https://example.test/",
       fields, candidateFieldCount: 95, retainedFieldCount: 90, fieldsTruncated: true,
-    } }],
+    } },
+      { id: "form_2", form: { formRef: "form_2", fields: [] }, snapshot: { status: "available", url: `/api/scans/${scanId}/form-snapshot?formRef=form_2` } },
+      { id: "form_3", form: { formRef: "form_3", fields: [] }, snapshot: { status: "withheld", reason: "review_withheld" } },
+    ],
     inventory: Array.from({ length: 400 }, (_, i) => ({ name: `cookie${i}`, evidence: "retained observation".repeat(20) })),
     "a/b~c": "😀\n".repeat(6000), empty: [], unknown: null,
   };
@@ -48,6 +51,7 @@ test("pages reconstruct all report fields without truncation, including oversize
     parent[key] = entry.stringPart !== undefined && entry.stringPart > 0 ? parent[key] + entry.value : entry.value;
   }
   assert.deepEqual(output, JSON.parse(JSON.stringify(report)));
+  assert.deepEqual(output.collectionTableRows, report.collectionTableRows);
   assert.deepEqual(output.collectionTableRows[0].form.fields, fields);
   assert.equal(output.collectionTableRows[0].form.fieldsTruncated, true);
   assert.equal(output.collectionTableRows[0].form.candidateFieldCount, 95);

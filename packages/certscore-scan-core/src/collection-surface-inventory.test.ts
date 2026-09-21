@@ -120,3 +120,22 @@ test("bounded inventory projection stays within the 64 KB and 100 ms guardrails"
   const p95 = durations[Math.floor(durations.length * 0.95)] ?? Number.POSITIVE_INFINITY;
   assert.ok(p95 < 100, `bounded projection p95 ${p95.toFixed(2)}ms exceeded 100ms`);
 });
+
+for (const [name, groups, fieldsPerGroup, expectedForms, expectedFields, reason] of [
+  ["10-form", 11, 1, 10, 10, "form_retention_limit_reached"],
+  ["20-field-per-form", 1, 21, 1, 20, "field_retention_limit_reached"],
+  ["60-field-per-page", 4, 20, 4, 60, "field_retention_limit_reached"],
+] as const) {
+  test(`${name} limit preserves explicit truncation and candidate counts`, () => {
+    const rows = Array.from({ length: groups * fieldsPerGroup }, (_, i) => row(i, { groupKey: `form-${Math.floor(i / fieldsPerGroup)}` }));
+    const inventory = buildCollectionSurfaceInventory({ pageUrl: "https://example.test/", rows, inspectedFieldCandidateCount: rows.length, candidateScanTruncated: false }, Date.now());
+    assert.equal(inventory.forms.length, expectedForms);
+    assert.equal(inventory.coverage.retainedFieldCount, expectedFields);
+    assert.equal(inventory.coverage.candidateFormCount, groups);
+    assert.equal(inventory.coverage.candidateFieldCount, rows.length);
+    assert.equal(inventory.coverage.retentionTruncated, true);
+    assert.equal(inventory.coverage.status, "limited");
+    assert.ok(inventory.coverage.reasonCodes.includes(reason));
+    if (reason === "field_retention_limit_reached") assert.ok(inventory.forms.some(form => form.fieldsTruncated && form.candidateFieldCount > form.retainedFieldCount));
+  });
+}
