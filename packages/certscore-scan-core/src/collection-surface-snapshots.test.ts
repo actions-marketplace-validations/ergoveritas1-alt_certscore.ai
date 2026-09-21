@@ -247,3 +247,29 @@ test("the total budget also bounds a stalled control-binding operation", async (
   assert.equal(result[0]?.data, undefined);
   assert.ok(Date.now() - start < FORM_SNAPSHOT_BUDGET_MS + 500);
 });
+
+test("pre-populated credentials, contact values, textareas, selects and editable regions are masked before review", async () => {
+  const { captureMaskedFormScreenshot } = await import("./masked-form-screenshot");
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  try {
+    await page.setContent(`<style>body{margin:0}form{width:400px;background:white}input,textarea,select,[contenteditable]{display:block;box-sizing:border-box;width:300px;height:50px;margin:10px}</style>
+      <form><input type="password" value="secret-password"><input type="email" value="person@example.test"><input value="government-id-123"><textarea>private medical details</textarea><select><option>private account</option></select><div contenteditable>private note</div></form>`);
+    // The production snapshot wrapper installs this tsx named-function shim before capture.
+    await page.evaluate(() => { (globalThis as any).__name = (value: unknown) => value; });
+    const root = await page.locator("form").elementHandle();
+    const rectangles = await page.locator('input,textarea,select,[contenteditable]').evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect(); return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }));
+    const formTop = await page.locator("form").evaluate(element => element.getBoundingClientRect().top);
+    const bytes = await captureMaskedFormScreenshot(page, root!, 2500);
+    const pixels = await sharp(bytes).raw().toBuffer({ resolveWithObject: true });
+    for (const rect of rectangles) {
+      const offset = (Math.floor(rect.y - formTop) * pixels.info.width + Math.floor(rect.x)) * pixels.info.channels;
+      for (const [channel, value] of [148, 163, 184].entries()) assert.ok(Math.abs(pixels.data[offset + channel]! - value) < 8, `control at ${rect.y} must be masked`);
+    }
+    assert.equal(await page.locator('input[type="password"]').inputValue(), "secret-password");
+    assert.equal(await page.locator('textarea').inputValue(), "private medical details");
+    assert.equal(await page.locator('[contenteditable]').textContent(), "private note");
+  } finally { await browser.close(); }
+});

@@ -71,3 +71,22 @@ test("complete zero-form inventory renders only a single line", () => {
   assert.match(html, /Forms: no forms observed on the scanned pages/);
   assert.doesNotMatch(html, /<table|<h2|Expand a form|0 forms/);
 });
+
+test("ordinary field classifications are neutral information, separate from findings and submission", () => {
+  for (const category of ["identity_profile", "personal_contact", "free_text"] as const) {
+    const field = { ...row.form.fields[0]!, review: { version: "collection-field-review.v1" as const, category, preselectedMarketing: false } };
+    const html = renderToStaticMarkup(<CollectionSurfacesTable rows={[{ ...row, form: { ...row.form, fields: [field] } }]} />);
+    assert.match(html, /Field review information/);
+    assert.doesNotMatch(html, /⚠|text-amber-700|text-rose-700/);
+    assert.match(html, /CertScore.ai does not fill or submit forms; this inventory does not contain submitted field values\./);
+    assert.match(html, /Field review identifies fields worth checking\. These labels are not privacy findings and do not affect the score by themselves\./);
+    assert.match(html, /Declared destination is the configured form action, not evidence that CertScore.ai submitted the form or observed a transfer\./);
+  }
+});
+
+test("limited form inventory exposes retained counts and omitted fields instead of implying complete coverage", () => {
+  const html = renderToStaticMarkup(<CollectionSurfacesTable limitedPages={1} rows={[{ ...row, form: { ...row.form, fieldsTruncated: true, candidateFieldCount: 21, retainedFieldCount: 20 } }]} />);
+  assert.match(html, /20 of 21/);
+  assert.match(html, /1 field\(s\) were omitted by the capture limit/);
+  assert.match(html, /1 page\(s\) have limited form coverage/);
+});

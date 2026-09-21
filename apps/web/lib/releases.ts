@@ -67,7 +67,7 @@ const releases: readonly ProductRelease[] = [
       "id": "whats-new",
       "heading": "A clearer view of data collection",
       "paragraphs": [
-        "Our September forms capture updates bring a dedicated Forms & fields inventory and verified, masked form crops to single-page and full-site reports. Today’s announcement introduces the combined workflow; these capabilities began rolling out earlier in September.",
+        "Our September forms capture updates bring a dedicated Forms & fields inventory to single-page and full-site reports, with verified, masked form crops when screenshot capture succeeds. Today’s announcement introduces the combined workflow; these capabilities began rolling out earlier in September.",
         "Form detection, screenshot capture and privacy assessment each answer a different question: what was observed, what can be shown, and what the retained evidence supports. A detected form is not automatically a privacy concern."
       ]
     },
@@ -75,7 +75,7 @@ const releases: readonly ProductRelease[] = [
       "id": "what-you-can-see",
       "heading": "From a form to the details that matter",
       "bullets": [
-        "Find the captured page and review each retained form’s type, field count, method and declared destination.",
+        "Find the captured page and review each retained form’s type, field count, method and declared destination. The declared destination is the configured form action, not evidence that CertScore.ai submitted the form or observed a transfer.",
         "Expand a form to inspect labels, field types, required states, checkbox or toggle states and evidence references.",
         "Choose View form to open its cropped screenshot when capture and safety review succeed. Input values are masked.",
         "Use field-review indicators to prioritize questions about personal data, sensitive-looking fields and selected marketing controls."
