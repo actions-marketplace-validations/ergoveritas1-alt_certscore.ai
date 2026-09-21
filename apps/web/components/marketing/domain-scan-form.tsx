@@ -1,5 +1,6 @@
 "use client";
 
+import { useBrowserMarketplaceScope } from "../marketplace-browser/scope";
 import { type FullSiteFormValue } from "../scans/full-site-controls";
 import { Button, Input } from "@website-signal-risk-scanner/ui";
 import { usePathname, useRouter } from "next/navigation";
@@ -412,7 +413,15 @@ export function restrictLocalExtensionScanFrom(input: {
   return input.scanFrom;
 }
 
-export function DomainScanForm({
+export function DomainScanForm(props: DomainScanFormProps) {
+  const marketplaceBrowser = useBrowserMarketplaceScope();
+  if (marketplaceBrowser) {
+    return <a href="/marketplace/browser#browser-url" className="inline-flex min-h-10 items-center rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2">Scan another website →</a>;
+  }
+  return <StandardDomainScanForm {...props} />;
+}
+
+function StandardDomainScanForm({
   allowLocalExtensionScan = true,
   allowRestrictedScanOptions = false,
   buttonLabel = "Start full scan",

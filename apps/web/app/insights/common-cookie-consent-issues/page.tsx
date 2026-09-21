@@ -12,6 +12,7 @@ export const metadata: Metadata = createPageMetadata({
 export default function CommonCookieConsentIssuesInsightPage() {
   return (
     <InsightTemplate
+      path="/insights/common-cookie-consent-issues"
       eyebrow="Privacy insights"
       title="Common Cookie Consent Issues"
       intro="Cookie consent issues often appear when banner design, visible controls, and actual tracker behavior fall out of sync. That makes them a strong category for repeated automated monitoring."

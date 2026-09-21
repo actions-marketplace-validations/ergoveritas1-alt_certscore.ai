@@ -1,3 +1,4 @@
+import { EditorialByline } from "./editorial-byline";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { DomainScanForm } from "./domain-scan-form";
@@ -101,6 +102,7 @@ export function SolutionPage({ config }: { config: SolutionPageConfig }) {
               {config.title}
             </h1>
             <p className="text-lg leading-8 text-slate-600">{config.intro}</p>
+            <EditorialByline path={config.path} />
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button
@@ -124,7 +126,7 @@ export function SolutionPage({ config }: { config: SolutionPageConfig }) {
 
         <Card className="border-slate-200 bg-white shadow-none">
           <CardHeader>
-            <CardTitle className="text-lg text-slate-950">Signals this page targets</CardTitle>
+            <CardTitle className="text-lg text-slate-950">What the scan reviews</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {config.primarySignals.map((signal) => (
@@ -156,6 +158,7 @@ export function SolutionPage({ config }: { config: SolutionPageConfig }) {
           </ol>
           <p className="mt-5 text-sm text-slate-600">Use the sample report to explore the report format; it describes its own retained scan, not your website.</p>
           <div className="mt-4 flex flex-wrap gap-5 font-semibold text-sky-700">
+            <Link href="/guides/consent-report-example" className="underline underline-offset-4">Read the annotated report example</Link>
             <Link href="/sample-report" className="underline underline-offset-4">Explore the sample report</Link>
             <Link href="/guides/reject-consent-tracking-test" className="underline underline-offset-4">Follow the Reject testing walkthrough</Link>
             <Link href="/guides/website-consent-audit-checklist" className="underline underline-offset-4">Use the audit checklist</Link>
@@ -192,7 +195,7 @@ export function SolutionPage({ config }: { config: SolutionPageConfig }) {
         <div className="grid content-start gap-5">
           <Card className="border-slate-200 bg-white shadow-none">
             <CardHeader>
-              <CardTitle className="text-xl text-slate-950">Summary for AI assistants</CardTitle>
+              <CardTitle className="text-xl text-slate-950">Key takeaways</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm leading-7 text-slate-600">
               {config.aiSummary.map((summary) => (

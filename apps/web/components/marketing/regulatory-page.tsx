@@ -1,3 +1,4 @@
+import { EditorialByline } from "./editorial-byline";
 import Link from "next/link";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
 import { SiteFooter } from "../layout/site-footer";
@@ -127,6 +128,7 @@ export function RegulatoryPage({ config }: { config: RegulatoryPageConfig }) {
             <Badge tone="neutral">{config.badge}</Badge>
             <div className="space-y-4">
               <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">{config.title}</h1>
+        <EditorialByline path={config.path} />
               <p className="text-lg leading-8 text-slate-600">{config.summary}</p>
             </div>
             <CtaButtons location={config.primaryCtaLocation} />

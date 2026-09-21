@@ -19,16 +19,16 @@ import { getFindingReferenceItems } from "../../lib/marketing/finding-atlas";
 import { getPublishedReleases } from "../../lib/releases";
 import { createPageMetadata, SITE_URL } from "../../lib/seo";
 
-const SAMPLE_REPORT_URL = "https://certscore.ai/scan/a9a7470d-248f-4d96-ac1f-7ffa517c22de";
+import { AUTHENTIC_SAMPLE_REPORT_URL as SAMPLE_REPORT_URL } from "../../lib/marketing/sample-report";
 const BOOK_DEMO_URL = "/contact-sales";
 export const metadata: Metadata = {
   ...createPageMetadata({
-    title: "CertScore.ai — Evidence-Based Website Risk Signal Scanner",
-    description: CORE_MARKETING_POSITIONING,
+    title: "Website Privacy Scanner: Cookies & Consent | CertScore.ai",
+    description: "Scan a public website for cookies, trackers, consent behavior, and privacy policy signals. Review retained evidence with CertScore.ai. Start a free scan.",
     path: "/"
   }),
   title: {
-    absolute: "CertScore.ai — Evidence-Based Website Risk Signal Scanner"
+    absolute: "Website Privacy Scanner: Cookies & Consent | CertScore.ai"
   }
 };
 
@@ -132,7 +132,7 @@ export default async function MarketingHomePage() {
     name: "CertScore.ai",
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web",
-    description: CORE_MARKETING_POSITIONING,
+    description: "Scan a public website for cookies, trackers, consent behavior, and privacy policy signals. Review retained evidence with CertScore.ai. Start a free scan.",
     url: CORE_MARKETING_HOMEPAGE,
     provider: {
       "@type": "Organization",
@@ -188,12 +188,12 @@ export default async function MarketingHomePage() {
           <div className="relative z-20 max-w-[680px] space-y-7 sm:space-y-8 lg:-translate-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Evidence-led Website Privacy Scanner</p>
             <h1 className="text-[2rem] font-bold leading-[1.08] tracking-[-0.035em] text-white sm:text-5xl lg:text-[3.5rem]">
-              <span className="block sm:whitespace-nowrap">Find privacy <span className="text-[#178cff]">risks</span>.</span>
+              <span className="block">Website privacy <span className="text-[#178cff]">scanner.</span></span>
               <span className="block sm:whitespace-nowrap">See the evidence.</span>
             </h1>
             <div className="max-w-[650px]">
               <p className="text-base leading-8 text-slate-300 sm:text-xl">
-                See what a website collects, which services it loads, and how it responds to consent choices. Review privacy signals across pages, with retained evidence and clear next steps.
+                Scan public pages for cookies, trackers, privacy policy signals, and consent behavior. Review what appears before consent and after eligible Accept or Reject clicks, with retained evidence and clear coverage limits.
               </p>
               <p className="relative top-[15px] mt-[20px] text-sm font-semibold text-sky-400">
                 Built for developers and agencies reviewing websites for GDPR/ePrivacy and CCPA concerns.

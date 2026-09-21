@@ -31,6 +31,9 @@ const footerSections = [
       { href: "/regulatory", label: "Regulatory pages" },
       { href: "/gdpr", label: "GDPR evidence guide" },
       { href: "/methodology", label: "Methodology" },
+      { href: "/editorial-policy", label: "Editorial policy" },
+      { href: "/ccpa", label: "CCPA evidence guide" },
+      { href: "/guides/test-global-privacy-control", label: "Test GPC response" },
       { href: "/compare", label: "Compare" }
     ]
   },
@@ -49,7 +52,7 @@ const footerSections = [
 ];
 
 const companyLegalLinks = [
-  { href: "/contact", label: "Contact" },
+  { href: "/contact-sales", label: "Contact" },
   { href: "/trust", label: "Trust & Security" },
   { href: "/security", label: "Security" },
   { href: "/privacy", label: "Privacy Policy" },

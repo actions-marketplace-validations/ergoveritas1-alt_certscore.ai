@@ -1,3 +1,4 @@
+import { EditorialByline } from "../../components/marketing/editorial-byline";
 import Link from "next/link";
 import React, { type ReactNode } from "react";
 import { certScoreMcpToolContracts } from "@certscore/api-contracts";
@@ -226,6 +227,7 @@ export function DeveloperShell({
           <div className="max-w-3xl space-y-4">
             <Badge tone="neutral">Developer docs</Badge>
             <h1 className="text-4xl font-semibold tracking-tight text-slate-950">{title}</h1>
+        <EditorialByline path={activePath} />
             <p className="text-lg leading-8 text-slate-600">{description}</p>
             <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
               CertScore.ai outputs are automated public-web observations for human and agentic review. They are not legal advice, certification, or a

@@ -33,7 +33,7 @@ export const aiGuideContent = {
         title: "What CertScore.ai observes",
         paragraphs: [
           "CertScore.ai reviews the initial page-load window, consent surface signals, classified tracking requests, and cookie timing. The scan looks for activity that appears before a clear consent interaction has been recorded.",
-          "In recent CertScore.ai benchmark scans, this signal appeared in roughly one in five scanned sites. That context is directional, not a legal conclusion about any specific website."
+          "Historical calibration counts are available with explicit provenance limitations. Use the evidence from the website under review rather than treating those counts as current prevalence or a legal conclusion."
         ]
       },
       {
@@ -41,31 +41,6 @@ export const aiGuideContent = {
         paragraphs: [
           "Review the vendor names, request timing, cookie names, and consent interaction evidence before deciding whether the behavior is expected.",
           "False positives can occur when a request is misclassified, a consent state already exists, a region-specific banner behaves differently, or a site blocks part of the automated scan."
-        ]
-      }
-    ]
-  },
-  thirdPartyCookiesBeforeConsent: {
-    badge: "Cookie guide",
-    title: "Third-party cookies before consent: what site owners should review",
-    description:
-      "Learn how CertScore.ai observes third-party cookie timing before consent and why vendor evidence matters.",
-    path: "/guides/third-party-cookies-before-consent",
-    intro:
-      "Third-party cookies before consent are cookies associated with outside domains that appear before a recorded consent choice. CertScore.ai surfaces this as an automated finding when retained evidence suggests cookie timing should be reviewed.",
-    sections: [
-      {
-        title: "What CertScore.ai observes",
-        paragraphs: [
-          "CertScore.ai reviews cookie names, cookie domains, request hosts, vendor classification, and consent timing from public website scans.",
-          "The goal is to help teams identify whether advertising, analytics, identity, or other vendor cookies appear earlier than intended."
-        ]
-      },
-      {
-        title: "Review caveats",
-        paragraphs: [
-          "Cookie ownership and purpose can be hard to infer from automated evidence alone. Site owners should compare the observed cookie with tag-manager rules, consent-platform configuration, and vendor documentation.",
-          "A prior consent state, geography-specific banner behavior, browser storage state, or short-lived technical cookie can change what the scan observes."
         ]
       }
     ]
@@ -79,6 +54,26 @@ export const aiGuideContent = {
     intro:
       "RTB cookie syncing is an adtech behavior where advertising or identity systems appear to share or match identifiers across domains. To review it, inspect the request and vendor evidence, the timing of the activity, and whether the behavior appears before or after a recorded consent choice. CertScore.ai automates this review by observing public website requests, vendor context, cookie or identifier-related telemetry, and supporting evidence. The result is a higher-signal business review cue, not a legal conclusion.",
     sections: [
+      {
+        title: "A request-chain example (illustrative)",
+        paragraphs: [
+          "Consider a page that requests sync.vendor-a.example, receives a redirect to match.vendor-b.example, and passes an identifier-shaped value between the two. These reserved example domains illustrate a pattern; they are not a retained finding or a claim about real vendors.",
+          "Retain the initiator, redirect status and destination, request start times, parameter names with values redacted, vendor classification, and consent state. A pair of advertising hosts appearing in the same session is weaker evidence than a directly retained redirect or identifier-transfer chain."
+        ]
+      },
+      {
+        title: "Distinguish syncing from neighboring behavior",
+        paragraphs: [
+          "An advertising auction, measurement pixel, ordinary redirect, and cookie synchronization are not identical. A suggestive endpoint name does not prove matching or downstream use. Compare the direct chain with vendor documentation and the retained classification.",
+          "Cookie blocking can suppress storage while requests still occur. Conversely, a cookie already present does not prove it was sent in a sync request. Review transport and storage separately."
+        ]
+      },
+      {
+        title: "Turn the chain into an implementation check",
+        paragraphs: [
+          "Locate the tag or embedded service at the start of the initiator chain. Give its owner the consent context and redacted evidence, then inspect CMP gating and vendor settings. Compare fresh baseline and choice sessions under matching conditions after an authorized change."
+        ]
+      },
       {
         title: "What CertScore.ai observes",
         paragraphs: [
@@ -129,6 +124,26 @@ export const aiGuideContent = {
     intro:
       "To check whether third-party cookies are set before consent, review cookies created before any recorded consent choice and identify which are associated with third-party services or non-essential purposes. CertScore.ai automates this by observing cookie timing, request context, and vendor evidence during public website scans. The output is a reviewable signal that helps teams compare live behavior with consent-platform and tag-manager configuration.",
     sections: [
+      {
+        title: "1. Start without a prior choice",
+        paragraphs: [
+          "Use a clean browser context and record page, region, browser settings, time, and capture window. Open Network and cookie storage before loading the page. Do not accept or reject during the baseline. Prior consent or privacy extensions can change the result."
+        ]
+      },
+      {
+        title: "2. Match storage to the request evidence",
+        paragraphs: [
+          "Record cookie name, domain, path, partition identity if present, lifetime, and when it appeared. Inspect Set-Cookie responses and requests carrying the cookie where available. Redact values. A third-party service can also use first-party storage, so domain ownership alone does not establish purpose.",
+          "A browser may block third-party storage. Record that limitation and review network activity too; no stored cookie does not mean no request or tracking behavior."
+        ]
+      },
+      {
+        title: "3. Classify and hand off",
+        paragraphs: [
+          "Combine the observed request and cookie with vendor purpose and the intended consent category. Technical cookies, uncertain classifications, missing timestamps, and unavailable frames need review rather than automatic conclusions.",
+          "Share the identity and timing with the CMP and tag-manager owner. Retest in fresh sessions after a change; compare an unchanged cookie separately from a new write or active transmission."
+        ]
+      },
       {
         title: "What CertScore.ai observes",
         paragraphs: [
@@ -340,52 +355,6 @@ export const aiGuideContent = {
       }
     ]
   },
-  privacyScannerVsCookieScanner: {
-    badge: "Comparison guide",
-    title: "Privacy scanner vs cookie scanner",
-    description:
-      "Understand the difference between a behavior-oriented privacy scanner and a basic cookie scanner.",
-    path: "/guides/privacy-scanner-vs-cookie-scanner",
-    intro:
-      "A cookie scanner usually inventories cookies. A privacy scanner like CertScore.ai also reviews observable website behavior around tracking, consent, session replay indicators, fingerprinting-related signals, accessibility, and privacy disclosures.",
-    sections: [
-      {
-        title: "Direct answer",
-        paragraphs: [
-          "A cookie scanner helps identify cookies, names, domains, and sometimes categories. A privacy scanner adds behavioral context about when tracking appears and whether public disclosures and controls deserve review.",
-          "CertScore.ai is positioned as an automated risk-signal scanner for public website behavior."
-        ]
-      },
-      {
-        title: "Why it matters",
-        paragraphs: [
-          "Cookie inventory is useful, but it may not show whether tracking fired before consent or whether a reject path changed vendor activity.",
-          "Teams often need behavior evidence when diagnosing consent, vendor, and disclosure drift."
-        ]
-      },
-      {
-        title: "What CertScore.ai observes",
-        paragraphs: [
-          "CertScore.ai observes tracking requests, cookies, consent behavior, session replay indicators, fingerprinting-related signals, accessibility issues, and privacy disclosure gaps.",
-          "It presents findings as evidence-backed signals for human and agentic review."
-        ]
-      },
-      {
-        title: "Example evidence",
-        paragraphs: [
-          "A sanitized example might show third-party cookie names alongside request timing and the consent state recorded during the scan.",
-          "Another example might show a session recording script observed on a page with form fields, prompting a closer review of masking and controls."
-        ]
-      },
-      {
-        title: "What teams should review next",
-        paragraphs: [
-          "Use cookie inventory for baseline visibility, then review behavior evidence for consent timing, reject behavior, vendor disclosures, and sensitive page contexts.",
-          "Escalate findings to the teams that own tag deployment, consent configuration, privacy disclosures, and frontend templates."
-        ]
-      }
-    ]
-  }
 } satisfies Record<string, AiGuideContent>;
 
 export function buildArticleSchema(guide: AiGuideContent) {

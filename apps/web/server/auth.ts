@@ -20,5 +20,7 @@ export async function requireAuthenticatedUser(): Promise<AuthenticatedAppUser> 
 
 export const getDashboardContext = cache(async (): Promise<BootstrapResult> => {
   const user = await requireAuthenticatedUser();
-  return bootstrapAppUserSession(user);
+  const base = await bootstrapAppUserSession(user);
+  const { selectBrowserContext } = await import("./marketplace-browser/context");
+  return selectBrowserContext(base);
 });

@@ -14,7 +14,7 @@ const config: GrowthContentPageConfig = {
   path: "/guides/third-party-cookie-checker",
   relatedLinks: [
     { href: "/guides/check-third-party-cookies-before-consent", label: "Check third-party cookies before consent" },
-    { href: "/guides/third-party-cookies-before-consent", label: "Third-party cookies before consent" },
+    { href: "/guides/check-third-party-cookies-before-consent", label: "Third-party cookies before consent" },
     { href: "/guides/detect-tracking-before-consent", label: "Pre-consent tracking detection" },
     { href: "/methodology", label: "Methodology" }
   ],

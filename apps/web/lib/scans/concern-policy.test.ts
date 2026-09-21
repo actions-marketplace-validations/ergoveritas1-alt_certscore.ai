@@ -465,7 +465,7 @@ test("deriveConcernPolicy handles the main concern families consistently", () =>
       }
     },
     ...(["responsive", "no_observable_response", "indeterminate"] as const).map((status) => ({
-      name: `typed GPC ${status} assessment is jurisdiction-neutral and score-neutral`,
+      name: `GPC ${status} label without a typed assessment cannot be promoted`,
       concern: makeConcern({
         originKey: "privacy.gpc_response",
         suggestedUnifiedFindingId: "gpc_response",
@@ -478,9 +478,9 @@ test("deriveConcernPolicy handles the main concern families consistently", () =>
         scoreEffect: "none"
       },
       expected: {
-        allowedNarrativeTier: status === "indeterminate" ? "weak" as const : "moderate" as const,
-        promotionEligibility: "eligible" as const,
-        externalSurfacingEligibility: "eligible" as const,
+        allowedNarrativeTier: "weak" as const,
+        promotionEligibility: "blocked" as const,
+        externalSurfacingEligibility: "suppress" as const,
         negativeEvidenceFlags: [],
         regulatoryChecklistEligibility: "none" as const
       }

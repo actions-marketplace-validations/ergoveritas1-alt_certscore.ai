@@ -114,7 +114,7 @@ export default function HowItWorksPage() {
           <Link href="/guides/reject-consent-tracking-test" className="hover:text-sky-800">
             Reject consent tracking test
           </Link>
-          <Link href="/guides/privacy-scanner-vs-cookie-scanner" className="hover:text-sky-800">
+          <Link href="/compare/privacy-scanner-vs-cookie-scanner" className="hover:text-sky-800">
             Privacy scanner vs cookie scanner
           </Link>
           <Link href="/methodology" className="hover:text-sky-800">

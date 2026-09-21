@@ -1,3 +1,4 @@
+import { EDITORIAL_AUTHOR } from "./marketing/editorial-metadata";
 import type { Metadata } from "next";
 import { absoluteUrl, createPageMetadata, SITE_NAME, SITE_URL } from "./seo";
 import { AUTHENTIC_SAMPLE_REPORT_URL } from "./marketing/sample-report";
@@ -401,6 +402,7 @@ export function createReleaseArticleSchema(release: ProductRelease) {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: release.headline,
+    author: EDITORIAL_AUTHOR,
     description: release.shortDescription,
     datePublished: release.publicationDate,
     ...(release.modifiedDate ? { dateModified: release.modifiedDate } : {}),

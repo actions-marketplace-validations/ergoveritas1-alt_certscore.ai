@@ -33,9 +33,10 @@ const resourceLinks = [
 type SiteHeaderProps = {
   mobilePrimaryAction?: "contact" | "sign-in";
   wide?: boolean;
+  accountLink?: { href: string; label: string };
 };
 
-export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: SiteHeaderProps = {}) {
+export function SiteHeader({ mobilePrimaryAction = "contact", wide = true, accountLink = { href: "/login", label: "Sign in" } }: SiteHeaderProps = {}) {
   const pathname = usePathname();
 
   function isActive(href: string) {
@@ -103,9 +104,9 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
           ))}
           <PendingButtonLink
             data-analytics-cta-location="header"
-            data-analytics-event="sign_in_clicked"
-            href="/login"
-            idleContent="Sign in"
+            data-analytics-event={accountLink.label === "Sign in" ? "sign_in_clicked" : undefined}
+            href={accountLink.href}
+            idleContent={accountLink.label}
             pendingContent="Opening..."
             size="sm"
             variant="secondary"
@@ -116,16 +117,16 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
           {mobilePrimaryAction === "sign-in" ? (
             <PendingButtonLink
               data-analytics-cta-location="header"
-              data-analytics-event="sign_in_clicked"
-              href="/login"
-              idleContent="Sign in"
+              data-analytics-event={accountLink.label === "Sign in" ? "sign_in_clicked" : undefined}
+              href={accountLink.href}
+              idleContent={accountLink.label}
               pendingContent="Opening..."
               size="sm"
               variant="secondary"
             />
           ) : (
             <Link
-              href="/contact"
+              href="/contact-sales"
               aria-current={isActive("/contact") ? "page" : undefined}
               className="hidden min-[360px]:inline-flex rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
             >
@@ -149,15 +150,15 @@ export function SiteHeader({ mobilePrimaryAction = "contact", wide = true }: Sit
                 <PendingButtonLink
                   className="w-full justify-center"
                   data-analytics-cta-location="header"
-                  data-analytics-event="sign_in_clicked"
-                  href="/login"
-                  idleContent="Sign in"
+                  data-analytics-event={accountLink.label === "Sign in" ? "sign_in_clicked" : undefined}
+                  href={accountLink.href}
+                  idleContent={accountLink.label}
                   pendingContent="Opening..."
                   size="sm"
                   variant="secondary"
                 />
               </div>
-              <Link href="/contact" className="rounded-2xl bg-sky-50 px-4 py-3 text-base font-semibold text-sky-800">Contact</Link>
+              <Link href="/contact-sales" className="rounded-2xl bg-sky-50 px-4 py-3 text-base font-semibold text-sky-800">Contact</Link>
               {navLinks.slice(0, 3).map((link) => (
                 <Link
                   key={link.href}

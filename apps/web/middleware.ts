@@ -2,6 +2,7 @@ import type { NextFetchEvent, NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { isPublicDocumentRequest, isDocumentNavigation, PUBLIC_PAGE_TIMING_NAME } from "./lib/product-analytics/public-page-request";
 import { issuePublicPageToken } from "./server/product-analytics/public-page-token";
+import { BROWSER_WORKSPACE_COOKIE, entersOrdinaryWorkspace } from "./lib/marketplace-browser-navigation";
 
 const sessionCookieNames = new Set([
   "session_token",
@@ -21,8 +22,19 @@ function hasSessionCookie(request: NextRequest) {
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const pathname = request.nextUrl.pathname;
+  const leaveMarketplace = entersOrdinaryWorkspace(pathname) && request.cookies.has(BROWSER_WORKSPACE_COOKIE);
+  // Strip it from this request as well as the response: expiring only the
+  // browser cookie would still let this render redirect back to Marketplace.
+  if (leaveMarketplace) request.cookies.delete(BROWSER_WORKSPACE_COOKIE);
+  const finish = (response: NextResponse) => {
+    const prefetch = request.headers.has("next-router-prefetch")
+      || request.headers.get("purpose") === "prefetch"
+      || request.headers.get("sec-purpose")?.includes("prefetch");
+    if (leaveMarketplace && !prefetch) response.cookies.delete(BROWSER_WORKSPACE_COOKIE);
+    return response;
+  };
   if (pathname !== "/app" && !pathname.startsWith("/app/")) {
-    const response = NextResponse.next();
+    const response = finish(NextResponse.next({ request: { headers: request.headers } }));
     if (process.env.CERTSCORE_PUBLIC_PAGE_REQUEST_LOGGING_ENABLED === "0"
       || !isPublicDocumentRequest(request.method, pathname, request.headers)) return response;
     try {
@@ -50,15 +62,15 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     }
     requestHeaders.set("x-certscore-operational-method", request.method);
     requestHeaders.set("x-certscore-operational-route", request.nextUrl.pathname);
-    return NextResponse.next({
+    return finish(NextResponse.next({
       request: { headers: requestHeaders }
-    });
+    }));
   }
 
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
   loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
-  return NextResponse.redirect(loginUrl);
+  return finish(NextResponse.redirect(loginUrl));
 }
 
 export const config = {

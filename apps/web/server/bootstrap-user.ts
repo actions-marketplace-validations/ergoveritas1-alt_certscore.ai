@@ -36,6 +36,7 @@ export type OrganizationMemberRecord = {
 };
 
 export type BootstrapResult = {
+  marketplaceBrowser?: boolean;
   user: AuthenticatedAppUser;
   profile: UserRecord;
   organization: OrganizationRecord;

@@ -14,6 +14,7 @@ const navItems = [
   { href: "/app/admin/scans", label: "Scans" },
   { href: "/app/admin/pulse", label: "API activity" },
   { href: "/app/admin/mcp", label: "MCP operations" },
+  { href: "/app/admin/marketplace-browser", label: "Browser Marketplace" },
   { href: "/app/admin/analytics", label: "Events" },
   { href: "/app/admin/monitor-requests", label: "Monitor Requests" }
 ] as const;
