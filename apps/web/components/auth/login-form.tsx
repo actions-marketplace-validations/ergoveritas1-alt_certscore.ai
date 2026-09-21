@@ -82,6 +82,7 @@ export function LoginForm(input?: {
 }) {
   const searchParams = useSearchParams();
   const nextPath = getSafeRedirectPath(searchParams?.get("next") ?? null);
+  const isMarketplaceLight = nextPath.split(/[?#]/)[0] === "/marketplace/light";
   const allowCreateAccount = input?.allowCreateAccount ?? true;
   const initialMessage = searchParams?.get("message") ?? null;
   const initialError = searchParams?.get("error") ?? null;
@@ -169,12 +170,12 @@ export function LoginForm(input?: {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div className="min-w-0">
           <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-700">Account access</h2>
-          <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-slate-950">{isCreateAccount ? "Create your workspace" : "Welcome back"}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-slate-950">{isCreateAccount ? isMarketplaceLight ? "Create your CertScore account" : "Create your workspace" : "Welcome back"}</p>
           <p className="mt-1 text-sm leading-6 text-slate-500">
-            {isCreateAccount ? "Start with a focused, evidence-led review." : "Sign in to continue reviewing your workspace."}
+            {isMarketplaceLight ? "Continue to your Marketplace subscription and API key." : isCreateAccount ? "Start with a focused, evidence-led review." : "Sign in to continue reviewing your workspace."}
           </p>
         </div>
 
@@ -363,7 +364,7 @@ export function LoginForm(input?: {
                 : "Signing you in…"
               : isCreateAccount
                 ? isCreatePasswordStep
-                  ? "Start 7-day trial"
+                  ? isMarketplaceLight ? "Create account and continue" : "Start 7-day trial"
                   : "Continue"
                 : "Sign in"}
           </Button>
@@ -371,13 +372,13 @@ export function LoginForm(input?: {
 
         {isSubmitting ? (
           <p aria-live="polite" className="text-center text-xs text-slate-500">
-            Just a moment — we’re opening your CertScore.ai workspace.
+            {isMarketplaceLight ? "Just a moment — we’re returning you to Marketplace setup." : "Just a moment — we’re opening your CertScore.ai workspace."}
           </p>
         ) : null}
 
         {allowCreateAccount && isCreateAccount ? (
           <p className="text-xs leading-5 text-slate-500">
-            New accounts include a 7-day trial before choosing a monthly plan.
+            {isMarketplaceLight ? "Marketplace MCP Light is free. No paid CertScore plan is required; an active AWS Marketplace subscription and shared usage limits apply." : "New accounts include a 7-day trial before choosing a monthly plan."}
           </p>
         ) : null}
       </form>

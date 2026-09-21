@@ -29,6 +29,11 @@ export default function DeveloperMcpPage() {
   return (
     <DeveloperShell activePath="/developers/mcp" title="MCP server" description={description}>
       <div className="space-y-12">
+        <aside aria-labelledby="marketplace-start" className="rounded-xl border border-sky-200 bg-sky-50 p-6">
+          <h2 id="marketplace-start" className="text-xl font-semibold text-slate-950">Subscribed through AWS Marketplace?</h2>
+          <p className="mt-2 text-sm leading-7 text-slate-700">Marketplace MCP Light uses a CertScore account, an active AWS subscription and a Marketplace API key. Follow its dedicated guide for the correct endpoint, client settings and first scan.</p>
+          <Link href="/marketplace/light/guide" className="mt-3 inline-flex font-semibold text-sky-800 underline underline-offset-4">Open the Marketplace quick-start guide →</Link>
+        </aside>
         <section aria-labelledby="route-choice" className="rounded-xl border border-slate-200 bg-white p-6 sm:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Start here</p>
           <h2 className="mt-2 text-3xl font-semibold text-slate-950" id="route-choice">Which route should I choose?</h2>
