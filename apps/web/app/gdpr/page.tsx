@@ -1,3 +1,4 @@
+import { EditorialByline } from "../../components/marketing/editorial-byline";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@website-signal-risk-scanner/ui";
@@ -355,6 +356,7 @@ export default function GdprPage() {
               <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
                 How to interpret GDPR website evidence
               </h1>
+        <EditorialByline path={"/gdpr"} />
               <p className="text-lg leading-8 text-slate-600">
                 Use this guide to interpret browser observations, understand coverage limits, and distinguish a review signal from a legal conclusion. For a new scan, start with the GDPR website scanner.
               </p>

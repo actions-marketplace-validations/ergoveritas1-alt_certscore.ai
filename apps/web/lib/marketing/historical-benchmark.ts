@@ -1,0 +1,50 @@
+// Marketing archive only. Does not change canonical scan findings or scoring.
+export const HISTORICAL_BENCHMARK = {
+  sourceRevision: "839fa60a347c4af7cb6a2bc473073ff7aae277cd",
+  sourceRecordedDate: "2026-05-18",
+  declaredSampleSize: 2505,
+  declaredScope: "Tranco top 1–2500 calibration set",
+  provenanceStatus: "incomplete",
+  rows: [
+  {
+    "id": "pre_consent_tracking_detected",
+    "label": "Pre-consent tracking",
+    "count": 458
+  },
+  {
+    "id": "third_party_cookie_pre_consent",
+    "label": "Third-party cookies before consent",
+    "count": 311
+  },
+  {
+    "id": "rtb_cookie_sync_observed",
+    "label": "RTB cookie sync",
+    "count": 220
+  },
+  {
+    "id": "session_recording_services_detected",
+    "label": "Session recording service signal",
+    "count": 228
+  },
+  {
+    "id": "fingerprinting_related_signals_observed",
+    "label": "Broad fingerprinting-related signals",
+    "count": 396
+  },
+  {
+    "id": "reject_option_missing_or_hidden",
+    "label": "Reject/refusal option not observed or nested",
+    "count": 98
+  },
+  {
+    "id": "probable_fingerprinting",
+    "label": "Probable fingerprinting",
+    "count": 4
+  },
+  {
+    "id": "possible_session_replay_on_sensitive_input_surface",
+    "label": "Possible session replay near sensitive inputs",
+    "count": 7
+  }
+]
+} as const;

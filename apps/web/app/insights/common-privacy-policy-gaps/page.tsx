@@ -12,6 +12,7 @@ export const metadata: Metadata = createPageMetadata({
 export default function CommonPrivacyPolicyGapsInsightPage() {
   return (
     <InsightTemplate
+      path="/insights/common-privacy-policy-gaps"
       eyebrow="Policy insights"
       title="Common Privacy Policy Gaps"
       intro="Privacy policy gaps usually become visible when the public policy does not appear to match how the site actually behaves. That makes policy scanning more useful when paired with tracker and cookie observations."

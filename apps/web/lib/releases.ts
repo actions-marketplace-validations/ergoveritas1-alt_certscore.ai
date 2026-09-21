@@ -1,3 +1,4 @@
+import { EDITORIAL_AUTHOR } from "./marketing/editorial-metadata";
 import type { Metadata } from "next";
 import { absoluteUrl, createPageMetadata, SITE_NAME, SITE_URL } from "./seo";
 import { AUTHENTIC_SAMPLE_REPORT_URL } from "./marketing/sample-report";
@@ -8,6 +9,7 @@ export type ReleaseLink = {
 };
 
 export type ReleaseSection = {
+  image?: { path: string; alt: string; width: number; height: number; caption: string };
   bullets?: readonly string[];
   heading: string;
   id: string;
@@ -46,6 +48,109 @@ export type ProductRelease = {
 };
 
 const releases: readonly ProductRelease[] = [
+{
+  "slug": "forms-capture",
+  "headline": "See the forms on your website—and the privacy questions they raise",
+  "shortDescription": "Find observed forms and fields, open available form screenshots, and give your next website privacy review a clearer starting point.",
+  "publicationDate": "2026-09-21",
+  "category": "Scanner capability",
+  "ctaHeading": "Take a closer look at your forms",
+  "ctaDescription": "Run a public website scan, then open Forms & fields in the completed report.",
+  "seoTitle": "Website form scanning and form screenshots",
+  "metaDescription": "See forms and fields on scanned public pages, open available form screenshots, and investigate data collection with evidence-backed privacy context.",
+  "body": [
+    "A contact form asks for an email address. A booking enquiry adds a date of birth. A newsletter checkbox arrives already selected. Before a team can review data collection, it needs to see what the website is asking visitors to provide.",
+    "CertScore.ai brings observed forms, retained field details and available form screenshots into your website report. Developers can locate the form, agencies can explain it to a client, and privacy reviewers can start with the captured evidence."
+  ],
+  "sections": [
+    {
+      "id": "whats-new",
+      "heading": "A clearer view of data collection",
+      "paragraphs": [
+        "Our September forms capture updates bring a dedicated Forms & fields inventory to single-page and full-site reports, with verified, masked form crops when screenshot capture succeeds. Today’s announcement introduces the combined workflow; these capabilities began rolling out earlier in September.",
+        "Form detection, screenshot capture and privacy assessment each answer a different question: what was observed, what can be shown, and what the retained evidence supports. A detected form is not automatically a privacy concern."
+      ]
+    },
+    {
+      "id": "what-you-can-see",
+      "heading": "From a form to the details that matter",
+      "bullets": [
+        "Find the captured page and review each form’s type, fields and configured action. The action describes its setup, not an observed data transfer.",
+        "Expand a form to inspect labels, field types, required states, checkbox or toggle states and evidence references.",
+        "Choose View form to open its cropped screenshot when capture and safety review succeed. Input values are masked.",
+        "Use field-review indicators to prioritize questions about personal data, sensitive-looking fields and selected marketing controls."
+      ],
+      "paragraphs": [
+        "The screenshot adds visual context to the structured inventory: which fields sit together, how they are labelled and what the visitor is shown. Unavailable images remain clearly marked, while retained field details stay available for review."
+      ]
+    },
+    {
+      "id": "privacy-review",
+      "heading": "Turn visual evidence into better questions",
+      "paragraphs": [
+        "Imagine handing a developer a review request with the page, field labels and captured form attached. Instead of “check the forms,” the conversation can be specific: Why is this field required? Does the privacy notice explain its purpose? Should this marketing choice start selected?",
+        "Field-review indicators help route that conversation. They are not privacy findings and do not affect the score by themselves; read them alongside the report’s separately supported findings.",
+        "For teams reviewing GDPR risk signals, form evidence is a practical starting point for checking data collection against privacy notices and intended implementation. Human review remains essential."
+      ]
+    },
+    {
+      "id": "verified-example",
+      "heading": "A real capture from our owned test page",
+      "image": { "path": "/images/releases/forms-capture-contact-example.jpg", "alt": "Verified Contact enquiry form crop showing Full name, Email address, Enquiry and opt-in labels, with controls masked.", "width": 610, "height": 421, "caption": "Actual production capture, September 21, 2026. Owned test fixture; no visitor data. The structured inventory separately records the opt-in as unchecked." },
+      "paragraphs": [
+        "On September 21, 2026, a production scan of our owned ErgoVeritas contact-form fixture retained four fields: Full name, Email address, Enquiry and an unchecked opt-in control. The report recorded the email field as required and retained a matching, masked form screenshot.",
+        "The report surfaced no privacy findings. Its field-review cues identify personal-contact, identity and free-text fields worth checking—a concrete starting point for review."
+      ]
+    },
+    {
+      "id": "how-to-use",
+      "heading": "Try it in your next review",
+      "steps": [
+        "Scan an eligible public website or open a recent completed report.",
+        "Find Forms & fields below Services & Resources and expand a form.",
+        "Open View form where available, check the source page and evidence references, and read any coverage limitations.",
+        "Review the relevant Detailed evidence and share a precise follow-up with the developer or privacy owner."
+      ],
+      "paragraphs": [
+        "You can copy the forms table as JSON. API v2 report-evidence exports and MCP report-evidence retrieval also carry retained form details, coverage and snapshot links, subject to the report’s access rules. Images remain separate downloads."
+      ]
+    },
+    {
+      "id": "availability",
+      "heading": "Availability and limits",
+      "paragraphs": [
+        "Forms capture is available in supported public single-page scans and on inventoried pages of full-site scans, within your existing access and crawl limits.",
+        "CertScore.ai does not fill or submit forms. Coverage is bounded; see the Forms & fields guide below for capture details and exclusions. Automated observations, not legal advice."
+      ]
+    }
+  ],
+  "primaryCta": {
+    "href": "/",
+    "label": "Scan your website"
+  },
+  "resourceLinks": [
+    { "href": "https://certscore.ai/scan/63b87ff5-07c5-4c7b-895a-028ea6bb43c9#report-forms", "label": "View the real forms example" },
+    {
+      "href": "/guides/website-form-scanning",
+      "label": "Forms & fields guide"
+    },
+    {
+      "href": "/developers/mcp#forms-evidence",
+      "label": "Use forms evidence with your agent"
+    },
+    {
+      "href": "/releases/mcp-hosted-oauth",
+      "label": "Connect Hosted MCP OAuth"
+    }
+  ],
+  "cardImage": { "alt": "See the fields. Review the evidence. CertScore.ai forms capture.", "height": 630, "width": 1200, "path": "/images/releases/forms-capture-social-card.png" },
+  "socialImage": {
+    "alt": "CertScore.ai forms capture: see the fields, review the evidence.",
+    "width": 1200,
+    "height": 630,
+    "path": "/images/releases/forms-capture-social-card.png"
+  }
+},
   {
   "slug": "mcp-hosted-oauth",
   "headline": "Connect your agent to your CertScore.ai workspace with Hosted MCP OAuth",
@@ -401,6 +506,7 @@ export function createReleaseArticleSchema(release: ProductRelease) {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: release.headline,
+    author: EDITORIAL_AUTHOR,
     description: release.shortDescription,
     datePublished: release.publicationDate,
     ...(release.modifiedDate ? { dateModified: release.modifiedDate } : {}),

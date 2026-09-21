@@ -1,0 +1,19 @@
+{
+  "bundleSha256": "45fcd875987abcac36dae71a40409b62749072b1e0da655cc53a829e92bede87",
+  "expectedBundleSha256": "45fcd875987abcac36dae71a40409b62749072b1e0da655cc53a829e92bede87",
+  "inventorySha256": "b1883afcd844f8c7ebdad38d988bfd83698f2c80df9020a6b19c1495636ee550",
+  "snapshotSourceInventoryHash": "b1883afcd844f8c7ebdad38d988bfd83698f2c80df9020a6b19c1495636ee550",
+  "imageSha256": "3232d623794303f93b84ce0e0444c8d73bd0c0581c97c73f054b3a2e28842122",
+  "snapshotImageSha256": "3232d623794303f93b84ce0e0444c8d73bd0c0581c97c73f054b3a2e28842122",
+  "formRef": "collection_form_0",
+  "pageUrl": "https://ergoveritas.com/form-inventory-01/",
+  "valuesMasked": true,
+  "status": "available",
+  "scannerBuildProvenance": {
+    "contractVersion": "scanner_build_provenance.v1",
+    "gitSha": "c02affa98251a1b58f47c339f2d33862e9b6a92a",
+    "imageTag": "c02affa98251a1b58f47c339f2d33862e9b6a92a",
+    "runtimeVersion": "certscore-v2-dag-parallel-path"
+  },
+  "scannerVersion": "certscore-scan-core-v2-alpha"
+}

@@ -19,6 +19,12 @@ export default function DeveloperReferencePage() {
   return (
     <DeveloperShell activePath="/developers/reference" title="API reference" description={description}>
       <div className="space-y-12">
+        <Section id="forms-evidence" eyebrow="Report evidence" title="Forms, fields and snapshot links">
+          <p className="text-sm leading-7 text-slate-600">Retrieve the completed report with <code>GET /api/v2/scans/&#123;scanId&#125;/report-evidence</code>. Follow its cursor for all entries, or request <code>?format=download</code> for report-display JSON. Retained forms include field metadata, evidence references, capture status and snapshot links. Resolve <code>reportContentRef</code> pointers within the document; images are separate downloads.</p>
+          <p className="mt-3 text-sm leading-7 text-slate-600">Public reports and workspace reports keep their existing access boundaries. Full-site exports include retained additional-page forms only after the crawl completes. Missing or withheld snapshots remain unavailable. Inventory review labels do not establish a finding or consent validity.</p>
+          <p className="mt-3 text-sm leading-7 text-slate-600">Reports provide verified, masked form crops when screenshot capture succeeds; not every detected form has a screenshot. A declared/configured destination is the form action, not evidence that CertScore.ai submitted the form or observed a transfer.</p>
+          <a className="mt-4 inline-block text-sky-700 underline" href="/guides/website-form-scanning">Forms coverage and review guide</a>
+        </Section>
         <Section eyebrow="Routes" title="API v2 resources">
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
             <table className="min-w-[760px] table-fixed w-full text-left text-sm">

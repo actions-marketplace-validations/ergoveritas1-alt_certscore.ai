@@ -1,0 +1,17 @@
+{
+  "idempotencyKey": "forms-capture-launch-2026-09-21:63b87ff5-07c5-4c7b-895a-028ea6bb43c9",
+  "generatedAt": "2026-09-21T14:05:11Z",
+  "results": [
+    {
+      "url": "https://ergoveritas.com/form-inventory-01/",
+      "status": "completed",
+      "scannerRuntimeStarted": true,
+      "startedAt": "2026-09-21T14:04:53.500Z",
+      "completedAt": "2026-09-21T14:05:11Z",
+      "runtime": {
+        "noGoCandidate": false,
+        "noGoReasons": []
+      }
+    }
+  ]
+}

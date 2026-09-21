@@ -29,6 +29,11 @@ export default function DeveloperMcpPage() {
   return (
     <DeveloperShell activePath="/developers/mcp" title="MCP server" description={description}>
       <div className="space-y-12">
+        <aside aria-labelledby="marketplace-start" className="rounded-xl border border-sky-200 bg-sky-50 p-6">
+          <h2 id="marketplace-start" className="text-xl font-semibold text-slate-950">Subscribed through AWS Marketplace?</h2>
+          <p className="mt-2 text-sm leading-7 text-slate-700">Marketplace MCP Light uses a CertScore account, an active AWS subscription and a Marketplace API key. Follow its dedicated guide for the correct endpoint, client settings and first scan.</p>
+          <Link href="/marketplace/light/guide" className="mt-3 inline-flex font-semibold text-sky-800 underline underline-offset-4">Open the Marketplace quick-start guide →</Link>
+        </aside>
         <section aria-labelledby="route-choice" className="rounded-xl border border-slate-200 bg-white p-6 sm:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Start here</p>
           <h2 className="mt-2 text-3xl font-semibold text-slate-950" id="route-choice">Which route should I choose?</h2>
@@ -149,6 +154,12 @@ export default function DeveloperMcpPage() {
           </div>
         </Section>
 
+        <Section id="forms-evidence" eyebrow="Forms & fields" title="Retrieve retained forms and screenshots">
+          <p className="text-sm leading-7 text-slate-600">Use <code>certscore_get_report_evidence_page</code> for the completed, authorized report. Follow <code>pagination.nextCursor</code> or use the returned JSON download link. Form rows retain field metadata, evidence references, coverage and snapshot status; resolve <code>reportContentRef</code> JSON pointers within the exported document. Full-site reports include their retained additional-page forms after the crawl finishes.</p>
+          <p className="mt-3 text-sm leading-7 text-slate-600">The underlying API is <code>GET /api/v2/scans/&#123;scanId&#125;/report-evidence</code>. Available snapshots are separate JPEG links returned with the evidence, subject to the report’s access rules. Images are not embedded in MCP JSON. Unavailable or withheld images must remain unavailable; do not infer a finding from their absence. The scanner does not fill or submit forms.</p>
+          <p className="mt-3 text-sm leading-7 text-slate-600">Reports provide verified, masked form crops when screenshot capture succeeds; not every detected form has a screenshot. A declared/configured destination is the form action, not evidence that CertScore.ai submitted the form or observed a transfer.</p>
+          <Link className="mt-4 inline-block text-sky-700 underline" href="/guides/website-form-scanning">Forms coverage and review guide</Link>
+        </Section>
         <Section id="read-rate-limits" eyebrow="Read protection" title="MCP scan-resource limits">
           <ApiReadRatePolicyDetails />
           <p className="mt-5 max-w-3xl text-sm leading-7 text-slate-600">

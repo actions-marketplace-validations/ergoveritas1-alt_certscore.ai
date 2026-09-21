@@ -74,7 +74,7 @@ const config: SolutionPageConfig = {
   relatedLinks: [
     { href: "/mcp/light", label: "Run a cookie and consent scan with MCP Light" },
     { href: "/guides/cookie-consent-enforcement-checker", label: "Cookie consent enforcement checker" },
-    { href: "/guides/third-party-cookies-before-consent", label: "Third-party cookies before consent" },
+    { href: "/guides/check-third-party-cookies-before-consent", label: "Third-party cookies before consent" },
     { href: "/guides/cmp-verification", label: "CMP verification" },
     { href: "/sample-report", label: "Sample report" }
   ],

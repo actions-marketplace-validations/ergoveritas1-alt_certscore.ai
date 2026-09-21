@@ -36,7 +36,7 @@ export type FormSortKey = "form" | "type" | "fields" | "controls" | "sensitivity
 const columns: Array<{ key: FormSortKey; label: string }> = [
   { key: "form", label: "Form" }, { key: "type", label: "Type" }, { key: "fields", label: "Fields" },
   { key: "controls", label: "Checkboxes / toggles" }, { key: "sensitivity", label: "Field review" },
-  { key: "method", label: "Method" }, { key: "destination", label: "Destination" },
+  { key: "method", label: "Method" }, { key: "destination", label: "Declared destination" },
   { key: "page", label: "Captured on page" }, { key: "snapshot", label: "Snapshot" },
 ];
 export function sortCollectionSurfaces(rows: CollectionSurfaceTableRow[], key: FormSortKey, direction: "asc" | "desc") {
@@ -69,7 +69,7 @@ function reviewPolicy(field: Form["fields"][number]) { return FIELD_REVIEW_POLIC
 function reviewRank(field: Form["fields"][number]) { return ({ highest:4, high:3, personal:2, contextual:1, unknown:0 })[reviewPolicy(field).tier]; }
 function FieldReview({ field }: { field: Form["fields"][number] }) {
  const policy=reviewPolicy(field),rank=reviewRank(field);
- return <span title={`${policy.label}. Field review indicator; no score effect.`} className={`inline-flex items-center gap-1 ${rank>=3 ? "text-rose-700" : rank===2 ? "text-amber-700" : "text-slate-500"}`}>{rank>=2 ? <span role="img" aria-label="Field requires review">⚠</span> : null}{policy.label}</span>;
+ return <span title={`${policy.label}. Field review indicator; no score effect.`} className={`inline-flex items-center gap-1 ${rank>=3 ? "text-rose-700" : rank===2 ? "text-slate-600" : "text-slate-500"}`}>{rank>=3 ? <span role="img" aria-label="Field requires review">⚠</span> : rank===2 ? <span role="img" aria-label="Field review information">ⓘ</span> : null}{policy.label}</span>;
 }
 function ControlState({ field }: { field: Form["fields"][number] }) {
  const kind=field.controlKind ?? field.inputType;
@@ -133,7 +133,9 @@ export function CollectionSurfacesTable({ rows, loading = false, scanning = fals
         <h2 id={`${prefix}-title`} className="text-xl font-semibold">Forms & fields</h2>
         <div className="flex items-center gap-2"><span className="text-xs text-zinc-500"><ScanLiveValue active={scanning && !loading} value={loading ? "Loading…" : `${rows.length} ${rows.length === 1 ? "form" : "forms"}`} /></span>{!loading ? <CopyJsonButton className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sky-700 hover:bg-sky-50" label="Copy entire forms table with all fields and evidence as JSON" payload={JSON.stringify(rows, null, 2)} /> : null}</div>
       </div>
-      <p className="mb-4 text-xs text-zinc-600">Forms and fields observed on scanned pages. Expand a form to inspect its fields; submitted values are not included.</p>
+      <p className="mb-2 text-xs text-zinc-600">Forms and fields observed on scanned pages. Expand a form to inspect its fields. CertScore.ai does not fill or submit forms; this inventory does not contain submitted field values.</p>
+      <p className="mb-2 text-xs text-zinc-600">Field review identifies fields worth checking. These labels are not privacy findings and do not affect the score by themselves.</p>
+      <p className="mb-4 text-xs text-zinc-600">Declared destination is the configured form action, not evidence that CertScore.ai submitted the form or observed a transfer.</p>
       {pagesWithoutInventory > 0 || limitedPages > 0 ? <p className="mb-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
         {pagesWithoutInventory > 0 ? `${pagesWithoutInventory} page(s) have no retained form inventory. ` : ""}
         {limitedPages > 0 ? `${limitedPages} page(s) have limited form coverage. ` : ""}Missing evidence does not establish that a page has no forms.

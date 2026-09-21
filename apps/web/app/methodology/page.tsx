@@ -91,7 +91,7 @@ export default function MethodologyPage() {
         <div className="mx-auto max-w-5xl px-6 py-14">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Separate Accept and Reject observations</h2>
           <div className="mt-3 max-w-4xl space-y-3 text-sm leading-7 text-slate-600">
-            <p>Eligible Accept and Reject controls are observed in separate clean browser sessions. The Accept Path provides a score-neutral baseline for consent-dependent activity. The Reject Path can support a finding only after a refusal-state transition is independently confirmed and qualifying activity is temporally anchored after that confirmation.</p>
+            <p>Eligible Accept and Reject controls are observed in separate clean browser sessions. The Accept Path provides a score-neutral baseline for consent-dependent activity. The confirmed-refusal path requires an independently verified refusal-state transition and qualifying activity anchored after it. Separately, a completed authorized Reject click with directly observed, verified analytics, advertising, or session-replay requests may support a Reject-click tracking review signal even when registration is unverified. Completed click, completed observation, and confirmed decision remain separate facts. An unchanged stored cookie alone does not prove active tracking; missing or unverifiable evidence stays limited.</p>
             <p>Requests already in flight at confirmation are excluded. Unsupported, ambiguous, incomplete, stale, timed-out, or unverifiable interactions remain limited coverage and cannot become a clean result or a finding.</p>
           </div>
         </div>

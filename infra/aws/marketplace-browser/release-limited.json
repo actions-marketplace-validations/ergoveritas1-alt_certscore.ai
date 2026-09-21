@@ -1,0 +1,23 @@
+{
+  "Catalog": "AWSMarketplace",
+  "ClientRequestToken": "certscore-browser-limited-20260920-v1",
+  "ChangeSetName": "Release free CertScore browser scanner for Limited testing",
+  "ChangeSet": [
+    {
+      "ChangeType": "ReleaseProduct",
+      "Entity": {
+        "Type": "SaaSProduct@1.0",
+        "Identifier": "prod-35ca6yuplccjo"
+      },
+      "DetailsDocument": {}
+    },
+    {
+      "ChangeType": "ReleaseOffer",
+      "Entity": {
+        "Type": "Offer@1.0",
+        "Identifier": "offer-igm3spsgqmmea"
+      },
+      "DetailsDocument": {}
+    }
+  ]
+}

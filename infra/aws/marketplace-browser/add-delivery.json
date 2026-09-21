@@ -1,0 +1,27 @@
+{
+  "Catalog": "AWSMarketplace",
+  "ClientRequestToken": "certscore-browser-website-delivery-20260920-v1",
+  "ChangeSetName": "CertScore browser scanner website fulfillment",
+  "ChangeSet": [
+    {
+      "ChangeType": "AddDeliveryOptions",
+      "Entity": {
+        "Type": "SaaSProduct@1.0",
+        "Identifier": "prod-35ca6yuplccjo"
+      },
+      "DetailsDocument": {
+        "DeliveryOptions": [
+          {
+            "Details": {
+              "SaaSUrlDeliveryOptionDetails": {
+                "FulfillmentUrl": "https://certscore.ai/api/marketplace/browser/register",
+                "QuickLaunchEnabled": false,
+                "UsageInstructions": "### Start in your browser\n1. Subscribe to this free offering in AWS Marketplace.\n2. Choose Set up your account.\n3. Sign in to your existing CertScore account or create an account.\n4. Confirm the displayed AWS account and explicitly link your subscription. A separate Marketplace workspace keeps existing CertScore plans intact.\n5. If activation is pending, choose Check subscription. Contact support if it remains pending.\n6. Enter a public website URL and choose Run a website scan.\n7. Open View scan progress and report. Review retained evidence and coverage limitations.\n\nReturn to https://certscore.ai/marketplace/browser for subscription status, remaining allowance, workspace selection and report history. No MCP client, API key or buyer-deployed resources are required.\n\n### Included access and limits\nFree access includes 50 fresh single-page scans per workspace per UTC calendar month. Unused credits do not roll over. Completed-result reuse uses no credit. A limited-evidence or failed scan after dispatch still consumes a credit. Full-site crawls, scheduled monitoring and additional API/MCP access are not included. Safety checks and cooldowns apply. No overage charges or automatic paid conversion.\n\nManage cancellation in AWS Marketplace. Inactive or expired subscriptions cannot start scans. Re-subscription preserves the current month's remaining allowance. Existing reports follow the applicable access and retention policies. One AWS buyer is linked to one CertScore owner; contact support for an ownership review.\n\nSubmit public URLs only, without credentials or sensitive data. Automated observations may be incomplete or incorrect. Results are not legal advice, certification or proof of compliance.\n\nSupport: support@certscore.ai\nMethodology: https://certscore.ai/methodology\n"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

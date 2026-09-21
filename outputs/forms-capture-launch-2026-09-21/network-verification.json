@@ -1,0 +1,666 @@
+{
+  "deployment": "4644dbe1a53b156beef66c1a410d0fe46b78094b",
+  "method": "Canonical URLs without cache-busting; independent Cloudflare edge and direct AWS ALB with TLS/SNI; XOR decode Cloudflare email text/hrefs before main-content hashing. Version timestamps vary. Raw HTML retained locally.",
+  "results": [
+    {
+      "url": "https://certscore.ai/releases/forms-capture",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/releases/forms-capture",
+        "verifiedAt": "2026-09-21T14:20:08.948588+00:00",
+        "status": 200,
+        "sha256": "f9f8e48b68c293c41b2ee6ae0dab18eb4da83190b2f3728d78667231ac81828b",
+        "bytes": 92172,
+        "contentChecks": {
+          "See the forms on your website": true,
+          "63b87ff5-07c5-4c7b-895a-028ea6bb43c9": true,
+          "forms-capture-social-card.png": true,
+          "forms-capture-contact-example.jpg": true,
+          "2026-09-21": true,
+          "no privacy findings": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:08 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "metadataChecked": true
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/releases/forms-capture",
+        "verifiedAt": "2026-09-21T14:20:09.518392+00:00",
+        "status": 200,
+        "sha256": "d251a964c304fa393f487143d3ed330bd749811d6da014ede7d32590902aa570",
+        "bytes": 91927,
+        "contentChecks": {
+          "See the forms on your website": true,
+          "63b87ff5-07c5-4c7b-895a-028ea6bb43c9": true,
+          "forms-capture-social-card.png": true,
+          "forms-capture-contact-example.jpg": true,
+          "2026-09-21": true,
+          "no privacy findings": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:08 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"zr1o0vbeq1yw7\""
+        },
+        "metadataChecked": true
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "9108327ec775f30459812a3f38ce61ea6e3e99f36b17f13d0d99dbb6e1226e71"
+    },
+    {
+      "url": "https://certscore.ai/guides/website-form-scanning",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/guides/website-form-scanning",
+        "verifiedAt": "2026-09-21T14:20:09.986169+00:00",
+        "status": 200,
+        "sha256": "446716e1fc045c2c7acbaa919dc841cffcec410c3c9714d27b51a8fd4c93b91e",
+        "bytes": 85932,
+        "contentChecks": {
+          "Find forms in your report": true,
+          "certscore_get_report_evidence_page": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:09 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/guides/website-form-scanning",
+        "verifiedAt": "2026-09-21T14:20:11.769374+00:00",
+        "status": 200,
+        "sha256": "2bf91ce8534adfef94ed6ac1dacd651b047b04fe0b37c553bb5251bffd65e748",
+        "bytes": 85687,
+        "contentChecks": {
+          "Find forms in your report": true,
+          "certscore_get_report_evidence_page": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:10 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"cmarv9hsb51u3b\""
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "b0a4a8ca611d89d6881d72b8c172443c70222f8b815408ae038d99f8deff9f5d"
+    },
+    {
+      "url": "https://certscore.ai/",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/",
+        "verifiedAt": "2026-09-21T14:20:11.091618+00:00",
+        "status": 200,
+        "sha256": "83b53893608ff8b79a156e3d6d75c80092ce1ab416078b6a496730d1ff5df0ab",
+        "bytes": 538227,
+        "contentChecks": {
+          "/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:10 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/",
+        "verifiedAt": "2026-09-21T14:20:21.356865+00:00",
+        "status": 200,
+        "sha256": "35fba957bf2fe35428cdd06257f9dfd9978d55000a8649fe62add3130ee2bbea",
+        "bytes": 537982,
+        "contentChecks": {
+          "/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:12 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"4vxe52oz7jbj2o\""
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "5f4c7da951e2096b88906b3318072dcabe3ce319312a69b035b245f2abd1a7db"
+    },
+    {
+      "url": "https://certscore.ai/releases",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/releases",
+        "verifiedAt": "2026-09-21T14:20:13.952925+00:00",
+        "status": 200,
+        "sha256": "e6327774c41a8a9e53fcab85f83313badfb676ebc02f5e1264505702c1507b0e",
+        "bytes": 78065,
+        "contentChecks": {
+          "/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:13 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/releases",
+        "verifiedAt": "2026-09-21T14:20:23.079919+00:00",
+        "status": 200,
+        "sha256": "137e1313d833db687e269e81f1922957e6b5041180c5b8c1cf45ba6d9bc69d14",
+        "bytes": 77820,
+        "contentChecks": {
+          "/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:22 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"ogaejd92801nzy\""
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "fc84e6d432d8b7c8e513924bce464b432504d38f673b12891e7d101e10917e26"
+    },
+    {
+      "url": "https://certscore.ai/releases/mcp-hosted-oauth",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/releases/mcp-hosted-oauth",
+        "verifiedAt": "2026-09-21T14:20:14.813302+00:00",
+        "status": 200,
+        "sha256": "5e62311fdcfdd0dec5bdbb678212625531ce21dd9232374051962bec56ff22b1",
+        "bytes": 88191,
+        "contentChecks": {
+          "/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:14 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/releases/mcp-hosted-oauth",
+        "verifiedAt": "2026-09-21T14:20:24.824375+00:00",
+        "status": 200,
+        "sha256": "e223fad446d64ffb9015eb246650dbdf4b2212c983c32f98c5990f08f4b3ecbc",
+        "bytes": 87946,
+        "contentChecks": {
+          "/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:23 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"b7emog8p3c1vty\""
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "1b0dd9d223fed67926f935cd4282b914bfa00ffee725455a7a6a4a6e064f7fdb"
+    },
+    {
+      "url": "https://certscore.ai/releases/feed.xml",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/releases/feed.xml",
+        "verifiedAt": "2026-09-21T14:20:15.238982+00:00",
+        "status": 200,
+        "sha256": "c970031cb65d96e041a1b60f040342057ddc87e5b77e06f8e68db47deab25d75",
+        "bytes": 2512,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:15 GMT",
+          "content-type": "application/rss+xml; charset=utf-8",
+          "cache-control": "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/releases/feed.xml",
+        "verifiedAt": "2026-09-21T14:20:25.480770+00:00",
+        "status": 200,
+        "sha256": "c970031cb65d96e041a1b60f040342057ddc87e5b77e06f8e68db47deab25d75",
+        "bytes": 2512,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:25 GMT",
+          "content-type": "application/rss+xml; charset=utf-8",
+          "cache-control": "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+        }
+      },
+      "identicalBytes": true,
+      "decodedMainMatches": null,
+      "decodedMainSha256": null
+    },
+    {
+      "url": "https://certscore.ai/sitemap.xml",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/sitemap.xml",
+        "verifiedAt": "2026-09-21T14:20:15.679240+00:00",
+        "status": 200,
+        "sha256": "016319ab74352d47cbd877c7c6f61b6e679eb65aaf62c6db239b1afbb9e67913",
+        "bytes": 8322,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true,
+          "https://certscore.ai/guides/website-form-scanning": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:15 GMT",
+          "content-type": "application/xml",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "public, max-age=0, must-revalidate",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/sitemap.xml",
+        "verifiedAt": "2026-09-21T14:20:26.131468+00:00",
+        "status": 200,
+        "sha256": "016319ab74352d47cbd877c7c6f61b6e679eb65aaf62c6db239b1afbb9e67913",
+        "bytes": 8322,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true,
+          "https://certscore.ai/guides/website-form-scanning": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:26 GMT",
+          "content-type": "application/xml",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "public, max-age=0, must-revalidate"
+        }
+      },
+      "identicalBytes": true,
+      "decodedMainMatches": null,
+      "decodedMainSha256": null
+    },
+    {
+      "url": "https://certscore.ai/llms.txt",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/llms.txt",
+        "verifiedAt": "2026-09-21T14:20:16.479253+00:00",
+        "status": 200,
+        "sha256": "3bd302472eac5d871f072d526cdebaa5153b7501951598764e15fa63284e2b92",
+        "bytes": 16010,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true,
+          "https://certscore.ai/guides/website-form-scanning": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:16 GMT",
+          "content-type": "text/plain; charset=UTF-8",
+          "cache-control": "public, max-age=0",
+          "etag": "W/\"3e8a-1a0c44e54d8\"",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/llms.txt",
+        "verifiedAt": "2026-09-21T14:20:27.042742+00:00",
+        "status": 200,
+        "sha256": "3bd302472eac5d871f072d526cdebaa5153b7501951598764e15fa63284e2b92",
+        "bytes": 16010,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true,
+          "https://certscore.ai/guides/website-form-scanning": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:26 GMT",
+          "content-type": "text/plain; charset=UTF-8",
+          "cache-control": "public, max-age=0",
+          "etag": "W/\"3e8a-1a0c44e54d8\""
+        }
+      },
+      "identicalBytes": true,
+      "decodedMainMatches": null,
+      "decodedMainSha256": null
+    },
+    {
+      "url": "https://certscore.ai/llms-full.txt",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/llms-full.txt",
+        "verifiedAt": "2026-09-21T14:20:17.402627+00:00",
+        "status": 200,
+        "sha256": "7e691658557c191eeddb296c46e9e2e9324ea01c86eec64b1aca327a303d1908",
+        "bytes": 21854,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true,
+          "https://certscore.ai/guides/website-form-scanning": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:16 GMT",
+          "content-type": "text/plain; charset=UTF-8",
+          "cache-control": "public, max-age=0",
+          "etag": "W/\"555e-1a0c44e54d8\"",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/llms-full.txt",
+        "verifiedAt": "2026-09-21T14:20:27.908332+00:00",
+        "status": 200,
+        "sha256": "7e691658557c191eeddb296c46e9e2e9324ea01c86eec64b1aca327a303d1908",
+        "bytes": 21854,
+        "contentChecks": {
+          "https://certscore.ai/releases/forms-capture": true,
+          "https://certscore.ai/guides/website-form-scanning": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:27 GMT",
+          "content-type": "text/plain; charset=UTF-8",
+          "cache-control": "public, max-age=0",
+          "etag": "W/\"555e-1a0c44e54d8\""
+        }
+      },
+      "identicalBytes": true,
+      "decodedMainMatches": null,
+      "decodedMainSha256": null
+    },
+    {
+      "url": "https://certscore.ai/how-it-works",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/how-it-works",
+        "verifiedAt": "2026-09-21T14:20:18.498388+00:00",
+        "status": 200,
+        "sha256": "384fb7587f12597a80ac47a7d70e6483a49e8c2ec2fecb5cf9a58b18e1c2134d",
+        "bytes": 80691,
+        "contentChecks": {
+          "See what your website asks visitors to provide": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:18 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/how-it-works",
+        "verifiedAt": "2026-09-21T14:20:29.717128+00:00",
+        "status": 200,
+        "sha256": "a1d2ae843368a6443568b8fc6847ef5f946fbe6593aeaec80bc4129557422046",
+        "bytes": 80446,
+        "contentChecks": {
+          "See what your website asks visitors to provide": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:28 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"329xya0dsa1q28\""
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "36f8a427ffd58596c129cd044bbb7936999634f9e9ff55af0888bb8b83f7c4b4"
+    },
+    {
+      "url": "https://certscore.ai/developers/mcp",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/developers/mcp",
+        "verifiedAt": "2026-09-21T14:20:19.037043+00:00",
+        "status": 200,
+        "sha256": "8cf75f90de16e0810ea0967a9b54ad6a0b7a1687cfbcdbc2c49fc866c3882cac",
+        "bytes": 232258,
+        "contentChecks": {
+          "Retrieve retained forms and screenshots": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:18 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/developers/mcp",
+        "verifiedAt": "2026-09-21T14:20:33.059100+00:00",
+        "status": 200,
+        "sha256": "5dc1cbcfa0e5da7c4133e9e65e360968db94374bb0382666d9e6c49a23b2a2bd",
+        "bytes": 231370,
+        "contentChecks": {
+          "Retrieve retained forms and screenshots": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:30 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"10lpdzc1g6c4yf4\""
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "fc67bfd05ff5cd5fd0e3bab5ba78f05295a540a50553bd486e8eeb4c9c48ddef"
+    },
+    {
+      "url": "https://certscore.ai/developers/reference",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/developers/reference",
+        "verifiedAt": "2026-09-21T14:20:20.072551+00:00",
+        "status": 200,
+        "sha256": "7e9f51288333775666b188276406810367169b5ca2b7a620714ebb1779bca57c",
+        "bytes": 136689,
+        "contentChecks": {
+          "Forms, fields and snapshot links": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:20 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/developers/reference",
+        "verifiedAt": "2026-09-21T14:20:35.388851+00:00",
+        "status": 200,
+        "sha256": "08a6d60fb24ed94017342d2593b1de7ef66fc2ae3120ea9aeb2c962b2f782d7a",
+        "bytes": 136047,
+        "contentChecks": {
+          "Forms, fields and snapshot links": true
+        },
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:33 GMT",
+          "content-type": "text/html; charset=utf-8",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"timoysv7wl2wyl\""
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": true,
+      "decodedMainSha256": "180c9d149520adea56134dcbf54a94180063496c275d036da25bc393ee8743f8"
+    },
+    {
+      "url": "https://certscore.ai/images/releases/forms-capture-social-card.png",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/images/releases/forms-capture-social-card.png",
+        "verifiedAt": "2026-09-21T14:20:21.086068+00:00",
+        "status": 200,
+        "sha256": "b26fde62a2dd7383bdeaab7ad8df560e343973d179de3c6b14c60bd38e1fa120",
+        "bytes": 88590,
+        "contentChecks": {},
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:20 GMT",
+          "content-type": "image/png",
+          "cache-control": "public, max-age=14400",
+          "etag": "W/\"15a0e-1a0c44e54d8\"",
+          "cf-cache-status": "MISS",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/images/releases/forms-capture-social-card.png",
+        "verifiedAt": "2026-09-21T14:20:37.387366+00:00",
+        "status": 200,
+        "sha256": "b26fde62a2dd7383bdeaab7ad8df560e343973d179de3c6b14c60bd38e1fa120",
+        "bytes": 88590,
+        "contentChecks": {},
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:36 GMT",
+          "content-type": "image/png",
+          "cache-control": "public, max-age=0",
+          "etag": "W/\"15a0e-1a0c44e54d8\""
+        }
+      },
+      "identicalBytes": true,
+      "decodedMainMatches": null,
+      "decodedMainSha256": null
+    },
+    {
+      "url": "https://certscore.ai/images/releases/forms-capture-contact-example.jpg",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/images/releases/forms-capture-contact-example.jpg",
+        "verifiedAt": "2026-09-21T14:20:22.017195+00:00",
+        "status": 200,
+        "sha256": "3232d623794303f93b84ce0e0444c8d73bd0c0581c97c73f054b3a2e28842122",
+        "bytes": 12313,
+        "contentChecks": {},
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:22 GMT",
+          "content-type": "image/jpeg",
+          "cache-control": "public, max-age=14400",
+          "etag": "W/\"3019-1a0c44e54d8\"",
+          "cf-cache-status": "MISS",
+          "server": "cloudflare"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/images/releases/forms-capture-contact-example.jpg",
+        "verifiedAt": "2026-09-21T14:20:38.276985+00:00",
+        "status": 200,
+        "sha256": "3232d623794303f93b84ce0e0444c8d73bd0c0581c97c73f054b3a2e28842122",
+        "bytes": 12313,
+        "contentChecks": {},
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:38 GMT",
+          "content-type": "image/jpeg",
+          "cache-control": "public, max-age=0",
+          "etag": "W/\"3019-1a0c44e54d8\""
+        }
+      },
+      "identicalBytes": true,
+      "decodedMainMatches": null,
+      "decodedMainSha256": null
+    },
+    {
+      "url": "https://certscore.ai/api/version",
+      "edge": {
+        "networkPath": "public Cloudflare edge",
+        "url": "https://certscore.ai/api/version",
+        "verifiedAt": "2026-09-21T14:20:22.440479+00:00",
+        "status": 200,
+        "sha256": "935522dfc390a706547335adedfefdd5f5f376b132372793db232494e7ea0481",
+        "bytes": 240,
+        "contentChecks": {},
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:22 GMT",
+          "content-type": "application/json",
+          "cache-control": "no-store",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "version": {
+          "appUrl": "https://certscore.ai",
+          "gitRef": "main",
+          "gitSha": "4644dbe1a53b156beef66c1a410d0fe46b78094b",
+          "imageTag": "4644dbe1a53b156beef66c1a410d0fe46b78094b",
+          "runtimeTarget": "ecs-fargate",
+          "service": "web",
+          "timestamp": "2026-09-21T14:20:22.419Z"
+        }
+      },
+      "origin": {
+        "networkPath": "AWS ALB direct (TLS/SNI preserved)",
+        "url": "https://certscore.ai/api/version",
+        "verifiedAt": "2026-09-21T14:20:38.901636+00:00",
+        "status": 200,
+        "sha256": "450333452e15ae14017dcbaa5528c884a7fd16b655dcbb0e469fa3d364f09276",
+        "bytes": 240,
+        "contentChecks": {},
+        "headers": {
+          "date": "Mon, 21 Sep 2026 14:20:38 GMT",
+          "content-type": "application/json",
+          "cache-control": "no-store"
+        },
+        "version": {
+          "appUrl": "https://certscore.ai",
+          "gitRef": "main",
+          "gitSha": "4644dbe1a53b156beef66c1a410d0fe46b78094b",
+          "imageTag": "4644dbe1a53b156beef66c1a410d0fe46b78094b",
+          "runtimeTarget": "ecs-fargate",
+          "service": "web",
+          "timestamp": "2026-09-21T14:20:38.907Z"
+        }
+      },
+      "identicalBytes": false,
+      "decodedMainMatches": null,
+      "decodedMainSha256": null
+    }
+  ]
+}

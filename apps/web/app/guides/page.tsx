@@ -24,6 +24,25 @@ type GuideCard = {
 };
 
 const guides: GuideCard[] = [
+  { category: "Privacy & Tracking", title: "Website form scanning", description: "Review retained fields, form screenshots and evidence-backed privacy context.", href: "/guides/website-form-scanning" },
+  {
+    category: "Privacy & Tracking",
+    title: "How to test Global Privacy Control (GPC) response",
+    description: "Verify GPC delivery, compare a clean baseline with a GPC-enabled session, and distinguish an observable response from unknown coverage.",
+    href: "/guides/test-global-privacy-control"
+  },
+  {
+    category: "Privacy & Tracking",
+    title: "Google Analytics or Meta Pixel before consent: how to investigate",
+    description: "Trace Google Analytics and Meta Pixel activity before consent using clean sessions, network evidence, storage changes, and tag-manager configuration.",
+    href: "/guides/google-analytics-meta-pixel-before-consent"
+  },
+  {
+    category: "Privacy & Tracking",
+    title: "How to read a consent report: a retained example",
+    description: "Read a real retained CertScore.ai report from an owned test page, including its scan context, historical Reject result, GPC version, and coverage limits.",
+    href: "/guides/consent-report-example"
+  },
   {
     title: "How to run a website privacy scan through MCP",
     description: "Technical guide to the MCP Light lifecycle, evidence boundaries, telemetry, and tested async behavior.",
@@ -118,7 +137,7 @@ const guides: GuideCard[] = [
     title: "Third-party cookies before consent",
     description: "Review third-party cookie timing before a recorded consent choice.",
     category: "Cookies & Storage",
-    href: "/guides/third-party-cookies-before-consent"
+    href: "/guides/check-third-party-cookies-before-consent"
   },
   {
     title: "Third-party cookie checker",

@@ -54,11 +54,11 @@ export default function BenchmarksPage() {
         <div className="mt-8 grid gap-5">
           <Card className="border-slate-200 bg-white shadow-none">
             <CardHeader>
-              <CardTitle className="text-xl text-slate-950">Current calibration set</CardTitle>
+              <CardTitle className="text-xl text-slate-950">Historical calibration set</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm leading-7 text-slate-600">
               <p>
-                Public benchmark labels currently use the {FINDING_DENSITY_BENCHMARK_SCOPE.label}, with approximately {FINDING_DENSITY_BENCHMARK_SCOPE.sampleSizeApprox.toLocaleString()} completed public-web scans.
+                The historical aggregate recorded on May 18, 2026 declares the {FINDING_DENSITY_BENCHMARK_SCOPE.label}, with approximately {FINDING_DENSITY_BENCHMARK_SCOPE.sampleSizeApprox.toLocaleString()} scan records. Exact collection dates, regions, per-scan versions, and deduplication are not established by the published aggregate. These figures are not current prevalence estimates.
               </p>
               <p>{FINDING_DENSITY_BENCHMARK_SCOPE.methodologyNote}</p>
             </CardContent>

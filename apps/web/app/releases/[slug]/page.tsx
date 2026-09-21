@@ -1,3 +1,4 @@
+import { EditorialByline } from "../../../components/marketing/editorial-byline";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -68,6 +69,7 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
           <h1 className="mt-6 text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
             {release.headline}
           </h1>
+        <EditorialByline path={releasePath(release)} />
           <p className="mt-6 max-w-3xl text-xl leading-9 text-slate-600">{release.shortDescription}</p>
         </div>
       </header>
@@ -84,6 +86,12 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
               <div className="mt-5 space-y-4 text-base leading-8 text-slate-700">
                 {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
               </div>
+            ) : null}
+            {section.image ? (
+              <figure className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-6">
+                <img src={section.image.path} alt={section.image.alt} width={section.image.width} height={section.image.height} className="mx-auto h-auto max-w-full rounded-lg" loading="lazy" />
+                <figcaption className="mt-4 text-sm leading-6 text-slate-600">{section.image.caption}</figcaption>
+              </figure>
             ) : null}
             {section.sourceLinks?.length ? (
               <p className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm leading-6 text-slate-600">

@@ -1,0 +1,97 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { query, queryOne, closePools } from "@website-signal-risk-scanner/db";
+import { createBrowserClaim, claimBrowserLicense, applyBrowserEvent, currentBrowserLicense, createBrowserScanPermit, getBrowserLicense, saveBrowserVerification } from "./repository";
+import { createIntegrationApiKey } from "../integrations/api-keys";
+import type { LicenseEvent } from "../marketplace/contracts";
+const code="1rlcf9he502qz0ix13gqfiaoc";
+test("browser ownership, atomic quotas, recovery, event races and resubscription",{skip:!process.env.BROWSER_TEST_DATABASE_URL},async()=>{
+  const url=new URL(process.env.BROWSER_TEST_DATABASE_URL!);
+  assert.ok(["localhost","127.0.0.1"].includes(url.hostname));
+  assert.equal(url.pathname,"/marketplace_browser_test");
+  process.env.DATABASE_URL=url.toString(); delete process.env.DATABASE_READ_URL; process.env.DATABASE_SSL_MODE="disable";
+  const user=randomUUID(),other=randomUUID(),buyer="123456789012";
+  const arn=(id:string)=>`arn:aws:license-manager::${buyer}:license:l-${id}`;
+  const event=(id:string,kind:LicenseEvent["detail-type"],time:string):LicenseEvent=>({id:randomUUID(),source:"aws.agreement-marketplace",account:"199536052647",region:"us-east-1",time,"detail-type":kind,detail:{catalog:"AWSMarketplace",product:{id:"prod-35ca6yuplccjo",code},license:{arn:arn(id)},agreement:{id:`agmt-${id}`},acceptor:{accountId:buyer}}});
+  const claim=async(id:string,owner=user)=>claimBrowserLicense(await createBrowserClaim({ProductCode:code,CustomerAWSAccountId:buyer,LicenseArn:arn(id)}),owner);
+  try {
+    // Dedicated local fixture: refuse reruns against an existing schema instead of dropping data.
+    await query(`create table users(id uuid primary key,email text); create table organizations(id uuid primary key,name text,slug text,plan text,plan_status text,stripe_customer_id text,stripe_subscription_id text,created_at timestamptz default now(),updated_at timestamptz default now());
+      create table scans(id uuid primary key,organization_id uuid references organizations(id),submitted_by_user_id uuid,pages_requested int,scan_type text,scan_config_json jsonb,status text default 'running',error_message text,updated_at timestamptz default now());`);
+    await query(readFileSync("packages/db/migrations/0204_marketplace_browser.sql","utf8"));
+    await query(`insert into users(id) values($1),($2)`,[user,other]);
+    await assert.rejects(createBrowserClaim({ProductCode:"a3p2vfccdufqnuhyn5r8lsx0q",CustomerAWSAccountId:buyer,LicenseArn:arn("mcp")}),/product/);
+    const token=await createBrowserClaim({ProductCode:code,CustomerAWSAccountId:buyer,LicenseArn:arn("a")});
+    const org=await claimBrowserLicense(token,user);
+    await query(`create table integration_api_keys(public_id text,name text,token_prefix text,token_hash text,scopes text[],organization_id uuid,owner_user_id uuid,created_by text,expires_at timestamptz,hourly_limit int,daily_limit int)`);
+    await assert.rejects(createIntegrationApiKey({name:"not included",scopes:["mcp"],organizationId:org,ownerUserId:user}),/does not include API/);
+    await assert.rejects(claimBrowserLicense(token,user),/expired/);
+    await assert.rejects(claim("a",other),/another/);
+    await assert.rejects(claim("b",other),/another/);
+    const updated="License Updated - Manufacturer",revoked="License Deprovisioned - Manufacturer";
+    await applyBrowserEvent(event("a",updated,"2026-09-20T10:00:00Z"),true,null);
+    const orgB=await claim("b"); assert.notEqual(org,orgB,"concurrent agreements have independent workspaces");
+    await applyBrowserEvent(event("b",updated,"2026-09-20T10:00:00Z"),true,null);
+    const lic=(await currentBrowserLicense(org,user))!;
+    assert.equal(await currentBrowserLicense(org,other),null);
+    const insert=async(permit:string,options:{id?:string;pages?:number;org?:string;owner?:string;state?:string;attempts?:number}={})=>{
+      const id=options.id??randomUUID();
+      await query(`insert into scans(id,organization_id,submitted_by_user_id,pages_requested,scan_type,scan_config_json) values($1,$2,$3,$4,'full',$5::jsonb)`,[id,options.org??org,options.owner??user,options.pages??1,JSON.stringify({source:"marketplace-browser",marketplaceBrowserPermit:permit,execution:{v2DagLambda:{dispatchState:options.state??"pending_dispatch",dispatchAttemptCount:options.attempts??0}}})]);return id;
+    };
+    await assert.rejects(insert(randomUUID()),/authorization/);
+    const permit=await createBrowserScanPermit(lic,user,randomUUID());
+    await assert.rejects(insert(permit,{pages:2}),/single-page/);
+    await assert.rejects(insert(permit,{owner:other}),/authorization/);
+    await assert.rejects(insert(permit,{org:orgB}),/authorization/);
+    const first=await insert(permit);
+    await assert.rejects(insert(permit),/authorization/);
+    const row=await queryOne<{scan_config_json:Record<string,unknown>}>(`select scan_config_json from scans where id=$1`,[first]);
+    assert.equal(row!.scan_config_json.marketplaceBrowserPermit,undefined);
+    const concurrent=await Promise.all(Array.from({length:50},()=>createBrowserScanPermit(lic,user,randomUUID())));
+    const results=await Promise.allSettled(concurrent.map(p=>insert(p)));
+    assert.equal(results.filter(r=>r.status==="fulfilled").length,49);
+    assert.equal(results.filter(r=>r.status==="rejected").length,1);
+    const usage=()=>queryOne<{used:number}>(`select used from marketplace_browser_usage where organization_id=$1`,[org]);
+    assert.equal((await usage())!.used,50);
+    const refund=()=>queryOne<{ok:boolean}>(`select refund_undispatched_marketplace_browser_scan($1,$2,'verified pre-dispatch support cancellation') as ok`,[first,user]);
+    assert.equal((await refund())!.ok,true);assert.equal((await refund())!.ok,false);assert.equal((await usage())!.used,49);
+    const spent=await insert(await createBrowserScanPermit(lic,user,randomUUID()),{state:"publishing",attempts:1});
+    await assert.rejects(query(`select refund_undispatched_marketplace_browser_scan($1,$2,'ambiguous delivery')`,[spent,user]),/not proven/);
+    assert.equal((await usage())!.used,50);
+    await assert.rejects(query(`update organizations set stripe_customer_id='cus_test' where id=$1`,[org]),/separate/);
+    await assert.rejects(query(`update organizations set marketplace_browser=false where id=$1`,[org]),/separate/);
+    // A newer cancellation must win over a verification started before that event.
+    await applyBrowserEvent(event("a",revoked,"2026-09-20T11:00:00Z"),false,null);
+    await saveBrowserVerification(lic,true,null);
+    await applyBrowserEvent(event("a",updated,"2026-09-20T12:00:00Z"),true,null);
+    assert.equal((await getBrowserLicense(arn("a")))!.status,"revoked");
+    assert.equal((await getBrowserLicense(arn("b")))!.status,"active");
+    await assert.rejects(insert(await createBrowserScanPermit(lic,user,randomUUID())),/not currently verified/);
+    assert.equal(await claim("c"),org,"replacement license reuses cancelled workspace");
+    await applyBrowserEvent(event("c",updated,"2026-09-20T12:00:00Z"),true,null);
+    assert.equal((await usage())!.used,50,"re-subscription cannot reset quota");
+    const replacement=(await currentBrowserLicense(org,user))!;
+    await assert.rejects(insert(await createBrowserScanPermit(replacement,user,randomUUID())),/50 single-page/);
+    await query(`update marketplace_browser_licenses set expires_at=now()-interval '1 second' where license_arn=$1`,[arn("c")]);
+    assert.equal(await currentBrowserLicense(org,user),null);
+    // Public enrollment must not strand the eleventh subscribed buyer. This
+    // expands enrollment, never an existing workspace's monthly allowance.
+    const publicWorkspaces = new Set<string>();
+    for (let index=0; index<11; index++) {
+      const publicBuyer=String(223456789000+index);
+      const publicToken=await createBrowserClaim({ProductCode:code,CustomerAWSAccountId:publicBuyer,
+        LicenseArn:`arn:aws:license-manager::${publicBuyer}:license:l-public-${index}`});
+      publicWorkspaces.add(await claimBrowserLicense(publicToken,user));
+    }
+    assert.equal(publicWorkspaces.size,11,"all eleven additional buyers can finish linking");
+    assert.equal((await usage())!.used,50,"public enrollment cannot reset existing usage");
+    // Existing ordinary workspace inserts and billing remain unaffected.
+    const ordinary=randomUUID(); await query(`insert into organizations(id,plan) values($1,'individual')`,[ordinary]);
+    await query(`insert into scans(id,organization_id,pages_requested,scan_type) values($1,$2,5,'full')`,[randomUUID(),ordinary]);
+    await query(`update organizations set stripe_customer_id='cus_ordinary' where id=$1`,[ordinary]);
+    const key=await createIntegrationApiKey({name:"ordinary workspace",scopes:["mcp"],organizationId:ordinary,ownerUserId:user});
+    assert.ok(key.publicId.startsWith("api_key_"),"ordinary API-key issuance is unchanged");
+  }finally{await closePools();}
+});

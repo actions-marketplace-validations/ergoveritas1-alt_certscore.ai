@@ -44,7 +44,7 @@ export default function WebsiteFingerprintingPage() {
       ]}
       certScoreFlagExample="The scan could flag a fingerprinting-related vendor script, a device-signal endpoint, or browser API activity that appears during the page-load window."
       relatedGuides={[
-        { href: "/guides/privacy-scanner-vs-cookie-scanner", label: "Privacy scanner vs cookie scanner" },
+        { href: "/compare/privacy-scanner-vs-cookie-scanner", label: "Privacy scanner vs cookie scanner" },
         { href: "/guides/rtb-cookie-syncing", label: "RTB cookie syncing" },
         { href: "/guides/website-privacy-policy-requirements", label: "Privacy policy requirements" }
       ]}
