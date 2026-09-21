@@ -1,0 +1,301 @@
+{
+  "revision": "d7ca388dbbe72b29b00d958d211d3b1d6037e98a",
+  "at": "2026-09-21T16:37:57.843548+00:00",
+  "results": [
+    [
+      {
+        "path": "edge",
+        "url": "https://certscore.ai/releases/forms-capture",
+        "status": 200,
+        "sha256": "49bb2d36259727033ee738dccd3ce4fb00c906d505b71ee6aa633ad784958a7f",
+        "mainSha256": "828ef1268175a4fb73fb16789da8d94ec7653eacc171f9ac15e07c03b730a9ba",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:39 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "configured form action, not evidence that CertScore.ai submitted the form or observed a transfer"
+        ]
+      },
+      {
+        "path": "origin",
+        "url": "https://certscore.ai/releases/forms-capture",
+        "status": 200,
+        "sha256": "ccf4634c7877b76bf4e1dd846f01d43e9550b1d5decb0787a6584a5cf963e85d",
+        "mainSha256": "828ef1268175a4fb73fb16789da8d94ec7653eacc171f9ac15e07c03b730a9ba",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:40 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"ebyix816171z8v\""
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "configured form action, not evidence that CertScore.ai submitted the form or observed a transfer"
+        ]
+      }
+    ],
+    [
+      {
+        "path": "edge",
+        "url": "https://certscore.ai/guides/website-form-scanning",
+        "status": 200,
+        "sha256": "f8b6f01a0b95b8c13599b5e512ba0d4b59e3ef48cd4eff85adc15726e55c8030",
+        "mainSha256": "0f06e44de23f999145af4441ada7c7dc3b0c033c2d16557a6de39da933999c2a",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:42 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "Not every detected form has an available screenshot",
+          "not evidence that CertScore.ai submitted the form or observed a transfer"
+        ]
+      },
+      {
+        "path": "origin",
+        "url": "https://certscore.ai/guides/website-form-scanning",
+        "status": 200,
+        "sha256": "4b47a5553241c77831f91b62e9715aafd1e8baaaa0cabbb24f5109730d5177b6",
+        "mainSha256": "0f06e44de23f999145af4441ada7c7dc3b0c033c2d16557a6de39da933999c2a",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:42 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"nnsoy7fben1uj3\""
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "Not every detected form has an available screenshot",
+          "not evidence that CertScore.ai submitted the form or observed a transfer"
+        ]
+      }
+    ],
+    [
+      {
+        "path": "edge",
+        "url": "https://certscore.ai/developers/mcp",
+        "status": 200,
+        "sha256": "85a276c93aef37b88d68608081e475ce4a97af4a709cb251d8d61281cfc507c2",
+        "mainSha256": "1fb2d851ae2188fa4a64a6fb78fe874e3aa24171550c418c3f26f95cf02c372f",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:44 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "not every detected form has a screenshot",
+          "declared/configured destination"
+        ]
+      },
+      {
+        "path": "origin",
+        "url": "https://certscore.ai/developers/mcp",
+        "status": 200,
+        "sha256": "9492a0bd6289e72ffbb631e16212654fde618db82907e6ddc83ab2d5a41b1c40",
+        "mainSha256": "1fb2d851ae2188fa4a64a6fb78fe874e3aa24171550c418c3f26f95cf02c372f",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:45 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"ptfeanx5e24ywy\""
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "not every detected form has a screenshot",
+          "declared/configured destination"
+        ]
+      }
+    ],
+    [
+      {
+        "path": "edge",
+        "url": "https://certscore.ai/developers/reference",
+        "status": 200,
+        "sha256": "890cc5895735d0633f2b51f4c875eff324b069cb70c7283ba33f740c7bb4a0e7",
+        "mainSha256": "1350f79e8512adf5c790df38a4774c63aae75a06f05e36baeba509b7706cb3f0",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:47 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "not every detected form has a screenshot",
+          "declared/configured destination"
+        ]
+      },
+      {
+        "path": "origin",
+        "url": "https://certscore.ai/developers/reference",
+        "status": 200,
+        "sha256": "039dc7eff245006b30238e89f89dd7711bf6e7e8c15f420743c59af1f00d3c3e",
+        "mainSha256": "1350f79e8512adf5c790df38a4774c63aae75a06f05e36baeba509b7706cb3f0",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:48 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"126s54bukl42xh5\""
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds",
+          "not every detected form has a screenshot",
+          "declared/configured destination"
+        ]
+      }
+    ],
+    [
+      {
+        "path": "edge",
+        "url": "https://certscore.ai/how-it-works",
+        "status": 200,
+        "sha256": "c159ae0155e3cb57480602a19cb28a1af8e2d22b752df61fe1ebf98b6eedf7c4",
+        "mainSha256": "ccfe8629c1748a060f06c818acf1480e5294eeb6d61c91fb0332d4d941ebe3ff",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:49 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds"
+        ]
+      },
+      {
+        "path": "origin",
+        "url": "https://certscore.ai/how-it-works",
+        "status": 200,
+        "sha256": "929bed11cd30a0a8350e1a9386713b9dfdb30f6566cb0321629cbd6e58891a33",
+        "mainSha256": "ccfe8629c1748a060f06c818acf1480e5294eeb6d61c91fb0332d4d941ebe3ff",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:49 GMT",
+          "x-nextjs-cache": "HIT",
+          "cache-control": "s-maxage=31536000",
+          "etag": "\"bica4sr7qu1q22\""
+        },
+        "checks": [
+          "verified, masked form crops when screenshot capture succeeds"
+        ]
+      }
+    ],
+    [
+      {
+        "path": "edge",
+        "url": "https://certscore.ai/scan/63b87ff5-07c5-4c7b-895a-028ea6bb43c9",
+        "status": 200,
+        "sha256": "64ca4b4b826555a70fdfcbab934d7565da4d6d4a2851be2664bf91746988859d",
+        "mainSha256": "ba1c6f83341a96c1147c79b7fc2f5079216546ab78a7738b296306a4a9ee6557",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:50 GMT",
+          "cache-control": "private, no-cache, no-store, max-age=0, must-revalidate",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "checks": [
+          "CertScore.ai does not fill or submit forms; this inventory does not contain submitted field values.",
+          "Field review identifies fields worth checking. These labels are not privacy findings and do not affect the score by themselves.",
+          "Field review information",
+          "Declared destination"
+        ]
+      },
+      {
+        "path": "origin",
+        "url": "https://certscore.ai/scan/63b87ff5-07c5-4c7b-895a-028ea6bb43c9",
+        "status": 200,
+        "sha256": "bdf5b68290bf609522ffd063eeded2d62373f84d6c8670ce249276e6f22007f8",
+        "mainSha256": "ba1c6f83341a96c1147c79b7fc2f5079216546ab78a7738b296306a4a9ee6557",
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:54 GMT",
+          "cache-control": "private, no-cache, no-store, max-age=0, must-revalidate"
+        },
+        "checks": [
+          "CertScore.ai does not fill or submit forms; this inventory does not contain submitted field values.",
+          "Field review identifies fields worth checking. These labels are not privacy findings and do not affect the score by themselves.",
+          "Field review information",
+          "Declared destination"
+        ]
+      }
+    ],
+    [
+      {
+        "path": "edge",
+        "url": "https://certscore.ai/api/version",
+        "status": 200,
+        "sha256": "a95b6bc6868a6a1773be39f2d8019627d9f95f5bb029b00497af0999d878cc56",
+        "mainSha256": null,
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:56 GMT",
+          "cache-control": "no-store",
+          "cf-cache-status": "DYNAMIC",
+          "server": "cloudflare"
+        },
+        "checks": [
+          "d7ca388dbbe72b29b00d958d211d3b1d6037e98a",
+          "ecs-fargate"
+        ]
+      },
+      {
+        "path": "origin",
+        "url": "https://certscore.ai/api/version",
+        "status": 200,
+        "sha256": "453bb68d168d5ef6b17752332f82dc8b1708f9eab7d14427298371ca88c7f98b",
+        "mainSha256": null,
+        "headers": {
+          "date": "Mon, 21 Sep 2026 16:37:57 GMT",
+          "cache-control": "no-store"
+        },
+        "checks": [
+          "d7ca388dbbe72b29b00d958d211d3b1d6037e98a",
+          "ecs-fargate"
+        ]
+      }
+    ]
+  ],
+  "reportInvariance": {
+    "scanId": "63b87ff5-07c5-4c7b-895a-028ea6bb43c9",
+    "comparison": "Matches retained production export before correction",
+    "unchanged": [
+      "collectionTableRows",
+      "collectionFields",
+      "collectionLimitations",
+      "collectionStatus",
+      "collectionSurfaces",
+      "findings",
+      "score"
+    ],
+    "snapshotSha256": "3232d623794303f93b84ce0e0444c8d73bd0c0581c97c73f054b3a2e28842122",
+    "score": {
+      "label": "Strong",
+      "value": 100
+    },
+    "findings": 0
+  },
+  "workflow": "https://github.com/ergoveritas1-alt/certscore.ai/actions/runs/35625691992",
+  "workflowConclusion": "success",
+  "ecs": {
+    "taskDefinition": "certscore-web-certscore:644",
+    "rollout": "COMPLETED",
+    "running": 2
+  },
+  "browser": {
+    "ordinaryCategories": "neutral information icons; rgb(71, 85, 105); zero field-warning icons on owned fixture",
+    "mobileWidth": 390,
+    "mobileScrollWidth": 390,
+    "dialogWidth": 358,
+    "snapshotNaturalWidth": 610,
+    "snapshotDisplayWidth": 323.9921875
+  }
+}
