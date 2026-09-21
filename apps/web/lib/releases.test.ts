@@ -21,7 +21,7 @@ test("published releases include choice-path testing and MCP Light", () => {
   assert.ok(choicePathRelease);
   assert.equal(release.headline, "CertScore.ai MCP Light is now available");
   assert.equal(release.primaryCta.href, "/mcp/light");
-  assert.deepEqual(getPublishedReleases().map((item) => item.slug), ["mcp-hosted-oauth", "accept-and-reject-path-testing", "mcp-light"]);
+  assert.deepEqual(getPublishedReleases().map((item) => item.slug), ["forms-capture", "mcp-hosted-oauth", "accept-and-reject-path-testing", "mcp-light"]);
   assert.equal(getPublishedRelease("mcp-light-reject-path"), null);
 
   const copy = JSON.stringify(release);
@@ -186,4 +186,34 @@ test("social profiles expose the confirmed LinkedIn and X URLs and validate opti
   assert.equal(png.readUInt32BE(16), 1200);
   assert.equal(png.readUInt32BE(20), 630);
   assert.doesNotMatch(JSON.stringify(item), /authorize once|frictionless|14 tools|pagination/i);
+});
+
+test("forms release publishes verified imagery, limitations and discovery links", async () => {
+  const forms = getPublishedRelease("forms-capture");
+  assert.ok(forms);
+  assert.equal(forms.publicationDate, "2026-09-21");
+  assert.ok(forms.metaDescription.length <= 160);
+  const copy = JSON.stringify(forms);
+  assert.doesNotMatch(copy, /EXAMPLE_PENDING|TODO/);
+  assert.match(copy, /no privacy findings/);
+  assert.match(copy, /does not fill or submit forms/);
+  assert.match(copy, /began rolling out earlier in September/);
+  assert.match(copy, /63b87ff5-07c5-4c7b-895a-028ea6bb43c9/);
+  const png = readFileSync(`apps/web/public${forms.socialImage.path}`);
+  assert.equal(png.readUInt32BE(16), 1200);
+  assert.equal(png.readUInt32BE(20), 630);
+  const example = forms.sections.find(section => section.id === "verified-example")?.image;
+  assert.ok(example);
+  assert.ok(readFileSync(`apps/web/public${example.path}`).length > 0);
+  const meta = JSON.parse(JSON.stringify(createReleaseMetadata(forms)));
+  assert.equal(meta.alternates.canonical, "https://certscore.ai/releases/forms-capture");
+  assert.equal(meta.twitter.card, "summary_large_image");
+  assert.ok(sitemap().some(entry => entry.url === "https://certscore.ai/releases/forms-capture"));
+  assert.ok(sitemap().some(entry => entry.url === "https://certscore.ai/guides/website-form-scanning"));
+  assert.match(await getReleaseFeed().text(), /releases\/forms-capture/);
+  for (const file of ["llms.txt", "llms-full.txt"]) {
+    const text = readFileSync(`apps/web/public/${file}`, "utf8");
+    assert.match(text, /releases\/forms-capture/);
+    assert.match(text, /guides\/website-form-scanning/);
+  }
 });

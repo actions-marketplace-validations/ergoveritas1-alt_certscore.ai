@@ -65,6 +65,8 @@ Search aliases: CertScore.ai, CertScore API, CertScore MCP, website risk API, pr
 - https://certscore.ai/releases
 - https://certscore.ai/releases/accept-and-reject-path-testing
 - https://certscore.ai/releases/mcp-light
+- Forms capture release: https://certscore.ai/releases/forms-capture
+- Website form scanning guide: https://certscore.ai/guides/website-form-scanning
 - Hosted MCP OAuth: https://certscore.ai/releases/mcp-hosted-oauth
 - https://certscore.ai/releases/feed.xml
 - https://certscore.ai/how-it-works

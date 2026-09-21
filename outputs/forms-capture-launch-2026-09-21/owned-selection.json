@@ -1,0 +1,21 @@
+{
+  "excluded": [],
+  "generatedAt": "2026-09-21T14:04:51.313Z",
+  "minimumCooldownDays": 0,
+  "rotationKey": "forms-capture-launch-2026-09-21",
+  "selected": [
+    {
+      "url": "https://ergoveritas.com/form-inventory-01/",
+      "role": "owned_canary",
+      "lanes": [
+        "forms_capture"
+      ]
+    }
+  ],
+  "cooldownOverride": {
+    "reason": "Owner explicitly authorized a small owned-fixture production verification for the forms release; exact static contact fixture only, no third-party target.",
+    "appliedToUrls": [
+      "https://ergoveritas.com/form-inventory-01/"
+    ]
+  }
+}

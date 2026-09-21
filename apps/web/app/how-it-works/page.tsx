@@ -68,6 +68,15 @@ export default function HowItWorksPage() {
       </section>
 
       <HowItWorksCarousel />
+      <section id="forms" className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-5xl px-6 py-14">
+          <Badge tone="neutral">Forms &amp; fields</Badge>
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">See what your website asks visitors to provide</h2>
+          <p className="mt-4 text-base leading-8 text-slate-600">Review forms observed on scanned public pages, expand their retained fields, and open a masked form screenshot when capture and safety review succeed. Use the field review cues alongside supporting privacy findings and your privacy notices to decide what needs investigation.</p>
+          <p className="mt-3 text-sm leading-7 text-slate-600">Detection, screenshot availability and privacy assessment are separate. The scanner does not fill or submit forms, and incomplete coverage remains visible.</p>
+          <Link className="mt-5 inline-block font-semibold text-sky-700 underline" href="/guides/website-form-scanning">Learn how to review forms and screenshots</Link>
+        </div>
+      </section>
 
       <section id="choice-paths" className="border-b border-slate-200 bg-white">
         <div className="mx-auto max-w-5xl px-6 py-14">
