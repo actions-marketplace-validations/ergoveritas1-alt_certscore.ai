@@ -1,6 +1,6 @@
 # Ready-to-paste social copy
 
-Publish only after the live release passes production acceptance. Nothing has been posted or scheduled.
+Production acceptance passed on September 21, 2026. Ready for the owner to publish. Nothing has been posted or scheduled.
 
 ## LinkedIn
 

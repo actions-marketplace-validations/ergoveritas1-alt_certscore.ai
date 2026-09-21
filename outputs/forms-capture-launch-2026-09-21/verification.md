@@ -26,6 +26,16 @@ One-time owned scan plus bounded ECS read-only diagnostics estimated below $0.10
 
 ## Publication acceptance
 
-Pending final preflight, clean committed AWS web deployment and post-deploy network verification.
+**READY FOR SOCIAL ANNOUNCEMENT. No publication blocker remains.**
+
+- Release: https://certscore.ai/releases/forms-capture ; guide: https://certscore.ai/guides/website-form-scanning . Product explanation, API/MCP forms documentation, homepage/release cards, adjacent navigation, RSS, sitemap, llms files and metadata updated.
+- PR https://github.com/ergoveritas1-alt/certscore.ai/pull/192 merged. Tested source `169ca80d51c3d4e2d30ae163c52d2acd338dd068`; deployed merge `4644dbe1a53b156beef66c1a410d0fe46b78094b` has the identical tree. Clean main checkout deployed through the repository AWS workflow, web only; no scanner deployment.
+- AWS workflow https://github.com/ergoveritas1-alt/certscore.ai/actions/runs/35610370981 completed successfully. ECS task definition `certscore-web-certscore:643`, rollout COMPLETED, desired/running 2/2 and no previous deployment remaining.
+- Both public Cloudflare edge and independent direct AWS ALB (preserving canonical hostname TLS/SNI) returned 200 for all 15 canonical URLs without cache-busting parameters. Both `/api/version` responses identify deployed revision `4644dbe1a53b156beef66c1a410d0fe46b78094b` and `ecs-fargate`.
+- `network-verification.json` retains retrieval timestamps, raw response SHA-256, selected cache headers, serving revisions, content assertions and comparison results. XOR-decoding Cloudflare email hrefs and email-wrapped text makes every HTML main-content hash identical. Feed, sitemap, llms files and both image assets are byte-identical. API version timestamps naturally differ. No stale content was observed on either path.
+- Release canonical URL, Open Graph article/image/1200×630 dimensions and X summary_large_image metadata passed. Live browser confirms the actual 610-pixel source image loads; mobile article viewport and scrollWidth both 390, displayed image width 308.
+- Post-deploy public feature report still shows 1 form/4 fields, zero priority issues and the correct Contact enquiry modal. Its actual snapshot endpoint loads the matching 610-pixel JPEG successfully.
+- Independent AI web-fetch tool returned “not accessible via this tool” for both new pages on two attempts. This is a retrieval-tool limitation, not evidence of stale content; public HTTP, direct origin and browser checks independently passed.
+- Final evidence-only commit records acceptance and does not change the deployed application tree. Social copy is ready in social-copy.md; no posts were published or scheduled, and no external messages or promotion were sent.
 
 Local final release rendered at desktop and mobile widths. Mobile article width/scrollWidth both 390; real figure fits at 308 px and loads successfully. 1200×630 social card visually reviewed. X standalone 229/280; optional thread 207/219/226 characters, URLs counted as 23.

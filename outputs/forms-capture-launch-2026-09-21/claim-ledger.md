@@ -5,7 +5,8 @@ Verification date: September 21, 2026 (UTC). Initial serving web revision:
 retained runtime artifact: `c02affa98251a1b58f47c339f2d33862e9b6a92a`.
 All three production Lambda regions reported Active and the same resolved image
 digest `sha256:c7586a2e2d11fc3d13d8b6e8b5ddae3d084628652df60bafd575cc15256909bb`.
-The final web revision and live retrieval evidence are recorded in verification.md.
+Final serving web revision: `4644dbe1a53b156beef66c1a410d0fe46b78094b`.
+Live retrieval evidence is recorded in verification.md and network-verification.json.
 
 The source paths below are relative to WC01 at the initial serving web revision,
 except scanner paths, which were checked against the serving scanner revision.
