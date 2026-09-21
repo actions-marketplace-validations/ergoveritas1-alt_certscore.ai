@@ -251,6 +251,12 @@ remains separate and anonymous.
 
 ## Copy-ready Marketplace usage instructions
 
+The customer-facing Marketplace-specific quick start is
+`https://certscore.ai/marketplace/light/guide`. The existing
+`/developers/mcp` documentation entry point directs Marketplace buyers there.
+This website update does not submit a Catalog change or replace the listing's
+current usage instructions. Keep the pending Public visibility request intact.
+
 Sign in or create a CertScore account after subscribing to this free offering.
 Confirm the AWS account shown on the setup page and create your Marketplace
 Light API key after activation completes.
@@ -303,3 +309,49 @@ Product visibility remains Limited pending AWS review; a successful submission i
 not public approval. AWS may subscribe and request access for their review. The
 separate-buyer-account test remains unavailable, and assistant-specific UI
 compatibility has not been claimed from the SDK/HTTP protocol checks.
+
+## Onboarding and documentation improvements (September 21, 2026)
+
+The setup hub and a dedicated `/marketplace/light/guide` now explain the AWS
+handoff, same-browser sign-in, 30-minute claim expiry, explicit account linking,
+pending activation, one-time key display, client configuration, tool discovery,
+first scan, result verification, repeat use, and recovery. Login reached with
+`next=/marketplace/light` explains where the buyer will return without changing
+the authentication flow. That signup path uses free Marketplace access wording
+instead of the shared form's seven-day trial/monthly-plan wording, and the form
+header stacks on narrow screens. Key creation is explicitly separate from client
+connection; the site does not infer connection or scan completion from an
+existing key. The general MCP documentation links Marketplace buyers to the
+dedicated guide before presenting other authentication routes.
+
+Public guidance explains key/account association, public reports, third-party
+assistant handling, shared limits, cancellation versus revocation, safe support
+diagnostics and existing privacy-request channels. It does not invent retention
+periods or promise a deletion timeline. No credentials, customer screenshots,
+new analytics, automatic scans, emails, persistence, infrastructure, endpoint,
+fulfillment, authentication or pricing changes are introduced. Estimated
+incremental recurring cost: $0 (existing web service).
+
+Verification boundaries: the existing password signup callback sends an email
+verification message when mail delivery is configured and retains the requested
+return path. Source inspection is not proof of inbox delivery or a complete
+first-time buyer journey. Fresh-account email delivery, independent-buyer setup,
+and application-specific MCP interaction remain separate verification tasks.
+The client examples follow the official Cursor and VS Code configuration
+references; they must not be described as UI-tested solely from protocol or
+documentation checks.
+
+AWS submission boundary: no listing correction is required to reach this guide
+because the existing listing documentation URL remains valid and now links to
+it. A future direct guide URL or screenshot-gallery change is a separate Catalog
+submission and must be flagged to the owner before submission. These website
+changes leave Public visibility request `9bftg98xyev4v5b10u7454jov` untouched.
+
+Local browser verification covered the guide at desktop and 390px widths,
+configuration selection, copy feedback, troubleshooting expansion, the hub and
+general-documentation links, and both Marketplace signup steps without account
+submission. Standard signup retains its existing trial copy. The isolated local
+preview deliberately had no live database or mail credentials, so it did not
+exercise authenticated licenses or email delivery; existing operational-event
+writes in that preview failed as expected. A narrow-screen signup header layout
+issue found during inspection was corrected.

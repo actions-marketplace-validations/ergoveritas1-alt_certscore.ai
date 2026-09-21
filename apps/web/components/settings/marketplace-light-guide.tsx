@@ -51,8 +51,9 @@ export function MarketplaceClientGuide({ endpoint }: { endpoint: string }) {
       <a className="inline-block text-sm font-medium text-sky-800 underline underline-offset-4" href={client === "cursor" ? "https://cursor.com/docs/context/mcp" : "https://code.visualstudio.com/docs/agents/reference/mcp-configuration"}>Official {client === "cursor" ? "Cursor" : "VS Code"} setup reference ↗</a>
     </>}
     <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-      <p className="font-semibold">Check the connection</p>
-      <p className="mt-1">Enable the server&apos;s tools, then ask your assistant: &quot;List the available CertScore tools.&quot; You should see four tools for starting a scan, checking progress, getting results and reading evidence.</p>
+      <p className="font-semibold">Check the connection before scanning</p>
+      <p className="mt-1">Start or restart the server in your client&apos;s MCP settings. Check its discovered tool list for <code className="break-all">certscore_scan_site</code>, <code className="break-all">certscore_get_scan_status</code>, <code className="break-all">certscore_get_scan_bundle</code> and <code className="break-all">certscore_get_report_evidence_page</code>, then enable them.</p>
+      <p className="mt-2">Tool discovery does not start a scan. An assistant&apos;s text saying it is connected is not enough to verify the connection. Once the tools appear, continue with a scan prompt.</p>
     </div>
   </div>;
 }

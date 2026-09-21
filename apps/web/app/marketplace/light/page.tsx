@@ -38,7 +38,7 @@ export default async function MarketplaceLightPage() {
   const licenses = user ? (await listMarketplaceLicenses(user.id)).rows : [];
   const hasActiveLicense = licenses.some(license => license.status === "active");
   const hasKey = licenses.some(license => license.status === "active" && license.token_prefix && !license.revoked_at && license.key_expires_at && new Date(license.key_expires_at).getTime() > Date.now());
-  const nextStep = !enabled || !hasActiveLicense || claim ? "access" : hasKey ? "scan" : "access";
+  const nextStep = !enabled || !hasActiveLicense || claim ? "access" : hasKey ? "connect" : "access";
   return <div className="min-h-screen bg-slate-50 text-slate-900">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:p-3">Skip to setup</a>
     <SiteHeader wide={false} mobilePrimaryAction="sign-in" accountLink={user ? { href: "#access", label: "My access" } : { href: "/login?next=%2Fmarketplace%2Flight", label: "Sign in" }} />
@@ -54,9 +54,10 @@ export default async function MarketplaceLightPage() {
             <h1 className="max-w-xl text-4xl font-semibold leading-[1.12] tracking-tight text-slate-950 sm:text-5xl">A clearer view of<br /><span className="text-sky-700">website privacy.</span></h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">Give your AI assistant the tools to scan public websites, explain privacy signals and show the evidence behind each finding.</p>
             <div className="mt-7 flex flex-wrap items-center gap-4">
-              <a className={primary} href={`#${nextStep}`}>{hasKey && !claim ? "Prepare a website scan" : "Set up free access"}<span aria-hidden="true" className="ml-3">→</span></a>
-              <a href="#connect" className="py-3 text-sm font-semibold text-sky-800">{hasKey ? "Connection guide" : "See how to connect"} <span aria-hidden="true">↗</span></a>
+              <a className={primary} href={`#${nextStep}`}>{hasKey && !claim ? "Connect your assistant" : "Set up free access"}<span aria-hidden="true" className="ml-3">→</span></a>
+              <Link href="/marketplace/light/guide" className="py-3 text-sm font-semibold text-sky-800">Step-by-step setup guide <span aria-hidden="true">↗</span></Link>
             </div>
+            {hasKey && !claim && <p className="mt-3 text-sm text-slate-600">Already connected? <a className={link} href="#scan">Prepare your next scan</a>.</p>}
             <p className="mt-4 text-xs leading-5 text-slate-500">CertScore account + Marketplace API key. Shared usage limits apply.</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_12px_45px_-20px_rgba(2,132,199,0.3)] sm:p-7">
@@ -79,6 +80,7 @@ export default async function MarketplaceLightPage() {
             <div><p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Step 1 · Your access</p><h2 id="access-heading" className="mt-2 text-2xl font-semibold tracking-tight">{hasActiveLicense ? "Your Marketplace connection" : "One connection. More websites to explore."}</h2></div>
             {user && <p className="max-w-full break-all rounded-full bg-slate-50 px-3 py-2 text-xs text-slate-600">Signed in as {user.email}</p>}
           </div>
+          <p className="mb-5 text-sm leading-6 text-slate-600">Sign in here to manage your subscription and keys. Your assistant uses the API key for scan requests; you do not need to sign in for each scan.</p>
           {!enabled ? <p className="leading-7 text-slate-600">Marketplace setup is temporarily unavailable. Contact <a className={link} href="mailto:support@certscore.ai">support@certscore.ai</a>, or explore the separate <Link className={link} href="/mcp/light">public MCP Light option</Link>.</p> : <>
             {!user && <div className="grid gap-5 md:grid-cols-2">
               <div className="rounded-xl border border-sky-200 bg-sky-50 p-5"><h3 className="font-semibold">{claim ? "Your AWS handoff is ready" : "Already subscribed?"}</h3><p className="mb-4 mt-2 text-sm leading-6 text-slate-600">Sign in or create your CertScore account. Then confirm your AWS subscription and create your API key.</p><Link className={primary} href="/login?next=%2Fmarketplace%2Flight">Sign in or create an account</Link></div>
@@ -92,7 +94,7 @@ export default async function MarketplaceLightPage() {
               return <article key={license.license_arn} className="rounded-xl border border-slate-200 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">AWS account {license.buyer_account_id}</h3><span className={`rounded-full px-3 py-1 text-xs font-semibold ${license.status === "active" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{license.status === "active" ? "Subscription active" : license.status === "pending" ? "Activation pending" : "Subscription inactive"}</span></div>
                 {license.status === "pending" ? <div className="mt-4 space-y-3"><p className="text-sm leading-6 text-slate-600">Your subscription is linked. We are waiting for AWS to confirm activation before issuing a key. Check again shortly. If this continues, contact support with your AWS account and license details below.</p><MarketplaceRefresh /></div> : license.status !== "active" ? <p className="mt-4 text-sm leading-6 text-slate-600">This subscription cannot access Marketplace MCP Light. Manage it in <a className={link} href={MARKETPLACE_LIGHT_LISTING}>AWS Marketplace</a>. After subscribing again, choose <strong>Set up your account</strong> to link the new subscription.</p> : <div className="mt-4 space-y-4">
-                  <p className="text-sm leading-6 text-slate-600">{usableKey ? "Your key is ready to use in your MCP client. If you no longer have it, create a replacement below." : "Create a key, save it securely, then connect your assistant in step 2."}</p>
+                  <p className="text-sm leading-6 text-slate-600">{usableKey ? "A key has been created. Add it to your MCP client, then check that the four tools appear in step 2. This page does not verify your client's connection. If you no longer have the key, create a replacement below." : "Create a key, save it securely, then connect your assistant in step 2."}</p>
                   {license.token_prefix && <p className="text-xs leading-5 text-slate-500"><code>{license.token_prefix}…</code> · {license.revoked_at ? "Revoked" : expired ? "Expired — create a replacement" : `Expires ${expiryLabel(license.key_expires_at)} (UTC)`}</p>}
                   <MarketplaceLightAction operation="rotate" licenseArn={license.license_arn} label={usableKey ? "Replace API key" : "Create API key"} canRevoke={Boolean(license.token_prefix && !license.revoked_at)} />
                 </div>}
@@ -119,7 +121,7 @@ export default async function MarketplaceLightPage() {
           <p className="mt-4 text-xs leading-5 text-slate-500">Light may reuse a recent result and shares a public scan allowance. It does not include scheduled monitoring or private workspace history.</p>
         </section>
         <section aria-labelledby="help-heading" className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
-          <div className="grid gap-8 lg:grid-cols-[1fr_1.5fr]"><div><h2 id="help-heading" className="text-2xl font-semibold tracking-tight">A little help, when you need it.</h2><p className="mt-3 text-sm leading-7 text-slate-600">For setup or scanning questions, email <a href="mailto:support@certscore.ai" className={link}>support@certscore.ai</a>. Include the error and your client&apos;s name, but never your API key.</p><div className="mt-5 flex flex-wrap gap-5 text-sm"><Link className={link} href="/developers/mcp">MCP documentation</Link><Link className={link} href="/contact">Contact CertScore</Link></div></div>
+          <div className="grid gap-8 lg:grid-cols-[1fr_1.5fr]"><div><h2 id="help-heading" className="text-2xl font-semibold tracking-tight">A little help, when you need it.</h2><p className="mt-3 text-sm leading-7 text-slate-600">For setup or scanning questions, email <a href="mailto:support@certscore.ai" className={link}>support@certscore.ai</a>. Include the error, time and timezone, client name/version and scan ID if available. Never send your API key or AWS setup token.</p><div className="mt-5 flex flex-wrap gap-5 text-sm"><Link className={link} href="/marketplace/light/guide">Marketplace quick start</Link><Link className={link} href="/marketplace/light/guide#data">Access &amp; data</Link><Link className={link} href="/contact">Contact CertScore</Link></div></div>
             <div className="divide-y divide-slate-100">
               {[
                 ["My client says unauthorized (401).", "Check that you used the Marketplace endpoint and supplied Authorization: Bearer followed by your API key. The key must be unexpired and not revoked, and its subscription must be active. After replacing a key, update your client and start a new MCP session."],
