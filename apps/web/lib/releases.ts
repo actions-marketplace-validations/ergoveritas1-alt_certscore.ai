@@ -75,7 +75,7 @@ const releases: readonly ProductRelease[] = [
       "id": "what-you-can-see",
       "heading": "From a form to the details that matter",
       "bullets": [
-        "Find the captured page and review each retained form’s type, field count, method and declared destination. The declared destination is the configured form action, not evidence that CertScore.ai submitted the form or observed a transfer.",
+        "Find the captured page and review each form’s type, fields and configured action. The action describes its setup, not an observed data transfer.",
         "Expand a form to inspect labels, field types, required states, checkbox or toggle states and evidence references.",
         "Choose View form to open its cropped screenshot when capture and safety review succeed. Input values are masked.",
         "Use field-review indicators to prioritize questions about personal data, sensitive-looking fields and selected marketing controls."
@@ -89,7 +89,7 @@ const releases: readonly ProductRelease[] = [
       "heading": "Turn visual evidence into better questions",
       "paragraphs": [
         "Imagine handing a developer a review request with the page, field labels and captured form attached. Instead of “check the forms,” the conversation can be specific: Why is this field required? Does the privacy notice explain its purpose? Should this marketing choice start selected?",
-        "Field-review indicators help route that conversation; they do not by themselves change a score or establish a legal issue. Separately supported findings can highlight retained sensitive-surface context alongside qualifying tracking or session-replay evidence. That co-occurrence warrants investigation, not a claim that entered values were captured.",
+        "Field-review indicators help route that conversation. They are not privacy findings and do not affect the score by themselves; read them alongside the report’s separately supported findings.",
         "For teams reviewing GDPR risk signals, form evidence is a practical starting point for checking data collection against privacy notices and intended implementation. Human review remains essential."
       ]
     },
@@ -99,7 +99,7 @@ const releases: readonly ProductRelease[] = [
       "image": { "path": "/images/releases/forms-capture-contact-example.jpg", "alt": "Verified Contact enquiry form crop showing Full name, Email address, Enquiry and opt-in labels, with controls masked.", "width": 610, "height": 421, "caption": "Actual production capture, September 21, 2026. Owned test fixture; no visitor data. The structured inventory separately records the opt-in as unchecked." },
       "paragraphs": [
         "On September 21, 2026, a production scan of our owned ErgoVeritas contact-form fixture retained four fields: Full name, Email address, Enquiry and an unchecked opt-in control. The report recorded the email field as required and retained a matching, masked form screenshot.",
-        "The report surfaced no privacy findings. Its field-review cues identify personal-contact, identity and free-text fields for investigation; they do not claim the form is unlawful. This controlled example demonstrates the capture workflow, not real visitor data or a benchmark of all websites."
+        "The report surfaced no privacy findings. Its field-review cues identify personal-contact, identity and free-text fields worth checking—a concrete starting point for review."
       ]
     },
     {
@@ -119,9 +119,8 @@ const releases: readonly ProductRelease[] = [
       "id": "availability",
       "heading": "Availability and limits",
       "paragraphs": [
-        "Forms capture is available in supported public single-page scans and on inventoried pages of full-site scans. Your existing scan access and crawl limits apply. Historical reports retain their original evidence.",
-        "The scanner observes the rendered main document within a bounded window. It does not fill or submit forms, sign in to protected pages, inspect iframe contents, or guarantee every form. Hidden controls and fields revealed only by interaction are outside this inventory.",
-        "Screenshots depend on successful capture, form-to-field verification and safety review. A missing image is a coverage limitation, not a privacy finding. Automated observations, not legal advice."
+        "Forms capture is available in supported public single-page scans and on inventoried pages of full-site scans, within your existing access and crawl limits.",
+        "CertScore.ai does not fill or submit forms. Coverage is bounded; see the Forms & fields guide below for capture details and exclusions. Automated observations, not legal advice."
       ]
     }
   ],

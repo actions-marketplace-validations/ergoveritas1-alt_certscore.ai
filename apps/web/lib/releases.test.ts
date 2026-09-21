@@ -198,7 +198,7 @@ test("forms release publishes verified imagery, limitations and discovery links"
   assert.match(copy, /no privacy findings/);
   assert.match(copy, /does not fill or submit forms/);
   assert.match(copy, /verified, masked form crops when screenshot capture succeeds/);
-  assert.match(copy, /configured form action, not evidence that CertScore.ai submitted the form or observed a transfer/);
+  assert.match(copy, /The action describes its setup, not an observed data transfer/);
   assert.match(copy, /began rolling out earlier in September/);
   assert.match(copy, /63b87ff5-07c5-4c7b-895a-028ea6bb43c9/);
   const png = readFileSync(`apps/web/public${forms.socialImage.path}`);
