@@ -3,8 +3,7 @@ import {
   getSelfServePurchasingPausedMessage,
   isSelfServePurchasingEnabled
 } from "../../../../server/access-control";
-import { getCurrentUser } from "../../../../server/auth";
-import { bootstrapAppUserSession } from "../../../../server/bootstrap-user";
+import { getCurrentUser, getDashboardContext } from "../../../../server/auth";
 import { createStripeCheckoutForDashboardContext, parseSelfServeCheckoutPlan } from "../../../../server/billing/checkout";
 
 export const runtime = "nodejs";
@@ -32,7 +31,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid checkout plan." }, { status: 400 });
   }
-  const context = await bootstrapAppUserSession(user);
+  const context = await getDashboardContext();
   const checkout = await createStripeCheckoutForDashboardContext({ context, plan });
 
   return NextResponse.json({

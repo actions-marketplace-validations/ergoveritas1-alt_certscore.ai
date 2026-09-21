@@ -1,3 +1,5 @@
+import { BrowserShell } from "../../components/marketplace-browser/shell";
+import { redirect } from "next/navigation";
 import { AuthenticatedPageConfirmation } from "../../components/analytics/authenticated-page-confirmation";
 import { retainedActivityPagePath } from "../../lib/product-analytics/activity-page-context";
 import { issueAuthenticatedPageToken } from "../../server/product-analytics/authenticated-page-token";
@@ -19,7 +21,7 @@ type AppLayoutProps = {
 };
 
 export default async function AppLayout({ children }: AppLayoutProps) {
-  const [{ membership, organization, user }, isPlatformAdmin, requestHeaders] = await Promise.all([
+  const [{ membership, organization, user, marketplaceBrowser }, isPlatformAdmin, requestHeaders] = await Promise.all([
     getDashboardContext(),
     getPlatformAdminFlag(),
     headers()
@@ -64,6 +66,10 @@ export default async function AppLayout({ children }: AppLayoutProps) {
     });
   }
 
+  if (marketplaceBrowser) {
+    if (route && !/^\/app\/(?:scans|scanso|scanso2)\//.test(route)) redirect("/marketplace/browser");
+    return <BrowserShell>{children}</BrowserShell>;
+  }
   const canManageCompany = isPlatformAdmin;
   const hasWorkspace = Boolean(organization && membership);
 

@@ -167,12 +167,14 @@ export async function createIntegrationApiKey(input: {
   const tokenHash = hashIntegrationApiKey(token);
   const tokenPrefix = getIntegrationApiKeyPrefix(token);
   const publicId = `api_key_${randomBytes(12).toString("base64url")}`;
-  await query(
+  const inserted = await query(
     `insert into integration_api_keys (
        public_id, name, token_prefix, token_hash, scopes,
        organization_id, owner_user_id, created_by, expires_at, hourly_limit, daily_limit
      )
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+     select $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+     where not exists(select 1 from organizations where id=$6::uuid and marketplace_browser)
+     returning public_id`,
     [
       publicId,
       input.name,
@@ -187,6 +189,7 @@ export async function createIntegrationApiKey(input: {
       dailyLimit
     ]
   );
+  if (!inserted.rowCount) throw new Error("This browser Marketplace workspace does not include API or MCP credentials.");
   return { publicId, token, tokenPrefix, hourlyLimit, dailyLimit };
 }
 

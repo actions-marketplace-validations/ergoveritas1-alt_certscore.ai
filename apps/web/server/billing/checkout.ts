@@ -32,6 +32,7 @@ export async function createStripeCheckoutForDashboardContext(input: {
   context: BootstrapResult;
   plan: PlanCode;
 }): Promise<CheckoutResult> {
+  if (input.context.marketplaceBrowser) throw new Error("Manage this free subscription in AWS Marketplace.");
   if (!isSelfServePurchasingEnabled()) {
     throw new Error(getSelfServePurchasingPausedMessage());
   }

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "../../../../server/auth";
-import { bootstrapAppUserSession } from "../../../../server/bootstrap-user";
+import { getCurrentUser, getDashboardContext } from "../../../../server/auth";
 import { getBillingReturnUrl, getStripeBillingEnv } from "../../../../server/billing/stripe-config";
 import { getStripeClient } from "../../../../server/billing/stripe-client";
 import { loadBillingAccountForOrganization } from "../../../../server/billing/repository";
@@ -13,7 +12,8 @@ export async function POST() {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  const { organization } = await bootstrapAppUserSession(user);
+  const { organization, marketplaceBrowser } = await getDashboardContext();
+  if (marketplaceBrowser) return NextResponse.json({ error: "Manage this subscription in AWS Marketplace." }, { status: 403 });
   const account = await loadBillingAccountForOrganization(organization.id);
   const customerId = account?.stripe_customer_id;
   if (!customerId) {

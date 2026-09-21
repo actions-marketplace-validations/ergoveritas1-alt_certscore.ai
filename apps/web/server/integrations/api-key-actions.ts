@@ -67,7 +67,8 @@ export async function createIntegrationApiKeyAction(
     };
   }
 
-  const { organization, user } = await getDashboardContext();
+  const { organization, user, marketplaceBrowser } = await getDashboardContext();
+  if (marketplaceBrowser) return { ...initialApiKeyActionState, error: "This browser Marketplace workspace does not include API or MCP credentials." };
   const key = await createIntegrationApiKey({
     name: parsed.data.name,
     scopes: parseScopes(formData),
