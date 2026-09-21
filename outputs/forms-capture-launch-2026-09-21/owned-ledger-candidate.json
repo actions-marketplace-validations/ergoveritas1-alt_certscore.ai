@@ -1,0 +1,16 @@
+{
+  "entries": {
+    "https://ergoveritas.com/form-inventory-01/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-09-21T14:05:11.000Z",
+      "lastContactAt": "2026-09-21T14:05:11Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://ergoveritas.com/form-inventory-01/"
+    }
+  },
+  "ledgerVersion": "certscore.scan_quality_calibration_ledger.1",
+  "updatedAt": "2026-09-21T14:07:02.348Z"
+}

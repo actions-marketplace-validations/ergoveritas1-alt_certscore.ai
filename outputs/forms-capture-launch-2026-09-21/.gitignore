@@ -1,0 +1,10 @@
+*
+!.gitignore
+!claim-ledger.md
+!verification.md
+!social-copy.md
+!provenance-verification.json
+!owned-selection.json
+!owned-outcome.json
+!owned-ledger-candidate.json
+!social-card.svg

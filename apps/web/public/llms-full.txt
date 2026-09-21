@@ -23,6 +23,8 @@ Use these canonical discovery resources:
 - Robots: https://certscore.ai/robots.txt
 - Releases: https://certscore.ai/releases
 - MCP Light release: https://certscore.ai/releases/mcp-light
+- Forms capture release: https://certscore.ai/releases/forms-capture
+- Website form scanning guide: https://certscore.ai/guides/website-form-scanning
 - Hosted MCP OAuth: https://certscore.ai/releases/mcp-hosted-oauth
 - MCP Light technical guide: https://certscore.ai/guides/mcp-website-privacy-scanner
 - Release feed: https://certscore.ai/releases/feed.xml

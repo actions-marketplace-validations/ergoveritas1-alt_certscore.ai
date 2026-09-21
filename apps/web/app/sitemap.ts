@@ -40,6 +40,7 @@ const staticPaths = [
   "/api-pulse",
   "/api-pulse/agent",
   "/releases",
+  "/guides/website-form-scanning",
   "/claude",
   "/developers/examples",
   "/faq",

@@ -24,6 +24,7 @@ type GuideCard = {
 };
 
 const guides: GuideCard[] = [
+  { category: "Privacy & Tracking", title: "Website form scanning", description: "Review retained fields, form screenshots and evidence-backed privacy context.", href: "/guides/website-form-scanning" },
   {
     category: "Privacy & Tracking",
     title: "How to test Global Privacy Control (GPC) response",

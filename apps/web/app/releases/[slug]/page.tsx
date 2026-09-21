@@ -87,6 +87,12 @@ export default async function ReleaseDetailPage({ params }: ReleasePageProps) {
                 {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
               </div>
             ) : null}
+            {section.image ? (
+              <figure className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-6">
+                <img src={section.image.path} alt={section.image.alt} width={section.image.width} height={section.image.height} className="mx-auto h-auto max-w-full rounded-lg" loading="lazy" />
+                <figcaption className="mt-4 text-sm leading-6 text-slate-600">{section.image.caption}</figcaption>
+              </figure>
+            ) : null}
             {section.sourceLinks?.length ? (
               <p className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm leading-6 text-slate-600">
                 <span className="font-semibold text-slate-700">Primary sources:</span>
