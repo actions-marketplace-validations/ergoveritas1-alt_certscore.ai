@@ -2,8 +2,8 @@
   "entries": {
     "https://ulakbim.gov.tr/": {
       "consecutiveNoGoCount": 0,
-      "cooldownUntil": "2026-10-20T19:35:16.212Z",
-      "lastContactAt": "2026-09-22T19:35:16.212Z",
+      "cooldownUntil": "2026-10-20T19:58:19.114Z",
+      "lastContactAt": "2026-09-22T19:58:19.114Z",
       "lastContactSource": "calibration",
       "lastNoGoReasons": [],
       "lastOutcome": "completed",
@@ -47,8 +47,8 @@
     },
     "https://zhaw.ch/": {
       "consecutiveNoGoCount": 0,
-      "cooldownUntil": "2026-10-20T19:34:06.278Z",
-      "lastContactAt": "2026-09-22T19:34:06.278Z",
+      "cooldownUntil": "2026-10-20T19:57:18.613Z",
+      "lastContactAt": "2026-09-22T19:57:18.613Z",
       "lastContactSource": "calibration",
       "lastNoGoReasons": [],
       "lastOutcome": "completed",
@@ -57,8 +57,8 @@
     },
     "https://qualys.eu/": {
       "consecutiveNoGoCount": 0,
-      "cooldownUntil": "2026-10-20T19:37:37.137Z",
-      "lastContactAt": "2026-09-22T19:37:37.137Z",
+      "cooldownUntil": "2026-10-20T19:59:17.705Z",
+      "lastContactAt": "2026-09-22T19:59:17.705Z",
       "lastContactSource": "calibration",
       "lastNoGoReasons": [],
       "lastOutcome": "completed",
@@ -67,5 +67,5 @@
     }
   },
   "ledgerVersion": "certscore.scan_quality_calibration_ledger.1",
-  "updatedAt": "2026-09-22T19:38:36.881Z"
+  "updatedAt": "2026-09-22T19:59:53.742Z"
 }
