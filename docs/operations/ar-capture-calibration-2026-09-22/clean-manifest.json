@@ -1,0 +1,131 @@
+{
+  "manifestVersion": "wc01.ar_clean_ie_validation.20260922.3",
+  "internalOnly": true,
+  "purpose": "Clean paired current-source validation including resolver/proof label-source alignment; no human-adjudication or global accuracy claim",
+  "sourceManifest": "docs/certscore-v2/scan-quality-calibration-manifest.json",
+  "eligibilityLedger": "docs/operations/ar-capture-calibration-2026-09-22/clean-ledger.json",
+  "requestedRegion": "eu_ie",
+  "awsRegion": "eu-west-1",
+  "profile": "full",
+  "lanes": [
+    "consent_controls",
+    "gdpr_transparency",
+    "transport_evidence",
+    "third_party_attribution",
+    "no_go_resilience",
+    "language_inference"
+  ],
+  "targets": [
+    {
+      "url": "https://zhaw.ch/",
+      "role": "german_necessary_only",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "4e8c4bcf-7132-4f5a-a24e-d5db3aca2de8"
+    },
+    {
+      "url": "https://ulakbim.gov.tr/",
+      "role": "turkish_direct_controls",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "d4d3bada-a192-434d-8abb-d4d94355b09d"
+    },
+    {
+      "url": "https://qualys.eu/",
+      "role": "registered_accept_reject_comparator",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "0af7d26e-ecf5-4ee1-9267-4b93e4239719"
+    },
+    {
+      "url": "https://bbc.com",
+      "role": "publisher_global",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ]
+    },
+    {
+      "url": "https://ikea.com",
+      "role": "ecommerce_global",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ]
+    },
+    {
+      "url": "https://segment.com",
+      "role": "behavioral_analytics",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ]
+    },
+    {
+      "url": "https://mozilla.org",
+      "role": "headless_or_control",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ]
+    },
+    {
+      "url": "https://nytimes.com",
+      "role": "publisher",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ]
+    }
+  ],
+  "publicContactPolicy": {
+    "minimumCooldownDays": 28
+  },
+  "contactPolicy": {
+    "cooldownWaiver": "Task-scoped user instruction: do not worry about cooldown; applies to bounded local Ireland validation",
+    "blockedAndDoNotCalibrateRemainExcluded": true,
+    "manualHoldsRemainExcluded": true,
+    "centralLedgerRequired": true,
+    "maxSites": 8,
+    "maxScansPerDomain": 2
+  },
+  "authorization": "Current user go continues explicitly authorized local Ireland validation and existing cooldown waiver; no deployment"
+}
