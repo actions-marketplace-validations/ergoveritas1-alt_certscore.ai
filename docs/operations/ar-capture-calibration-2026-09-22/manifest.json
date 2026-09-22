@@ -1,0 +1,110 @@
+{
+  "manifestVersion": "wc01.ar_local_ie_validation.20260922.1",
+  "internalOnly": true,
+  "purpose": "User-authorized matched baseline/current diagnostics for A/R capture and visibility changes; not a release acceptance cohort",
+  "sourceManifest": "docs/certscore-v2/scan-quality-calibration-manifest.json",
+  "eligibilityLedger": "docs/operations/ar-capture-calibration-2026-09-22/ledger-candidate.json",
+  "requestedRegion": "eu_ie",
+  "awsRegion": "eu-west-1",
+  "profile": "full",
+  "lanes": [
+    "consent_controls",
+    "gdpr_transparency",
+    "transport_evidence",
+    "third_party_attribution",
+    "no_go_resilience",
+    "language_inference"
+  ],
+  "targets": [
+    {
+      "url": "https://ulakbim.gov.tr/",
+      "role": "turkish_direct_controls",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "d4d3bada-a192-434d-8abb-d4d94355b09d"
+    },
+    {
+      "url": "https://mpsv.cz/",
+      "role": "czech_direct_controls",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "fd0f4745-bb58-45cd-9662-0796cb9f7695"
+    },
+    {
+      "url": "https://etersoft.ru/",
+      "role": "russian_direct_controls",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "aa998e64-2318-4533-9bf1-183430136b57"
+    },
+    {
+      "url": "https://postnord.com/",
+      "role": "english_necessary_only",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "a27a2530-024b-479b-b1f0-122c7a18ddba"
+    },
+    {
+      "url": "https://zhaw.ch/",
+      "role": "german_necessary_only",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "4e8c4bcf-7132-4f5a-a24e-d5db3aca2de8"
+    },
+    {
+      "url": "https://qualys.eu/",
+      "role": "registered_accept_reject_comparator",
+      "lanes": [
+        "consent_controls",
+        "gdpr_transparency",
+        "transport_evidence",
+        "third_party_attribution",
+        "no_go_resilience",
+        "language_inference"
+      ],
+      "sourceScanId": "0af7d26e-ecf5-4ee1-9267-4b93e4239719"
+    }
+  ],
+  "publicContactPolicy": {
+    "minimumCooldownDays": 28
+  },
+  "contactPolicy": {
+    "cooldownWaiver": "Task-scoped user instruction: do not worry about cooldown; applies to bounded local Ireland validation",
+    "blockedAndDoNotCalibrateRemainExcluded": true,
+    "manualHoldsRemainExcluded": true,
+    "centralLedgerRequired": true,
+    "maxSites": 6,
+    "maxScansPerDomain": 2
+  },
+  "authorization": "User implement followed by next after local Ireland validation was explicitly named as next step; target composition reviewed by Luna; production deployment excluded."
+}
