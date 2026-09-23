@@ -74,8 +74,8 @@ const FINDING_CRITICALITY_BADGES = {
     rationale: "Concrete policy/runtime mismatch evidence can require review, while still needing implementation context."
   },
   scan_quality_visual_no_go: {
-    badge: "high",
-    rationale: "The retained visual evidence shows the scan did not capture a normal public site, so substantive findings should be reviewed or rerun before reliance."
+    badge: "low",
+    rationale: "This is a score-neutral scan-quality outcome. Rerun after the normal public site can be reached before relying on substantive findings."
   },
   consent_dark_patterns_detected: {
     badge: "high",

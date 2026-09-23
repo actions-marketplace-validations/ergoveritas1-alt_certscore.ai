@@ -24,7 +24,7 @@ const EXPECTED_BADGES = {
   possible_session_replay_on_sensitive_input_surface: "critical",
   rtb_cookie_sync_observed: "high",
   policy_behavior_contradiction_detected: "high",
-  scan_quality_visual_no_go: "high",
+  scan_quality_visual_no_go: "low",
   consent_dark_patterns_detected: "high",
   reject_option_missing_or_hidden: "medium",
   asymmetric_consent_ui: "medium",

@@ -2786,6 +2786,7 @@ export function summarizePolicySurfaces(
     primaryLanguage?: string | null;
     privacyPolicyObserved?: boolean | null;
     scanStartedAt?: string | null;
+    targetUrl?: string | null;
   } = {}
 ) {
   const gdprTransparencyEvidenceProfile = normalizeGdprTransparencyProductionEvidenceProfile(
@@ -2915,6 +2916,7 @@ export function summarizePolicySurfaces(
         row.surface.targetRelationship ?? "unknown",
       ),
       pageUrl: row.pageUrl ?? row.surface.normalizedUrl ?? row.surface.url,
+      targetUrl: options.targetUrl,
       policyTextQuality: { usable: gdprTransparencyPolicyTextQuality.usable },
       profile: gdprTransparencyEvidenceProfile,
       surface: row.surface
@@ -5492,6 +5494,7 @@ function buildMaterializedLocalV2Detail(
     primaryLanguage: getLocalV2PrimaryLanguage(bundle),
     privacyPolicyObserved: policySurfaceInspection.privacyPolicyObserved,
     scanStartedAt: bundle.startedAt,
+    targetUrl: canonicalDocumentUrl,
   });
   const policyTextProjection = policySurfaceSummary.policyTextEvidenceProjection;
   const policyTextProjectionDocuments = policyTextProjection.documents;
@@ -6462,7 +6465,7 @@ function buildMaterializedLocalV2Detail(
     runtimeArtifacts,
     scan: {
       ...scanRecord.scan,
-      pagesScanned: localV2NoGo && !policyOnlyPartial ? 0 : Math.max(scanRecord.scan.pagesScanned, 1)
+      pagesScanned: localV2NoGo ? 0 : Math.max(scanRecord.scan.pagesScanned, 1)
     },
     signals: materializedSignals,
     snapshot,

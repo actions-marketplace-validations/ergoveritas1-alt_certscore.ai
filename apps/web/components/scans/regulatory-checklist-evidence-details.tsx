@@ -1296,9 +1296,32 @@ export function RegulatoryChecklistEvidenceDetails(input: RegulatoryChecklistEvi
   const signal = getRecord(retained?.article13Signal);
   const section = getRecord(retained?.rowSpecificSectionEvidence);
   const excerpt = getString(retained?.selectedPolicySectionExcerpt) ?? getString(section?.selectedPolicySectionExcerpt) ?? getString(signal?.selectedPolicySectionExcerpt) ?? getString(signal?.evidenceText);
+  const decisiveItems = getSmokingGunEvidenceRecords(retained).slice(0, 3);
 
   return (
     <>
+      {decisiveItems.length > 0 ? (
+        <div className="border-t border-slate-200 px-2.5 py-1.5">
+          <div className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] leading-5 text-sky-950">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-sky-700">Decisive retained examples</p>
+            {decisiveItems.map((item, index) => {
+              const url = getString(item.url) ?? getString(item.requestUrl) ?? getString(item.pageUrl);
+              const facts = [
+                getString(item.consentState) ? `Consent: ${getString(item.consentState)}` : null,
+                getString(item.purpose) ? `Purpose: ${getString(item.purpose)}` : null,
+                getString(item.eventId) ? `Event: ${getString(item.eventId)}` : null,
+                getString(item.sourceModule) ? `Source: ${getString(item.sourceModule)}` : null,
+                getNumber(item.timestampMs) !== null ? `Observed: ${getNumber(item.timestampMs)} ms` : null,
+              ].filter((value): value is string => Boolean(value));
+              return <p className="mb-1 break-all" key={`${index}:${url ?? "item"}`}>
+                {url && /^https?:\/\//i.test(url) ? <a className="font-medium text-sky-700 underline" href={url} target="_blank" rel="noreferrer">Open observed URL</a> : `Retained item ${index + 1}`}
+                {facts.length > 0 ? ` · ${facts.join(" · ")}` : null}
+              </p>;
+            })}
+            {getSmokingGunEvidenceRecords(retained).length > decisiveItems.length ? <p>Examples shown; open the evidence JSON for the complete retained set.</p> : null}
+          </div>
+        </div>
+      ) : null}
       {policyProvenanceRows.length > 0 ? (
         <div className="border-t border-slate-200 px-2.5 py-1.5">
           <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] leading-5 text-slate-800">

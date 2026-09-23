@@ -75,6 +75,7 @@ test("projects a surfaced typed GPC finding with proof, deltas, and the exact Ca
   assert.equal(projection?.californiaDeductionPoints, 15);
   assert.equal(projection?.headline, "No observable response");
   assert.match(projection?.coverageSummary ?? "", /did not observe a qualifying reduction/i);
+  assert.match(projection?.coverageSummary ?? "", /not a legal compliance conclusion/i);
   assert.deepEqual(projection?.evidenceRefs, [
     "s3://evidence/baseline.json",
     "s3://evidence/gpc.json",

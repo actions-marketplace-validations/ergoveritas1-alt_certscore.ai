@@ -124,7 +124,9 @@ export function getPublicReportFindingDisplay(input: PublicReportFindingDisplayI
     input.title ??
     input.label ??
     input.findingId.replaceAll("_", " ");
-  const criticality = reference?.criticality ?? getFindingReferenceCriticality(canonicalFindingId) ?? normalizeCriticality(input.severity);
+  const criticality = canonicalFindingId === "scan_quality_visual_no_go"
+    ? "low"
+    : reference?.criticality ?? getFindingReferenceCriticality(canonicalFindingId) ?? normalizeCriticality(input.severity);
   const observedSummary = canonicalFindingId === "scan_quality_visual_no_go" && input.observedSummary
     ? input.observedSummary
     : SCAN_QUALITY_OBSERVED_COPY[canonicalFindingId] ?? reference?.observed ?? getFindingReferenceObservedCopy(canonicalFindingId);

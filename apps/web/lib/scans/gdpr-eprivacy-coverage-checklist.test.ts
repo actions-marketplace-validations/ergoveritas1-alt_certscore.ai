@@ -59,6 +59,53 @@ function byId(items: GdprEprivacyCoverageChecklistItem[], id: string) {
   return item;
 }
 
+test("confirmed tracking finding outranks neutral inventory coverage", () => {
+  const items = deriveGdprEprivacyCoverageChecklist({
+    coverageLimited: false,
+    coverageOutcomes: {
+      pre_consent_third_party_tracking: makeCoverageOutcome({
+        evidenceRefs: ["Contextual inventory only"],
+        limitation: "Inventory was not independently promoted.",
+        retainedEvidence: { contextualInfrastructureOnly: true, trackerPriority: "contextual" },
+        rowId: "pre_consent_third_party_tracking",
+        status: "Not observed",
+      }),
+    },
+    scanCompleted: true,
+    unifiedFindings: [makeFinding("preconsent_tracking", "Classified pre-consent tracking")],
+  });
+  assert.equal(byId(items, "pre_consent_third_party_tracking").status, "Gap observed");
+});
+
+test("review-level missing Reject finding stays a review signal", () => {
+  const items = deriveGdprEprivacyCoverageChecklist({
+    coverageLimited: false,
+    scanCompleted: true,
+    unifiedFindings: [makeFinding("reject_button_missing", "Reject control not retained")],
+  });
+  assert.equal(byId(items, "reject_all_path_availability").status, "Review signal");
+});
+
+test("no-go scan does not describe page-dependent absence as tested", () => {
+  const items = deriveGdprEprivacyCoverageChecklist({
+    coverageLimited: true,
+    scanCompleted: true,
+    unifiedFindings: [makeFinding("scan_quality_visual_no_go", "Normal public page not reached")],
+  });
+  const withdrawal = byId(items, "preference_withdrawal_control");
+  assert.equal(withdrawal.status, "Not testable");
+  assert.equal(withdrawal.assessmentStatus, "coverage_limitation");
+});
+
+test("audit-only visual review does not convert independent checklist rows to no-go", () => {
+  const items = deriveGdprEprivacyCoverageChecklist({
+    coverageLimited: false,
+    scanCompleted: true,
+    unifiedFindings: [makeFinding("scan_quality_visual_no_go", "Unverified access review", "audit_only")],
+  });
+  assert.equal(byId(items, "preference_withdrawal_control").status, "Not observed");
+});
+
 function makeChecklistGdprTransparencyConcerns(disclosureType: string) {
   const evidenceText = disclosureType === "automated_decision_making_or_profiling"
     ? "Wij nemen uitsluitend geautomatiseerde besluiten, waaronder profilering, wanneer de privacyverklaring dit uitdrukkelijk beschrijft."

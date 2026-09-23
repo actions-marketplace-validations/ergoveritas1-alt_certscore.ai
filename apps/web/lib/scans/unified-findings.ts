@@ -5757,6 +5757,22 @@ const UNIFIED_FINDING_PRESENTATION_COPY_OVERRIDES: Record<
   string,
   Pick<CanonicalReviewFindingPresentation, "suggestedFix" | "whyThisMatters">
 > = {
+  scan_quality_visual_no_go: {
+    suggestedFix: "Check the retained access outcome and initial capture, restore access to the intended public page or allow scanner access, then rerun. Rely on site findings only after the normal page is verified.",
+    whyThisMatters: "The normal public page was not reached, so the report cannot score the intended site from this capture."
+  },
+  accept_more_prominent_than_reject: {
+    suggestedFix: "Compare the retained Accept and Reject control labels and geometry on the first layer. If the difference persists, adjust their visibility and rerun the same page to verify both choices.",
+    whyThisMatters: "A first-layer visual imbalance can make refusal harder to identify; the retained control evidence needs human review."
+  },
+  reject_button_missing: {
+    suggestedFix: "Inspect the retained first-layer control inventory and representative capture for a Reject or necessary-only control. If the absence is confirmed, add a clear refusal choice and rerun to verify its visibility and registration.",
+    whyThisMatters: "The retained first-layer inventory suggests a missing refusal control; a reviewer should confirm the tested surface before treating it as a consent-path gap."
+  },
+  policy_clarity_risk: {
+    suggestedFix: "Open the cited policy passage at its retained URL, identify the ambiguous statement, revise it for the affected data practice, and rerun policy review to confirm the new wording is captured.",
+    whyThisMatters: "Ambiguous policy wording can prevent a reviewer from matching public disclosure to the site's observed practices."
+  },
   preconsent_tracking: {
     suggestedFix: "Block non-essential trackers until consent is captured and verify the reject path suppresses them.",
     whyThisMatters: "Tracking before a clear user choice can undermine consent expectations and create immediate transparency risk."
@@ -7365,7 +7381,9 @@ export function buildUnifiedFindingPackets(input: {
       nextPacket.title = candidate.title;
     }
 
-    nextPacket.severity = maxSeverity(nextPacket.severity, candidate.severity);
+    nextPacket.severity = findingId === "scan_quality_visual_no_go"
+      ? "low"
+      : maxSeverity(nextPacket.severity, candidate.severity);
     if (!existing || nextPacket.summary.trim().length === 0) {
       nextPacket.summary = candidate.description;
     }

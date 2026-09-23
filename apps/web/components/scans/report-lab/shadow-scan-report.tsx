@@ -516,6 +516,9 @@ export function SignalSnapshot({ report, siteOverview = false }: { report: Shado
               <span className="flex min-w-0 items-center gap-2">
                 <span className="text-xs font-semibold text-zinc-800">
                   {report.gpcResponse.headline}
+                  {report.gpcResponse.assessment.contractVersion === "certscore.gpc-response-assessment.v3"
+                    ? ` · ${report.gpcResponse.comparisonHeadline}`
+                    : ""}
                 </span>
                 {report.gpcResponse.californiaDeductionPoints > 0 ? (
                   <span className={`${monoClass} text-[0.68rem] font-semibold text-rose-700`}>
