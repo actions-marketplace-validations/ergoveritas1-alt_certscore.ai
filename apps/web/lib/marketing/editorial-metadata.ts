@@ -11,7 +11,7 @@ const dates: Record<string, EditorialDates> = {
   "/how-it-works": { dateModified: "2026-09-21" },
   "/": { dateModified: "2026-09-21" },
   "/guides": { dateModified: "2026-09-21" },
-  "/methodology": { dateModified: "2026-09-20" },
+  "/methodology": { dateModified: "2026-09-23" },
   "/solutions/gdpr-website-compliance-scanner": { dateModified: "2026-09-20" },
   "/solutions/cookie-consent-scanner": { dateModified: "2026-09-20" },
   "/solutions/privacy-policy-risk-scanner": { dateModified: "2026-09-20" },
