@@ -10,7 +10,7 @@ export default async function FeedbackPage() {
       <div className="space-y-3">
         <h1 className="text-3xl font-semibold tracking-tight">Feedback</h1>
         <p className="max-w-3xl text-slate-600">
-          Send product feedback, bug reports, and workflow requests directly to Ben. Include as much context as you can.
+          Send product feedback, bug reports, and workflow requests directly to support@certscore.ai. Include as much context as you can.
         </p>
       </div>
 
