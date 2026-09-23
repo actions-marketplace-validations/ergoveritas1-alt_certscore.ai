@@ -84,6 +84,10 @@ const accept = completed.postAcceptObservation;
 for (const path of [accept, reject]) {
   if (!path) continue;
   console.log(path.interpretation);
+  const successful = path.execution?.status === "succeeded" ||
+    path.execution?.status === "succeeded_with_confirmation";
+  console.log({ successful, execution: path.execution ?? "unavailable" });
+  // Confirmation is a subset of success. A completed click alone is insufficient.
   // After-click facts remain useful even when registration is unconfirmed.
   if (path.afterAction) console.log(path.afterAction);
   // Use canonical findings for risk/scoring; request counts are not tracker counts.
@@ -97,10 +101,10 @@ console.log({
   requests: gpc?.observation?.requests,
 });
 // Complete observation does not mean GPC was honored.
-// Historical records may omit observation and afterAction entirely.
+// Historical records may omit execution, observation and afterAction entirely.
 ```
 
-SDK 0.2.11 adds typed GPC v3 bounded observations and after-click summaries. SDK 0.2.10 can receive additional JSON fields but does not type them. These fields do not add scan invocations, extend observation windows or change scoring. New scans use the deployed backend; cached records retain their original evidence.
+SDK 0.2.12 adds `ChoicePathExecution` and `isSuccessfulChoicePath(path.execution)`. Count both success statuses and report confirmation separately. Registered paths can omit `afterAction`; missing historical execution remains unavailable. SDK 0.2.11 added typed GPC v3 bounded observations and after-click summaries. SDK 0.2.10 can receive additional JSON fields but does not type them. These fields do not add scan invocations, extend observation windows or change scoring. New scans use the deployed backend; cached records retain their original evidence.
 
 `certscore.scans.get()`, `certscore.scans.status()`, and `certscore.scans.wait()` expose scan timing where the API has enough evidence:
 

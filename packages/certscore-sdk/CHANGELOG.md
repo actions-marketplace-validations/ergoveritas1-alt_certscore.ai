@@ -1,5 +1,11 @@
 # @certscore/sdk
 
+## 0.2.12
+
+- Type canonical Accept/Reject `execution` outcomes and export `isSuccessfulChoicePath`.
+- Count complete unconfirmed and confirmed paths together, without relying on optional `afterAction` capture.
+- Keep missing historical execution separate from unsuccessful paths.
+
 ## 0.2.11
 
 - Add typed GPC v3 bounded observations, separately from the paired response status.

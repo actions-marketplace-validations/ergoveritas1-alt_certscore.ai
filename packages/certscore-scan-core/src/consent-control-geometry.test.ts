@@ -1413,7 +1413,7 @@ test("capture policy recognizes reviewed observation labels in a local consent s
   ] as const) {
     const artifact = await captureFixture(`<section id="cookie-banner" role="dialog" aria-label="Cookie consent" style="position:fixed;bottom:0;padding:20px;background:white"><p>We use optional cookies for analytics. Choose your cookie preferences.</p><button>${label}</button></section>`);
     assert.equal(artifact.summary[field], true, label);
-    assert.equal(findCandidate(artifact, label)?.classifierRegistryVersion, "consent-control-label-registry.v5");
+    assert.equal(findCandidate(artifact, label)?.classifierRegistryVersion, "consent-control-label-registry.v6");
   }
 });
 
@@ -1552,4 +1552,36 @@ test("OneTrust first-layer inspection excludes covered news and hidden preferenc
   assert.equal(artifact.summary.firstLayerAccept, true);
   assert.equal(artifact.summary.firstLayerReject, false);
   assert.equal(artifact.controlInspection?.candidates.some(c => c.unresolvedIntents.includes("reject")), false, JSON.stringify({proof: artifact.controlInspection, candidates: artifact.candidates.slice(0, 8)}));
+});
+
+// Observation vocabulary must survive the actual DOM/geometry gates. It does not
+// expand the separately authorized action vocabulary.
+for (const [label, actionType] of [
+  ["Kabul Et", "accept_all"], ["Reddet", "reject_all"],
+  ["Acceptă", "accept_all"], ["Refuză", "reject_all"],
+  ["Souhlasím se všemi", "accept_all"], ["Odmítnout všechny", "reject_all"],
+  ["Accepteer alles", "accept_all"], ["Принять", "accept_all"], ["Отклонить", "reject_all"],
+  ["Accept necessary cookies only", "reject_all"], ["Accept only necessary", "reject_all"],
+  ["Accept essential cookies only", "reject_all"], ["DECLINE NON-NECESSARY", "reject_all"],
+  ["Reject Non-Essentials", "reject_all"], ["Declinar consentimiento", "reject_all"],
+  ["Nur notwendige Cookies akzeptieren", "reject_all"],
+] as const) {
+  test(`reviewed observation phrase has a visible canonical role: ${label}`, async () => {
+    const artifact = await captureFixture(`<section id="cookie-banner" role="dialog" aria-label="Cookie consent">
+      <p>We use optional cookies. Choose your cookie consent preferences.</p><button>${label}</button></section>`);
+    const candidate = findCandidate(artifact, label);
+    assert.equal(candidate?.actionType, actionType);
+    assert.equal(candidate?.decisionStatus, "confirmed_visible");
+    assert.equal(artifact.summary[actionType === "accept_all" ? "firstLayerAccept" : "firstLayerReject"], true);
+  });
+}
+
+test("reviewed multilingual vocabulary retains unrelated, disabled and hidden control guards", async () => {
+  const artifact = await captureFixture(`<section id="cookie-banner" role="dialog" aria-label="Cookie consent">
+    <p>We use optional cookies. Choose your cookie consent preferences.</p>
+    <button disabled>Acceptă</button><button style="display:none">Reddet</button>
+    <button>Accept necessary cookies only and buy now</button></section>
+    <section><h2>Account invitation</h2><button>Принять</button></section>`);
+  assert.equal(artifact.summary.firstLayerAccept, false);
+  assert.equal(artifact.summary.firstLayerReject, false);
 });

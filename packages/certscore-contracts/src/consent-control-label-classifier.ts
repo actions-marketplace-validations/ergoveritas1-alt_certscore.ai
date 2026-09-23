@@ -5,7 +5,7 @@ import {
 } from "./supported-languages";
 import type { ConsentControlLinkDestination } from "./consent-control-link";
 
-export const CONSENT_CONTROL_LABEL_REGISTRY_VERSION = "consent-control-label-registry.v5";
+export const CONSENT_CONTROL_LABEL_REGISTRY_VERSION = "consent-control-label-registry.v6";
 
 export type ConsentControlIntent =
   | "accept"
@@ -129,6 +129,23 @@ const pl = (terms: TermInput[]) => terms.map((term): ConsentControlTerm => ({ lo
 
 export const CONSENT_CONTROL_PHRASE_REGISTRY: ConsentControlTerm[] = [
   // Full, reviewed observation phrases. Do not broaden action recipes.
+  // Retained-cohort review, September 22: exact contextual observation aliases.
+  { locale: "tr", phrase: "kabul et", intent: "accept", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "tr", phrase: "reddet", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "ro", phrase: "acceptă", intent: "accept", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "ro", phrase: "refuză", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "cs", phrase: "souhlasím se všemi", intent: "accept", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "cs", phrase: "odmítnout všechny", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "nl", phrase: "accepteer alles", intent: "accept", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "ru", phrase: "принять", intent: "accept", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "ru", phrase: "отклонить", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "en", phrase: "accept necessary cookies only", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "en", phrase: "accept only necessary", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "en", phrase: "accept essential cookies only", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "en", phrase: "decline non-necessary", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "en", phrase: "reject non-essentials", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "es", phrase: "declinar consentimiento", intent: "reject", strength: "direct", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
+  { locale: "de", phrase: "nur notwendige cookies akzeptieren", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, exactLabelOnly: true, observationOnly: true },
   { locale: "en", phrase: "accept only essential", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, observationOnly: true },
   { locale: "de", phrase: "nur essentielle cookies akzeptieren", intent: "reject", strength: "equivalent", variant: "necessary_only", requiresConsentContext: true, observationOnly: true },
   { locale: "de", phrase: "nein danke", intent: "reject", strength: "contextual", requiresConsentContext: true, observationOnly: true },

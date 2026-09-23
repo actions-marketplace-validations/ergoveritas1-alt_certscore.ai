@@ -117,3 +117,35 @@ confirmed but interrupted observation, evidence-satisfied early exit, missing
 proof/hash, missing storage evidence, dropped requests, wrong request references,
 tampered execution status, persistence round trip, canonical finding/score
 separation, public API validation, and report rendering.
+
+## Independent-session report eligibility and client counting (September 22, 2026)
+
+A schema-validated, source-bound action projection with a verified completed click
+is reportable even when the independent passive session has an unknown or absent
+control. This includes factual Limited paths; reportability does not imply success.
+The shared API/report eligibility rule consumes the typed projection. Existing
+canonical checklist rows may also retain that execution evidence. Neither path
+creates a finding, changes the passive A/R/O assessment, or changes registration,
+projectability or scoring. Coverage notices use the same eligibility rule.
+
+SDK `ChoicePathExecution`, the `isSuccessfulChoicePath` helper, MCP text and developer
+examples use both success statuses. A registered successful path may lack the
+optional `afterAction` object; that object must not be the success predicate.
+Historical missing execution remains unavailable and belongs in a separate coverage
+count. SDK 0.2.12 contains these client additions; publication is a separate release
+step. The Mac mini bot must adopt this predicate in its own code; a server change
+cannot rewrite its local aggregation logic.
+
+Optional `storage.collectionDiagnostics` in typed action packets (retained as
+`storageCollectionDiagnostics` in typed report projections) uses `action_storage_collection_diagnostics.v1`. Per-phase cookie,
+local-storage and session-storage metadata distinguishes empty, complete, sampled,
+partial and failed collection. The existing packet hash binds this metadata.
+Historical packets may omit it; missing diagnostics must not mean empty or complete.
+This metadata is diagnostic only and does not redefine path success or finding
+eligibility. No raw storage values, extra browser calls or public wire fields are
+introduced.
+
+These changes add no lane, invocation, timeout, retry or runtime model call.
+Diagnostics add bounded bytes to existing artifacts/projections. Estimated
+incremental cost is below $0.10/month at 100,000 scans/month with existing capacity
+and 30-day retention; this is a planning estimate, not measured billing.

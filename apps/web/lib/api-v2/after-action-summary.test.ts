@@ -101,7 +101,7 @@ for (const action of ["accept", "reject"] as const) {
 }
 
 
-test("customer action summaries omit attempts without a corresponding observed control", () => {
+test("customer action summaries retain verified independent clicks but omit unexecuted attempts without an observed control", () => {
   for (const action of ["accept", "reject"] as const) {
     for (const state of ["unknown", "not_observed"]) {
       const assessment = { ...observedControlAssessment, controls: { ...observedControlAssessment.controls,
@@ -109,7 +109,14 @@ test("customer action summaries omit attempts without a corresponding observed c
       const record = { events: [], runtimeArtifacts: { consentControlAssessment: assessment,
         [action === "accept" ? "postAcceptEvidenceProjection" : "postRefusalEvidenceProjection"]: fixture(action),
       } } as any;
-      assert.equal(action === "accept" ? deriveApiV2PostAcceptObservation(record) : deriveApiV2PostRefusalObservation(record), undefined);
+      const derive = action === "accept" ? deriveApiV2PostAcceptObservation : deriveApiV2PostRefusalObservation;
+      const result = derive(record);
+      assert.ok(result && "execution" in result);
+      assert.equal(result.execution?.status, "succeeded");
+      const key = action === "accept" ? "postAcceptEvidenceProjection" : "postRefusalEvidenceProjection";
+      record.runtimeArtifacts[key] = { ...fixture(action), afterActionCapture: undefined,
+        afterActionRequests: undefined, afterActionStorage: undefined };
+      assert.equal(derive(record), undefined);
       assert.ok(record.runtimeArtifacts[action === "accept" ? "postAcceptEvidenceProjection" : "postRefusalEvidenceProjection"], "internal evidence remains retained");
     }
   }

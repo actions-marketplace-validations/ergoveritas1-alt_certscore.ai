@@ -40,6 +40,37 @@ test("action proof uses the discovery language profile for labels, conflicts and
 });
 
 for (const action of ["accept", "reject"] as const) {
+  test(`${action}: resolver ignores another button's submission value when establishing uniqueness`, async () => {
+    const label = action === "accept" ? "Accept all" : "Reject all";
+    const opposite = action === "accept" ? "Reject all" : "Accept all";
+    const clicks: string[] = [];
+    const server = createServer((request, response) => {
+      if (request.url?.startsWith("/click/")) { clicks.push(request.url); response.writeHead(204).end(); return; }
+      response.setHeader("content-type", "text/html");
+      response.end(`<section class="cookie-banner"><p>Choose your optional cookie preferences.</p>
+        <button id="other" value="${label}">${opposite}</button><button id="correct">${label}</button></section>
+        <script>document.querySelectorAll('button').forEach(b=>b.onclick=()=>{fetch('/click/'+b.id);document.querySelector('section').hidden=true})</script>`);
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const common = { url: `http://127.0.0.1:${address.port}/`, scanId: `button-value-${action}`,
+      actionSearchTimeoutMs: 600, confirmationTimeoutMs: 50, observationWindowMs: 50,
+      interactionAuthorization: { authorizationId: "loopback_local_lab", kind: "loopback" as const } };
+    const recipe = { recipeId: "fixture:matching-label", controlSelector: ".cookie-banner button",
+      controlExpectedNormalizedLabel: label.toLowerCase(), bannerSelector: ".cookie-banner",
+      resolverMethod: "local_fixture_recipe" as const,
+      confirmation: { kind: "local_storage_equals" as const, key: "consent", expectedValue: action } };
+    try {
+      const packet = action === "accept"
+        ? await runPostAcceptObserver({ ...common, recipe: { ...recipe, artifactVersion: "certscore.post_accept_action_recipe.v1" } })
+        : await runPostRefusalObserver({ ...common, recipe: { ...recipe, artifactVersion: "certscore.post_refusal_action_recipe.v1" } });
+      assert.deepEqual(clicks, ["/click/correct"], JSON.stringify(packet.interactionDiagnostics));
+      assert.equal(packet.actionControlProof?.accessibleLabel, label);
+      assert.equal(packet.interactionDiagnostics?.click.outcome, "completed");
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+
   test(`${action}: Dutch discovery reaches one click and retains unconfirmed after-click facts`, async () => {
     let clicks = 0;
     const server = createServer((request, response) => {

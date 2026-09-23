@@ -1,5 +1,9 @@
 # certscore-mcp
 
+## 0.2.22
+
+- Report canonical completed Accept/Reject paths independently of confirmation or optional afterAction summaries.
+
 ## Unreleased
 
 - Prepare Cursor integration `1.0.4` with query-first cookie, tracker, consent, GDPR, CCPA, ePrivacy, privacy-risk, and website-scanner discovery metadata while preserving the `CertScore.ai` no-auth Light endpoint.

@@ -1128,3 +1128,25 @@ test("reviewed refusal observations retain full-phrase meaning without broadenin
     assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true }).intent, "unknown", label);
   }
 });
+
+test("reviewed September cohort labels are exact contextual observations, not new action recipes", () => {
+  const choices = [
+    ["Kabul Et", "accept"], ["Reddet", "reject"], ["Acceptă", "accept"], ["Refuză", "reject"],
+    ["Souhlasím se všemi", "accept"], ["Odmítnout všechny", "reject"], ["Accepteer alles", "accept"],
+    ["Принять", "accept"], ["Отклонить", "reject"],
+    ["ACCEPT NECESSARY COOKIES ONLY", "reject"], ["Accept Only Necessary", "reject"],
+    ["Accept essential cookies only", "reject"], ["DECLINE NON-NECESSARY", "reject"],
+    ["Reject Non-Essentials", "reject"], ["Declinar consentimiento", "reject"],
+    ["Nur notwendige Cookies akzeptieren", "reject"],
+  ] as const;
+  for (const [label, intent] of choices) {
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true }).intent, intent, label);
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: true, usage: "action" }).intent, "unknown", `no new click: ${label}`);
+    assert.equal(classifyConsentControlLabel({ label, hasConsentContext: false, contextText: "Account purchase and checkout" }).intent, "unknown", `context: ${label}`);
+  }
+  for (const label of ["Accept all or accept necessary cookies only", "Do not accept only necessary", "How to accept necessary cookies only?",
+    "Принять заказ", "Kabul Et purchase", "Souhlasím se všemi?", "Accepteer alles account", "I'm Over 18", "Okay", "Close"]) {
+    assert.ok(!["accept", "reject"].includes(classifyConsentControlLabel({ label, hasConsentContext: true }).intent), label);
+  }
+  assert.equal(classifyConsentControlLabel({ label: "Accept Only Necessary", ariaLabel: "Accept all cookies", hasConsentContext: true }).intent, "unknown");
+});

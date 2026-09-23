@@ -1512,7 +1512,7 @@ test("missing or mismatched consent binding cannot override a blocked document",
 
 test("new materialization preserves legacy classifier provenance rather than inventing a registry version", () => {
   const result = deriveMaterializedConsentControlAssessment({ bundle: bundle([{ actionType: "accept_all", label: "Accept", visible: true }]), noGo: false });
-  assert.equal(result.provenance.projectorVersion, "2.2.0");
+  assert.equal(result.provenance.projectorVersion, "2.2.1");
   assert.equal(result.evidence[0]?.classifier?.registryVersion, "consent-control-label-registry");
 });
 
@@ -1540,4 +1540,24 @@ test("AX navigation uncertainty survives materialization without suppressing ind
   assert.equal(assessment.controls.accept.state, "observed");
   assert.equal(assessment.controls.options.state, "unknown");
   assert.equal(assessment.assessmentStatus, "limited");
+});
+
+test("malformed current same-loader control inspection cannot be hidden by a complete empty inventory", () => {
+  const source = bundle([], { captureStatus: "no_evidence", likelyPresent: false });
+  const identity = { source: "cdp_loader_id" as const, token: "current-empty-document" };
+  source.domSnapshots[0]!.documentIdentity = identity;
+  source.consentUiObservations[0]!.documentIdentity = identity;
+  source.consentUiObservations[0]!.documentUrl = "https://oxfam.org/en";
+  source.consentUiObservations[0]!.inventoryOutcome = "complete_empty";
+  const g = { ...geometry([], { firstLayerAccept: false, firstLayerReject: false, firstLayerOptions: false }),
+    observedAtMs: 6_500, documentIdentity: identity,
+    controlInspection: { version: "control_specific_inspection.v2", structuralCoverage: "complete", candidates: "malformed" },
+  };
+  const result = deriveMaterializedConsentControlAssessment({ bundle: source, consentControlGeometryEvidence: g,
+    consentSurfaceInspection: completeInspection("no_surface_observed_complete_coverage", false),
+    finalUrl: "https://oxfam.org/en", noGo: false });
+  assert.equal(result.assessmentStatus, "limited");
+  assert.equal(result.controls.accept.state, "unknown");
+  assert.equal(result.controls.reject.state, "unknown");
+  assert.ok(result.limitations.some(l => l.code === "structured_inspection_incomplete"));
 });

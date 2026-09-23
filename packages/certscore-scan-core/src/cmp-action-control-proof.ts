@@ -11,6 +11,7 @@ import { getKnownCmpDefinitionByName } from "@website-signal-risk-scanner/shared
 import { createHash } from "node:crypto";
 import { inspectLocatorActionability, locatorActionabilitySupportsVerifiedDispatch } from "./cmp-control-actionability.js";
 import type { Locator, Page } from "playwright";
+import { readConsentActionLabelFields, type ConsentActionLabelFields } from "./consent-action-label-fields.js";
 import { consentScopePermitsInteraction } from "./cmp-action-target.js";
 import { inspectCustomAcceptControl, sameCustomAcceptControlBinding } from "./custom-accept-control.js";
 import type { CustomAcceptControlBinding } from "@certscore/contracts";
@@ -19,12 +20,7 @@ import {
   type CmpAccessibleActionResolution,
 } from "./cmp-accessible-action.js";
 
-type ControlLabelFields = {
-  ariaLabel?: string;
-  title?: string;
-  value?: string;
-  visibleText?: string;
-};
+type ControlLabelFields = ConsentActionLabelFields;
 
 export type ConsentActionControlProofResolution =
   | { status: "verified"; proof: ConsentActionControlProof }
@@ -282,18 +278,7 @@ async function verifyContextualApprovalScope(control: Locator, bannerSelector: s
 }
 
 async function readControlLabelFields(control: Locator): Promise<ControlLabelFields> {
-  return control.evaluate((element) => {
-    const html = element as HTMLElement;
-    return {
-      ariaLabel: element.getAttribute("aria-label") ?? undefined,
-      title: element.getAttribute("title") ?? undefined,
-      // A button's value is a submission payload, not its accessible label.
-      // Only these input types render their value as the control label.
-      value: element instanceof HTMLInputElement && ["button", "submit", "reset"].includes(element.type)
-        ? element.value : undefined,
-      visibleText: html.innerText || element.textContent || undefined,
-    };
-  }).catch(() => ({}));
+  return control.evaluate(readConsentActionLabelFields).catch(() => ({}));
 }
 
 function boundFields(fields: ControlLabelFields): ControlLabelFields {

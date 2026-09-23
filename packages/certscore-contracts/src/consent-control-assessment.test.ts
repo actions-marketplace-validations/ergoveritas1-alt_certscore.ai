@@ -637,3 +637,50 @@ test("2.2 retains a verified negative Reject state independently of incomplete O
   input.document!.identityStatus = "mismatched";
   assert.equal(deriveConsentControlAssessment(input).controls.reject.state, "unknown");
 });
+
+test("current limited structural proof vetoes broad complete-empty absence but preserves positives", () => {
+  const input = baseInput();
+  input.document!.canonicalDocumentToken = "doc-token";
+  input.surface = { status: "not_observed" };
+  input.observations = [{ observationId: "empty", observedAtMs: 100, documentId: input.document!.canonicalDocumentId,
+    documentToken: "doc-token", likelyPresent: false, captureStatus: "no_evidence", inventoryOutcome: "complete_empty",
+    layerInspected: "first_layer", controls: [], completedChannels: ["dom_inventory", "geometry"] }];
+  input.geometry = { assessmentStatus: "complete", documentId: input.document!.canonicalDocumentId, documentToken: "doc-token", observedAtMs: 100,
+    candidates: [], controlInspection: { version: "control_specific_inspection.v2", retainedCandidateCount: 0,
+      structuralCoverage: "limited", candidates: [], reasonCodes: ["structural_control_inventory_incomplete"],
+      captureCoverage: { inventoryTruncated: false, documentReadyState: "complete", mainFrameAvailable: true,
+        documentAndFramesStable: false, frameCount: 18, capturedFrameCount: 12 } } };
+  const limited = deriveConsentControlAssessment(input);
+  assert.equal(limited.controls.accept.state, "unknown");
+  assert.equal(limited.controls.reject.state, "unknown");
+  assert.equal(limited.surface.status, "unknown");
+  assert.equal(limited.coverage.status, "limited");
+  assert.ok(limited.limitations.some(x => x.code === "structured_inspection_incomplete"));
+  input.geometry.candidates = [candidate({ actionType: "accept_all", label: "Accept all", documentToken: "doc-token" })];
+  assert.equal(deriveConsentControlAssessment(input).controls.accept.state, "observed");
+  assert.equal(deriveConsentControlAssessment(input).controls.reject.state, "unknown");
+
+  // Earlier incomplete auxiliary geometry must not erase a later complete,
+  // same-document primary inventory. Neither case rewrites stored assessments.
+  input.geometry.observedAtMs = 99;
+  assert.equal(deriveConsentControlAssessment(input).controls.reject.state, "not_observed");
+  input.geometry.inspectionInvalid = true;
+  assert.equal(deriveConsentControlAssessment(input).controls.reject.state, "not_observed");
+  input.geometry.observedAtMs = 100;
+  assert.equal(deriveConsentControlAssessment(input).controls.reject.state, "unknown");
+});
+
+test("complete broad inventory cannot bypass an unresolved control-specific decision", () => {
+  const input = baseInput();
+  input.document!.canonicalDocumentToken = "doc-token";
+  input.surface = { status: "not_observed" };
+  input.geometry = { assessmentStatus: "complete", documentId: input.document!.canonicalDocumentId, documentToken: "doc-token", observedAtMs: 100,
+    candidates: [], controlInspection: { version: "control_specific_inspection.v2", retainedCandidateCount: 1,
+      structuralCoverage: "complete", candidates: [{ candidateId: "info", role: "information", unresolvedIntents: ["options"] }], reasonCodes: [],
+      captureCoverage: { inventoryTruncated: false, documentReadyState: "complete", mainFrameAvailable: true,
+        documentAndFramesStable: true, frameCount: 1, capturedFrameCount: 1 } } };
+  const result = deriveConsentControlAssessment(input);
+  assert.equal(result.controls.reject.state, "not_observed");
+  assert.equal(result.controls.options.state, "unknown");
+  assert.equal(result.assessmentStatus, "limited");
+});

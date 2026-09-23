@@ -1,4 +1,4 @@
-import { apiV2GpcResponseSchema } from "@certscore/api-contracts";
+import { apiV2GpcResponseSchema, apiV2ChoicePathExecutionSchema } from "@certscore/api-contracts";
 import { withResponseCapture, transferResponseCapture } from "./response-capture.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { getCertScoreErrorContext, CertScoreError, type FindingList, type JobStatus, type PreConsentCookiesTrackers, type PulseDetail, type PulseFormat, type PulseResult, type ScanResource, type TopFinding } from "@certscore/sdk";
@@ -6,6 +6,13 @@ import { getCertScoreErrorContext, CertScoreError, type FindingList, type JobSta
 function canonicalGpcObservationSummary(value: unknown): string | null {
   const parsed = apiV2GpcResponseSchema.safeParse(value);
   return parsed.success && parsed.data.contractVersion === "certscore.gpc-response-assessment.v3" ? parsed.data.summary : null;
+}
+
+function canonicalChoicePathExecutionText(observation: Record<string, unknown>): string | null {
+  const parsed = apiV2ChoicePathExecutionSchema.safeParse(observation.execution);
+  if (!parsed.success) return null;
+  const execution = parsed.data;
+  return `execution=${execution.status}; click completed=${execution.clickCompleted}; observation completed=${execution.observationCompleted}; consent confirmed=${execution.consentConfirmed}.`;
 }
 
 const MAX_ERROR_RESPONSE_BODY_CHARS = 2_000;
@@ -18,6 +25,7 @@ const LEGAL_REVIEW_DISCLAIMER = "CertScore results are automated public-web obse
 const SCAN_PROVENANCE_GROUNDING = "retrievalMode describes how the current tool response obtained the scan; creationDecision describes whether the original scan request created or reused a scan only when that decision is retained. Never infer an unknown creationDecision from scan_id_lookup. For a reused or retrieved existing scan, use only persisted scanFrom and timestamps. Never infer its original scan region from the current request, the user's location, or a default execution region. If persisted region or timestamps are unavailable, report them as unavailable.";
 const INTERPRETATION_STATEMENT = "The CertScore score covers observable public-web scan signals only. Do not infer technologies that are not listed in the returned evidence or any legal compliance status.";
 const SCAN_BUNDLE_RESPONSE_CONTRACT = `Response contract: Report only observed CertScore evidence and CertScore classifications. criticality, priority, and confidence are CertScore metadata; regulatory review lenses are non-determinative CertScore review context—not legal severity, legal exposure, or a compliance determination. Absence of captured consent-action evidence does not establish what happens after Accept, Reject, or Decline. A confirmed post-action observation with termination.kind=evidence_satisfied means the observer intentionally stopped after retaining qualifying evidence; do not treat that termination as uncertainty about the returned observation. Keep any separately returned coverage limitation scoped to what was not measured. Do not extrapolate an observed embed, vendor, or request into unobserved cookies, fingerprinting, tracking, or processing, and do not infer violations or compliance beyond what CertScore observed. ${SCAN_PROVENANCE_GROUNDING}`;
+const CHOICE_PATH_INTERPRETATION_STATEMENT = "Count execution.status succeeded and succeeded_with_confirmation as successful paths, with confirmation as a separate subset. A click alone is insufficient; registered paths may omit afterAction. Missing legacy execution remains unavailable. ";
 const SCAN_BUNDLE_INTERPRETATION_STATEMENT = "Report only observed CertScore evidence and persisted CertScore classifications. For gpcResponse, use only GPC response, No observable GPC response, or indeterminate; do not call the result a GPC violation or say GPC was not honored. Keep its jurisdiction-neutral comparison separate from any explicitly returned California scoring policy. Without corresponding captured post-action evidence, do not infer what Accept, Reject, Decline, or another consent action would do; say the scan does not establish what happens after that action. When postAcceptObservation or postRefusalObservation is confirmed and termination.kind is evidence_satisfied, state the returned observation directly and explain that observation stopped intentionally after qualifying evidence was retained. Do not characterize that termination as uncertainty about the observation; mention unmeasured longer-term persistence only when relevant. Treat post-Accept activity as a score-neutral behavior baseline unless a separately projected finding says otherwise. Do not speculate that an observed embed, vendor, or request may cause additional cookies, fingerprinting, tracking, or processing unless CertScore observed that behavior. Treat returned priority or severity as a CertScore classification, not regulatory criticality or legal exposure; prefer ‘observed privacy risk signal’ or ‘CertScore finding’. Do not infer unobserved technologies, legal compliance, or a legal violation from scores or findings.";
 const COMPACT_SCAN_BUNDLE_INTERPRETATION_STATEMENT = "Use only returned CertScore observations and classifications. Do not infer unobserved technologies, post-consent behavior, legal compliance, or violations. Treat priority and severity as CertScore metadata.";
 const OBSERVATION_ONLY_DISCLAIMER = `${LEGAL_REVIEW_DISCLAIMER} No-go, not-observed, and limited-coverage results are not proof of compliance.`;
@@ -1223,6 +1231,8 @@ function terminalLaneResultTextLines(value: Record<string, any>) {
       ? value[field] as Record<string, unknown>
       : null;
     if (observation && typeof observation.interpretation === "string") {
+      const execution = canonicalChoicePathExecutionText(observation);
+      if (execution) lines.push(`${label} execution: ${execution}`);
       lines.push(`${label}: ${observation.interpretation}`);
     }
   }
@@ -1493,6 +1503,8 @@ export function scanBundleText(bundle: Record<string, any>, options: { lightTria
     const intentionalEvidenceStop = termination?.kind === "evidence_satisfied" && termination.intentional === true
       ? " The observation then stopped intentionally because qualifying evidence had been captured."
       : "";
+    const execution = canonicalChoicePathExecutionText(postAccept);
+    if (execution) append(`Accept Path execution: ${execution}`);
     append(`Accept Path: ${postAccept.interpretation}${intentionalEvidenceStop}`);
     for (const limitation of Array.isArray(postAccept.coverageLimitations)
       ? postAccept.coverageLimitations.slice(0, 3)
@@ -1510,6 +1522,8 @@ export function scanBundleText(bundle: Record<string, any>, options: { lightTria
     const intentionalEvidenceStop = termination?.kind === "evidence_satisfied" && termination.intentional === true
       ? " The observation then stopped intentionally because qualifying evidence had been captured."
       : "";
+    const execution = canonicalChoicePathExecutionText(postRefusal);
+    if (execution) append(`Reject Path execution: ${execution}`);
     append(`Reject Path: ${postRefusal.interpretation}${intentionalEvidenceStop}`);
     for (const limitation of Array.isArray(postRefusal.coverageLimitations)
       ? postRefusal.coverageLimitations.slice(0, 3)
@@ -1719,9 +1733,11 @@ export function buildScanBundle(input: {
     postAcceptObservation: input.scan.postAcceptObservation ?? null,
     postRefusalObservation: input.scan.postRefusalObservation ?? null,
     provenance: scanProvenance(input.scan as unknown as Record<string, any>, "existing_scan_retrieved"),
-    interpretationGuidance: interpretationGuidance(input.scan.gpcResponse?.contractVersion === "certscore.gpc-response-assessment.v3"
+    interpretationGuidance: interpretationGuidance(
+      (input.scan.postAcceptObservation || input.scan.postRefusalObservation ? CHOICE_PATH_INTERPRETATION_STATEMENT : "") +
+      (input.scan.gpcResponse?.contractVersion === "certscore.gpc-response-assessment.v3"
       ? SCAN_BUNDLE_INTERPRETATION_STATEMENT.replace("For gpcResponse,", "For the paired gpcResponse.status,") + " Report the separate bounded observation, CMP-recorded state and directly observed requests. Observation completion does not mean GPC was honored."
-      : SCAN_BUNDLE_INTERPRETATION_STATEMENT),
+      : SCAN_BUNDLE_INTERPRETATION_STATEMENT)),
     resultDisposition: input.scan.resultDisposition ?? null,
     noGo: input.scan.noGo ?? null,
     coverage: input.scan.coverage ?? null,
@@ -1905,7 +1921,11 @@ export function buildScanBundle(input: {
   }
   if (bundle.mcpMetadata.actualBytes > maxBytes) {
     markBudgetOmitted("duplicateGuidance", "guidance_compacted_to_preserve_priority_content");
-    bundle.interpretationGuidance = interpretationGuidance(COMPACT_SCAN_BUNDLE_INTERPRETATION_STATEMENT);
+    bundle.interpretationGuidance = interpretationGuidance(
+      (bundle.postAcceptObservation || bundle.postRefusalObservation
+        ? "Both execution success statuses count; confirmation is separate. Missing execution is unavailable. " : "") +
+      COMPACT_SCAN_BUNDLE_INTERPRETATION_STATEMENT,
+    );
     bundle.observationOnlyDisclaimer = COMPACT_OBSERVATION_ONLY_DISCLAIMER;
     bundle.disclaimer = null;
     refresh();

@@ -533,8 +533,8 @@ export function buildAcceptPathProjection(
   runtimeArtifacts: Record<string, unknown> | null,
   ownerUnifiedFindings: NonNullable<ReturnType<typeof getPersistedCanonicalReportProjection>>["ownerUnifiedFindings"],
 ): ShadowReportData["acceptPath"] {
-  if (!isAfterActionReportEligible(retainedConsentAssessment(runtimeArtifacts), "accept")) return null;
   const projection = record(runtimeArtifacts?.postAcceptEvidenceProjection);
+  if (!isAfterActionReportEligible(retainedConsentAssessment(runtimeArtifacts), "accept", projection)) return null;
   // Coverage-only outcomes do not establish that an Accept interaction occurred.
   // Keep them in retained diagnostics, not the After Accept report projection.
   if (!projection) return null;

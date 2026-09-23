@@ -121,6 +121,15 @@ export interface ScanCreationMetadata {
   recommendedNextTool?: "certscore_get_scan_status" | "certscore_get_scan_bundle";
 }
 
+/** Canonical operational outcome. Consent confirmation is a separate subset. */
+export interface ChoicePathExecution {
+  policyVersion: "choice_path_execution.v1";
+  status: "succeeded" | "succeeded_with_confirmation" | "limited" | "not_attempted" | "unsupported";
+  clickCompleted: boolean;
+  observationCompleted: boolean;
+  consentConfirmed: boolean;
+}
+
 export interface AfterActionSummary {
   policyVersion: "bounded_after_action_capture.v1" | "bounded_after_action_capture.v2";
   action: "accept" | "reject";
@@ -133,6 +142,7 @@ export interface AfterActionSummary {
 }
 
 export interface PostRefusalObservation {
+  execution?: ChoicePathExecution;
   afterAction?: AfterActionSummary;
   status:
     | "confirmed_observation"
@@ -172,6 +182,7 @@ export interface PostRefusalObservation {
 }
 
 export interface PostAcceptObservation {
+  execution?: ChoicePathExecution;
   afterAction?: AfterActionSummary;
   status:
     | "confirmed_observation"

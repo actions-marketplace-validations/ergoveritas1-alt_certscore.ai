@@ -24,6 +24,41 @@ export type NormalizedActionStorageSnapshot = {
   droppedSessionStorage: number;
 };
 
+export type ActionStorageChannelDiagnostic = {
+  status: "empty" | "complete" | "sampled" | "partial" | "failed";
+  retainedCount: number;
+  droppedCount: number;
+  sampleLimit: number;
+};
+
+export type ActionStorageCollectionDiagnostics = {
+  policyVersion: "action_storage_collection_diagnostics.v1";
+  cookies: ActionStorageChannelDiagnostic;
+  localStorage: ActionStorageChannelDiagnostic;
+  sessionStorage: ActionStorageChannelDiagnostic;
+};
+
+function channelDiagnostic(input: { count: number; dropped: number; available: boolean; limit: number; retainedCount?: number; sampled?: boolean; sampledDroppedCount?: number }): ActionStorageChannelDiagnostic {
+  const retainedCount = Math.min(input.count, input.retainedCount ?? input.limit);
+  const status = !input.available ? "failed" : input.dropped > 0 ? "partial" :
+    input.count === 0 ? "empty" : input.sampled || retainedCount < input.count ? "sampled" : "complete";
+  return { status, retainedCount, droppedCount: Math.min(100_000, input.dropped + Math.max(0, input.count - retainedCount) + (input.sampledDroppedCount ?? 0)), sampleLimit: input.limit };
+}
+
+export function actionStorageCollectionDiagnostics(input: {
+  cookies: { count: number; dropped: number; available?: boolean; limit?: number; retainedCount?: number; sampled?: boolean; sampledDroppedCount?: number };
+  localStorage: { count: number; dropped: number; available?: boolean; limit?: number; retainedCount?: number; sampled?: boolean; sampledDroppedCount?: number };
+  sessionStorage: { count: number; dropped: number; available?: boolean; limit?: number; retainedCount?: number; sampled?: boolean; sampledDroppedCount?: number };
+}): ActionStorageCollectionDiagnostics {
+  const diagnostic = (channel: typeof input.cookies) => channelDiagnostic({
+    count: channel.count, dropped: channel.dropped, available: channel.available !== false,
+    limit: channel.limit ?? 96, retainedCount: channel.retainedCount, sampled: channel.sampled,
+    sampledDroppedCount: channel.sampledDroppedCount,
+  });
+  return { policyVersion: "action_storage_collection_diagnostics.v1", cookies: diagnostic(input.cookies),
+    localStorage: diagnostic(input.localStorage), sessionStorage: diagnostic(input.sessionStorage) };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }

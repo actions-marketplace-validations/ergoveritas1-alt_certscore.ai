@@ -1988,3 +1988,37 @@ test("read deadline expiration is retryable rather than an input correction", ()
   assert.match(error.recommendedNextAction, /retry the same request/);
   assert.doesNotMatch(error.recommendedNextAction, /Correct the request/);
 });
+
+test("MCP counts both execution successes including registered paths without afterAction", () => {
+  for (const action of ["accept", "reject"] as const) {
+    for (const confirmed of [false, true]) {
+      const execution = {
+        policyVersion: "choice_path_execution.v1", status: confirmed ? "succeeded_with_confirmation" : "succeeded",
+        clickCompleted: true, observationCompleted: true, consentConfirmed: confirmed,
+      };
+      const observation = {
+        execution, status: confirmed ? "confirmed_clean" : "unconfirmed",
+        [action === "accept" ? "acceptanceExercised" : "refusalExercised"]: confirmed,
+        observationCount: 0, productionProjectable: false,
+        evidenceDisposition: confirmed ? "confirmed" : "indeterminate",
+        indeterminateReason: confirmed ? null : "registration_unconfirmed",
+        verdict: confirmed ? "no_eligible_nonessential_activity_observed_during_completed_window" :
+          action === "accept" ? "no_confirmed_post_accept_verdict" : "no_confirmed_post_refusal_verdict",
+        interpretation: "Bounded path completed. Consent registration is reported separately.",
+        observationStrategy: "not_applicable", termination: { kind: "window_elapsed", intentional: false, trigger: "window_elapsed" },
+        completedAt: "2026-09-22T12:00:00.000Z", coverageLimitations: [], limitations: [],
+      };
+      const bundle = buildScanBundle({ detail: "summary", report,
+        findings: { type: "certscore_finding_list", scanId: "scan_execution", findings: [] }, preConsentCookiesTrackers: null,
+        scan: { type: "certscore_scan", scanId: "scan_execution", domain: "example.com", status: "completed", score: 72,
+          [action === "accept" ? "postAcceptObservation" : "postRefusalObservation"]: observation },
+      } as any);
+      const result = action === "accept" ? bundle.postAcceptObservation : bundle.postRefusalObservation;
+      assert.deepEqual(result?.execution, execution);
+      assert.equal(result?.afterAction, undefined);
+      assert.match(scanBundleText(bundle), new RegExp(`execution=${execution.status}; click completed=true; observation completed=true; consent confirmed=${confirmed}`));
+      assert.match(bundle.interpretationGuidance.statement, /Missing legacy execution remains unavailable/);
+      assert.doesNotThrow(() => mcpScanBundleOutputSchema.parse(bundle));
+    }
+  }
+});
