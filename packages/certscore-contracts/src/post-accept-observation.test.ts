@@ -105,6 +105,18 @@ function confirmedPacket() {
   };
 }
 
+test("Accept packet and report projection preserve bounded collection diagnostics", () => {
+  const diagnostics = { policyVersion: "action_storage_collection_diagnostics.v1" as const,
+    cookies: { status: "empty" as const, retainedCount: 0, droppedCount: 0, sampleLimit: 96 },
+    localStorage: { status: "failed" as const, retainedCount: 0, droppedCount: 0, sampleLimit: 96 },
+    sessionStorage: { status: "sampled" as const, retainedCount: 96, droppedCount: 0, sampleLimit: 96 } };
+  const packet = postAcceptEvidencePacketSchema.parse({ ...confirmedPacket(), storage: {
+    ...confirmedPacket().storage, collectionDiagnostics: { preAction: diagnostics, postAction: diagnostics },
+  } });
+  const projection = projectPostAcceptEvidenceForReport({ packet, packetSha256: "b".repeat(64) });
+  assert.deepEqual(projection.storageCollectionDiagnostics, packet.storage.collectionDiagnostics);
+});
+
 test("post-Accept observations require a semantically confirmed Accept action", () => {
   const result = postAcceptEvidencePacketSchema.safeParse({
     ...confirmedPacket(),

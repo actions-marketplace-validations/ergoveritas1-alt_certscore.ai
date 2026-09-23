@@ -117,6 +117,8 @@ import {
 const SOURCE_SCANNER = "pre_consent_runtime";
 const SCENARIO = "fresh_pre_consent";
 export const PRE_CONSENT_RUNTIME_PREVIEW_CHECKPOINT_MS = 6_000;
+export const RUNTIME_PAGE_INVENTORY_LOADING = "Runtime page inventory captured while the document was loading; later DOM content may be missing.";
+export const RUNTIME_PAGE_INVENTORY_UNAVAILABLE = "Runtime page inventory unavailable after bounded capture; empty fallback rows do not establish absence.";
 type BrowserDocumentIdentityState = { current?: BrowserDocumentIdentity };
 const browserDocumentIdentityByPage = new WeakMap<Page, BrowserDocumentIdentity>();
 
@@ -2031,6 +2033,11 @@ export async function preConsentRuntimeScanner(
             scanStartedAtMs: input.scanStartedAtMs,
             skipLegacyFallbackAfterAtomicTimeout: fastWait,
             timingBreakdown,
+            onIncompleteCapture: (reason = RUNTIME_PAGE_INVENTORY_UNAVAILABLE) => {
+              if (!runtimeErrors.includes(reason)) {
+                runtimeErrors.push(reason);
+              }
+            },
           })
         : captureConsentProofPageEvidence({
             normalizedUrl: input.normalizedUrl,
@@ -4931,6 +4938,7 @@ function signalTypeForMatchSource(
 }
 
 type ConsolidatedPageEvidenceSnapshot = {
+  documentReadyState: DocumentReadyState;
   siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: Array<{ apiName: string; category: string; timestampMs: number }>;
   collectionCapture: CollectionSurfaceCaptureSnapshot;
@@ -5005,6 +5013,7 @@ async function capturePostSettlePageEvidence(input: {
   scanStartedAtMs: number;
   skipLegacyFallbackAfterAtomicTimeout?: boolean;
   timingBreakdown: NonNullable<ScanModuleRun["timingBreakdown"]>;
+  onIncompleteCapture: (reason?: string) => void;
 }): Promise<{
   siteIntegrityObservation?: SiteIntegrityObservation;
   apiAccesses: RuntimeEvidenceEvent[];
@@ -5026,6 +5035,7 @@ async function capturePostSettlePageEvidence(input: {
     () => undefined,
   );
   if (snapshot) {
+    if (snapshot.documentReadyState === "loading") input.onIncompleteCapture(RUNTIME_PAGE_INVENTORY_LOADING);
     for (const [label, detail] of [
       ["page evidence: storage snapshot", "Local/session storage keys retained by the consolidated snapshot."],
       ["page evidence: script inventory", "DOM script inventory retained by the consolidated snapshot."],
@@ -5066,6 +5076,8 @@ async function capturePostSettlePageEvidence(input: {
       () => captureConsolidatedPageEvidenceSnapshot(input.page, input.captureSiteIntegrity),
       () => undefined,
     );
+    if (!retrySnapshot) input.onIncompleteCapture();
+    else if (retrySnapshot.documentReadyState === "loading") input.onIncompleteCapture(RUNTIME_PAGE_INVENTORY_LOADING);
     const retryEvidence = retrySnapshot
       ? (() => {
           const evidence = consolidatedPageEvidenceFromSnapshot(retrySnapshot, input);
@@ -5428,6 +5440,7 @@ async function captureConsolidatedPageEvidenceSnapshot(page: Page, captureSiteIn
       __certscoreBrowserApiAccesses?: Array<{ apiName: string; category: string; timestampMs: number }>;
     };
     return {
+      documentReadyState: document.readyState,
       integrityCapture: { links: hiddenLinks, inspectedLinks, truncated: integrityTruncated, capturedAt: new Date().toISOString() },
       apiAccesses: (apiScope.__certscoreBrowserApiAccesses ?? []).slice(0, 60),
       collectionCapture,

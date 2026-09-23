@@ -55,6 +55,15 @@ test("post-Accept observer confirms one deterministic action and retains bounded
     assert.equal(packet.actionControlProof?.enabled, true);
     assert.equal(packet.actionControlProof?.uniquelyActionable, true);
     assert.equal(packet.productionProjectable, true);
+    for (const phase of ["preAction", "postAction"] as const) {
+      const diagnostics = packet.storage.collectionDiagnostics?.[phase];
+      assert.ok(diagnostics);
+      assert.equal(diagnostics.policyVersion, "action_storage_collection_diagnostics.v1");
+      for (const [channel, storageType] of [["cookies", "cookie"], ["localStorage", "local_storage"], ["sessionStorage", "session_storage"]] as const) {
+        assert.equal(diagnostics[channel].retainedCount, packet.storage[phase].filter(item => item.storageType === storageType).length);
+      }
+    }
+
     assert.equal(packet.acceptanceRegistration.witnesses[0]?.witnessType, "cmp_storage_state");
     assert.ok(packet.storage.writesAfterAccept.some((write) =>
       write.storageType === "cookie" && write.name === "_ga" && write.nonEssential
@@ -693,3 +702,28 @@ async function withCookieYesFixture(
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 }
+
+
+test("Accept storage diagnostics distinguish a denied session-storage read from empty storage", async (t) => {
+  const browser = await chromium.launch({ headless: true });
+  const createContext = browser.newContext.bind(browser);
+  t.mock.method(browser, "newContext", async (options) => {
+    const context = await createContext(options);
+    await context.addInitScript(() => {
+      Object.defineProperty(window, "sessionStorage", { get() { throw new Error("fixture storage access denied"); } });
+    });
+    return context;
+  });
+  try {
+    await withFixture({ ambiguous: false }, async ({ url }) => {
+      const packet = await runPostAcceptObserver({ browser, actionSearchTimeoutMs: 500, confirmationTimeoutMs: 500,
+        interactionAuthorization: { authorizationId: "loopback_local_lab", kind: "loopback" },
+        observationWindowMs: 500, recipe: CERTSCORE_OWNED_ANALYTICS_ACCEPT_RECIPE, scanId: "accept-storage-denied", url });
+      assert.equal(packet.acceptanceRegistration.status, "confirmed");
+      for (const phase of ["preAction", "postAction"] as const) {
+        assert.equal(packet.storage.collectionDiagnostics?.[phase]?.sessionStorage.status, "failed");
+        assert.equal(packet.storage.collectionDiagnostics?.[phase]?.sessionStorage.retainedCount, 0);
+      }
+    });
+  } finally { await browser.close(); }
+});

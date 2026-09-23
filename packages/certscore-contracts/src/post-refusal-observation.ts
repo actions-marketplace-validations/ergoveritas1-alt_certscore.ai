@@ -1,6 +1,7 @@
 import { terminalConsentDecisionSchema, validateTerminalConsentDecision } from "./terminal-consent-decision";
 import { assessChoicePathExecution, choicePathExecutionSchema, registeredObservationCompletionSchema, retainRegisteredObservationCompletion, validateChoicePathExecution } from "./choice-path-execution";
 import { z } from "zod";
+import { actionStoragePhaseDiagnosticsSchema } from "./action-storage-collection-diagnostics";
 import { actionStorageNameSchema, validateActionStorageName, validateLegacyActionStorageNames } from "./action-storage-name";
 import { afterActionCaptureSchema, validateAfterActionCapture, validateAfterActionProjection } from "./after-action-capture";
 import { CONSENT_ACTION_POST_CLICK_REQUEST_LIMIT, actionCaptureCoverageSchema, consentDecisionEvidenceSchema, hasSemanticConsentWitness } from "./consent-action-evidence-policy";
@@ -479,6 +480,7 @@ const postRefusalEvidencePacketBaseSchema = z.object({
     activeRequestIdsAtRefusalRegistration: z.array(z.string().max(120)).max(48),
   }),
   storage: z.object({
+    collectionDiagnostics: actionStoragePhaseDiagnosticsSchema.optional(),
     preActionCapturedAtMs: z.number().int().nonnegative().optional(),
     postActionCapturedAtMs: z.number().int().nonnegative().optional(),
     preAction: z.array(postRefusalStorageItemSchema).max(96),
@@ -1117,6 +1119,7 @@ const postRefusalReportPersistedStorageRowSchema = z.object({
 }).superRefine(validateActionStorageName);
 
 export const postRefusalReportProjectionSchema = z.object({
+  storageCollectionDiagnostics: actionStoragePhaseDiagnosticsSchema.optional(),
   execution: choicePathExecutionSchema.optional(),
   registeredObservationCompletion: registeredObservationCompletionSchema.optional(),
   afterActionCapture: afterActionCaptureSchema.optional(),
@@ -1282,6 +1285,7 @@ export function projectPostRefusalEvidenceForReport(input: {
       afterActionRequests: packet.network.requests.filter((row) => packet.afterActionCapture!.requestIds.includes(row.requestId)),
       afterActionStorage: packet.afterActionCapture.storageSnapshotRetained ? packet.storage.postAction : [],
     } : {}),
+    ...(packet.storage.collectionDiagnostics ? { storageCollectionDiagnostics: packet.storage.collectionDiagnostics } : {}),
     ...(packet.terminalDecisionEvidence ? { terminalDecisionEvidence: packet.terminalDecisionEvidence } : {}),
     ...(packet.decisionEvidence ? { decisionEvidence: packet.decisionEvidence } : {}),
     ...(packet.captureCoverage ? { captureCoverage: packet.captureCoverage } : {}),

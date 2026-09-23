@@ -1,3 +1,4 @@
+import { choicePathExecutionSchema } from "@certscore/contracts";
 import { isAfterActionReportEligible } from "./after-action-report-eligibility";
 
 import type { GdprEprivacyCoverageChecklistItem } from "./gdpr-eprivacy-coverage-checklist";
@@ -23,6 +24,7 @@ export function isReportableGdprEprivacyCoverageRowId(id: string) {
 
 type GdprEprivacyReportabilityContext = {
   consentControlAssessment?: unknown;
+  postRefusalEvidenceProjection?: unknown;
 };
 
 function isIrrelevantPostRejectAssessment(
@@ -31,6 +33,11 @@ function isIrrelevantPostRejectAssessment(
 ) {
   if (item.id !== "post_reject_tracking_reduction") return false;
   const retained = item.criticalEvidence.retainedEvidence;
+  // This execution is retained by canonical checklist construction; it cannot
+  // manufacture a finding or relabel the passive control inventory.
+  const execution = choicePathExecutionSchema.safeParse(retained.execution);
+  if (execution.success && execution.data.clickCompleted) return false;
+  if (isAfterActionReportEligible(undefined, "reject", context?.postRefusalEvidenceProjection)) return false;
   return retained.reportPresentation === "omit_no_actionable_reject_control" ||
     (context?.consentControlAssessment !== undefined
       ? !isAfterActionReportEligible(context.consentControlAssessment, "reject")

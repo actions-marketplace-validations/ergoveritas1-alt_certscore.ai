@@ -213,6 +213,8 @@ export type ConsentControlAssessmentChannel = z.infer<typeof assessmentChannelSc
 
 export type ConsentControlAssessmentGeometry = {
   controlInspection?: ConsentControlInspection;
+  /** Retained typed inspection was present but could not be verified. */
+  inspectionInvalid?: boolean;
   artifactVersion?: string | null;
   assessmentStatus?: "complete" | "incomplete" | "document_mismatch" | null;
   documentId?: string | null;
@@ -264,7 +266,7 @@ export type ConsentControlAssessmentInput = {
   };
 };
 
-const PROJECTOR_VERSION = "2.2.0";
+const PROJECTOR_VERSION = "2.2.1";
 const DEFAULT_REQUIRED_CHANNELS: ConsentControlAssessmentChannel[] = ["dom_inventory", "geometry"];
 
 function unique<T>(values: T[]) {
@@ -436,6 +438,17 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
         : "matched");
   const noGo = input.scan.noGo === true;
   const geometryMismatch = input.geometry?.assessmentStatus === "document_mismatch";
+  const parsedInspection = consentControlInspectionSchema.safeParse(input.geometry?.controlInspection);
+  const inspection = parsedInspection.success ? parsedInspection.data : null;
+  const inspectionDocumentBound = Boolean(canonicalDocumentToken && input.geometry?.documentToken === canonicalDocumentToken &&
+    canonicalId && input.geometry?.documentId === canonicalId);
+  // A supplemental capture cannot resolve a newer incomplete inventory. Empty
+  // surfaces still need the established completed whole-inspection path; early
+  // geometry before a CMP appears must not create a new absence shortcut.
+  const inspectionCurrent = typeof input.geometry?.observedAtMs === "number" && Number.isFinite(input.geometry.observedAtMs) &&
+    input.geometry.observedAtMs >= Math.max(0, ...observations.map(o => o.observedAtMs));
+  const structuredAbsenceBlocked = inspectionCurrent && inspectionDocumentBound &&
+    (input.geometry?.inspectionInvalid === true || inspection?.structuralCoverage === "limited");
   const incompleteInventoryOutcomes = unique(observations
     .map((observation) => observation.inventoryOutcome)
     .filter((outcome): outcome is NonNullable<ConsentControlAssessmentObservation["inventoryOutcome"]> =>
@@ -569,7 +582,7 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
   // Explicit coordinator coverage is authoritative. Directly observed
   // controls remain observed under limited coverage, but an incomplete
   // inventory cannot be upgraded into factual negative control states.
-  const effectiveCoverageStatus = consentEvidenceCoverageComplete ? "complete" : coverageStatus;
+  const effectiveCoverageStatus = structuredAbsenceBlocked ? "limited" : consentEvidenceCoverageComplete ? "complete" : coverageStatus;
   const effectiveCompletedChannels = unique([
     ...completedChannels,
     ...(firstLayerObservationRetained ? ["dom_inventory" as const] : []),
@@ -578,7 +591,7 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
   const effectiveIncompleteChannels = completeConsentInventory
     ? []
     : incompleteChannels.filter((channel) => requiredChannels.includes(channel));
-  const completeInventory = completeConsentInventory || (
+  const completeInventory = !structuredAbsenceBlocked && (completeConsentInventory || (
     !typedInventoryOutcomeIncomplete &&
     coverageStatus === "complete" &&
     requiredChannels.every((channel) => effectiveCompletedChannels.includes(channel)) &&
@@ -589,7 +602,7 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
       input.surface?.status === "not_observed" ||
       firstLayerObservationRetained
     )
-  );
+  ));
   const assessmentBlocked = noGo || documentStatus !== "matched";
   const surfaceStatus = assessmentBlocked
     ? "unknown"
@@ -597,9 +610,10 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
       ? "observed_actionable"
       : surfaceObserved
         ? "observed_non_actionable"
-        : input.surface?.status === "not_observed" || effectiveCoverageStatus === "complete"
+        : (!structuredAbsenceBlocked && input.surface?.status === "not_observed") || effectiveCoverageStatus === "complete"
           ? "not_observed"
           : "unknown";
+  if (structuredAbsenceBlocked) limitations.push({ code: "structured_inspection_incomplete", detail: "The current retained control inspection did not verify complete structural coverage; a generic complete inventory cannot establish absence.", affectedFields: ["surface", "accept", "reject", "options", "privacy_opt_out"] });
   if (!surfaceObserved && effectiveCoverageStatus !== "complete") limitations.push({ code: "surface_inspection_incomplete", detail: "No complete pre-interaction surface inspection was retained.", affectedFields: ["surface", "accept", "reject", "options"] });
 
   const contradictionRows: ConsentControlAssessment["contradictions"] = [];
@@ -614,20 +628,12 @@ export function deriveConsentControlAssessment(input: ConsentControlAssessmentIn
   if (geometryMismatch) {
     contradictionRows.push({ reasonCode: "geometry_document_mismatch_does_not_erase_bundle_evidence", earlierEvidenceId: bundleEvidence[0]?.evidenceId ?? null, laterEvidenceId: null, affectedFields: ["surface", "accept", "reject", "options"] });
   }
-  const parsedInspection = consentControlInspectionSchema.safeParse(input.geometry?.controlInspection);
-  const inspection = parsedInspection.success ? parsedInspection.data : null;
-  const inspectionDocumentBound = Boolean(canonicalDocumentToken && input.geometry?.documentToken === canonicalDocumentToken &&
-    canonicalId && input.geometry?.documentId === canonicalId);
-  // A supplemental capture cannot resolve a newer incomplete inventory. Empty
-  // surfaces still need the established completed whole-inspection path; early
-  // geometry before a CMP appears must not create a new absence shortcut.
-  const inspectionCurrent = typeof input.geometry?.observedAtMs === "number" && Number.isFinite(input.geometry.observedAtMs) &&
-    input.geometry.observedAtMs >= Math.max(0, ...observations.map(o => o.observedAtMs));
   const independentlyComplete = (intent: "accept" | "reject" | "options" | "privacy_opt_out") =>
     !assessmentBlocked && !geometryMismatch && geometryComplete && inspectionDocumentBound &&
     inspectionCurrent && Boolean(inspection && inspection.candidates.length > 0 && isControlInspectionComplete(inspection, intent));
   const resultWithInspection = (intent: "accept" | "reject" | "options" | "privacy_opt_out") => {
-    const inspected = completeInventory || independentlyComplete(intent);
+    const currentControlComplete = !inspection || !inspectionCurrent || !inspectionDocumentBound || isControlInspectionComplete(inspection, intent);
+    const inspected = (completeInventory && currentControlComplete) || independentlyComplete(intent);
     const result = resultFor(intent, evidence, inspected, reasons);
     result.inspection = {
       policy: inspection?.version ?? CONTROL_INSPECTION_POLICY, status: inspected ? "complete" : "limited",

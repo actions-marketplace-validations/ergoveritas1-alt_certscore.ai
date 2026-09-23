@@ -1,0 +1,56 @@
+{
+  "entries": {
+    "https://certscore.ai/calibration/consent-controls/basic": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T20:41:23.840Z",
+      "lastContactAt": "2026-09-22T20:41:23.840Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://certscore.ai/calibration/consent-controls/basic"
+    },
+    "https://certscore.ai/calibration/consent-controls/delayed": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T20:41:23.840Z",
+      "lastContactAt": "2026-09-22T20:41:23.840Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://certscore.ai/calibration/consent-controls/delayed"
+    },
+    "https://certscore.ai/calibration/consent-controls/shadow-dom": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T20:41:23.840Z",
+      "lastContactAt": "2026-09-22T20:41:23.840Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://certscore.ai/calibration/consent-controls/shadow-dom"
+    },
+    "https://certscore.ai/calibration/consent-controls/localized-de": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T20:41:23.840Z",
+      "lastContactAt": "2026-09-22T20:41:23.840Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://certscore.ai/calibration/consent-controls/localized-de"
+    },
+    "https://certscore.ai/calibration/consent-controls/partial": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T20:41:23.840Z",
+      "lastContactAt": "2026-09-22T20:41:23.840Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://certscore.ai/calibration/consent-controls/partial"
+    }
+  },
+  "ledgerVersion": "certscore.scan_quality_calibration_ledger.1",
+  "updatedAt": "2026-09-22T20:42:26.334Z"
+}

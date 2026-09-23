@@ -8,6 +8,7 @@ import {
   postRefusalLambdaEvidenceDescriptorSchema,
   projectPostRefusalEvidenceForReport,
 } from "./post-refusal-observation.js";
+import { actionStorageCollectionDiagnosticsSchema } from "./action-storage-collection-diagnostics.js";
 
 function basePacket() {
   return {
@@ -123,6 +124,31 @@ function confirmedPacket() {
     },
   };
 }
+
+test("Reject packet and report projection preserve bounded collection diagnostics", () => {
+  const diagnostics = { policyVersion: "action_storage_collection_diagnostics.v1" as const,
+    cookies: { status: "empty" as const, retainedCount: 0, droppedCount: 0, sampleLimit: 96 },
+    localStorage: { status: "partial" as const, retainedCount: 4, droppedCount: 1, sampleLimit: 96 },
+    sessionStorage: { status: "complete" as const, retainedCount: 2, droppedCount: 0, sampleLimit: 96 } };
+  const base = basePacket();
+  const packet = postRefusalEvidencePacketSchema.parse({ ...base, storage: {
+    ...base.storage, collectionDiagnostics: { preAction: diagnostics, postAction: diagnostics },
+  } });
+  const projection = projectPostRefusalEvidenceForReport({ packet, packetSha256: "c".repeat(64) });
+  assert.deepEqual(projection.storageCollectionDiagnostics, packet.storage.collectionDiagnostics);
+});
+
+test("storage collection diagnostics enforce status consistency and bounded counts", () => {
+  const largeSample = { policyVersion: "action_storage_collection_diagnostics.v1" as const,
+    cookies: { status: "sampled" as const, retainedCount: 96, droppedCount: 100_000, sampleLimit: 96 },
+    localStorage: { status: "empty" as const, retainedCount: 0, droppedCount: 0, sampleLimit: 96 },
+    sessionStorage: { status: "failed" as const, retainedCount: 0, droppedCount: 0, sampleLimit: 96 } };
+  assert.equal(actionStorageCollectionDiagnosticsSchema.safeParse(largeSample).success, true);
+  assert.equal(actionStorageCollectionDiagnosticsSchema.safeParse({ ...largeSample,
+    localStorage: { ...largeSample.localStorage, droppedCount: 1 } }).success, false);
+  assert.equal(actionStorageCollectionDiagnosticsSchema.safeParse({ ...largeSample,
+    cookies: { ...largeSample.cookies, droppedCount: 100_001 } }).success, false);
+});
 
 test("legacy confirmed Reject evidence without verified control proof projects as indeterminate", () => {
   const { actionControlProof: _omitted, ...legacyPacket } = confirmedPacket();

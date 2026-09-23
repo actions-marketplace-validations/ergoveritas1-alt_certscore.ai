@@ -242,6 +242,7 @@ export function replayAroCaptureRegression(
       continue;
     }
     try {
+      const historicalBefore = JSON.stringify(item.storedAssessment);
       for (const field of CONTROL_FIELDS) increment(report.distributions!.stored[field], item.storedAssessment.controls[field].state);
       const startedAt = performance.now();
       const replayed = materializer(item.assessmentInput ?? item.retainedInput!);
@@ -265,11 +266,10 @@ export function replayAroCaptureRegression(
         replayReasonCodes: replayReasons,
         assessmentStatus: parsed.data.assessmentStatus,
       });
-      if (parsed.data.artifactVersion !== item.storedAssessment.artifactVersion) {
-        report.compatibilityFailures.push({
-          scanId: item.scanId,
-          message: `Artifact version changed: stored ${item.storedAssessment.artifactVersion}, replayed ${parsed.data.artifactVersion}`,
-        });
+      // Fresh materialization uses the current contract. Historical read
+      // compatibility must preserve the original summary, including its version.
+      if (JSON.stringify(item.storedAssessment) !== historicalBefore) {
+        report.compatibilityFailures.push({ scanId: item.scanId, message: "Historical assessment was mutated during replay." });
       }
       if (parsed.data.assessmentStatus !== item.storedAssessment.assessmentStatus) {
         report.assessmentStatusChanges.push({

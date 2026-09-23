@@ -46,7 +46,7 @@ Use these canonical discovery resources:
 
 These resources are intended for OpenAI/ChatGPT, Anthropic/Claude, Perplexity, Google/Gemini, Microsoft Copilot/Bing, DeepSeek, Kimi, Qwen, Grok/xAI, Mistral, Meta, and future agents. They are vendor-neutral and should not be treated as limited to one AI platform.
 
-The canonical MCP Light registry identity is `ai.certscore/mcp-light`, the current hosted MCP version is `0.2.21`, and the publisher and legal owner is CertScore.ai, LLC.
+The canonical MCP Light registry identity is `ai.certscore/mcp-light`, the current hosted MCP version is `0.2.22`, and the publisher and legal owner is CertScore.ai, LLC.
 
 ## Agent quick path
 
@@ -237,7 +237,7 @@ Agents and SDKs should honor `Retry-After` on pending or throttled responses. Th
 
 ## TypeScript SDK
 
-Status: published. Install `@certscore/sdk@0.2.11` or newer for typed GPC, Accept Path, and Reject Path results on Pulse and API v2 scan resources, plus API v2 scan creation in EU-Germany, EU-Ireland, and California.
+Status: published. Install `@certscore/sdk@0.2.12` or newer for typed GPC, Accept Path, and Reject Path results on Pulse and API v2 scan resources, plus API v2 scan creation in EU-Germany, EU-Ireland, and California.
 
 Choice-path interpretation:
 
@@ -449,3 +449,5 @@ GPC v3: read gpcResponse.observation.status for bounded capture and gpcResponse.
 - How to read a consent report: a retained example: https://certscore.ai/guides/consent-report-example
 - Editorial policy: https://certscore.ai/editorial-policy
 - CCPA evidence review: https://certscore.ai/ccpa
+
+SDK 0.2.12 exports isSuccessfulChoicePath: count succeeded and succeeded_with_confirmation together. Consent confirmation remains separate. Historical missing execution is unavailable, not a failed path.

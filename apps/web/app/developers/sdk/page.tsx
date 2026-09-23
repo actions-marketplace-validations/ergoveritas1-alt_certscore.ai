@@ -73,7 +73,9 @@ const scanId = completed.scanId;
 console.log(
   completed.gpcResponse?.observation?.status, // capture completion
   completed.gpcResponse?.status, // paired response
+  completed.postAcceptObservation?.execution, // path completion, separate from confirmation
   completed.postAcceptObservation?.afterAction,
+  completed.postRefusalObservation?.execution,
   completed.postRefusalObservation?.afterAction,
   completed.postAcceptObservation?.verdict,
   completed.postRefusalObservation?.verdict
@@ -86,6 +88,14 @@ const latest = await certscore.domains.latest("ergoveritas.com");
 const latestPreConsentTable = await certscore.domains.latestPreConsentCookiesTrackers("ergoveritas.com");
 
 console.log(status.status, findings.findings.length, preConsentTable.summary.rowCount, latest.scan?.scanId, latestPreConsentTable.summary.rowCount);`}</CodeBlock>
+        </Section>
+
+        <Section eyebrow="Path outcomes" title="Count completed Accept and Reject paths">
+          <p className="max-w-3xl text-sm leading-7 text-slate-600">
+            Count both <code>succeeded</code> and <code>succeeded_with_confirmation</code> from <code>execution.status</code>.
+            A completed click and bounded observation establish success; confirmation is a separate subset.
+            Registered paths may omit <code>afterAction</code>. Missing historical <code>execution</code> means unavailable.
+          </p>
         </Section>
 
         <Section eyebrow="Timing" title="Read scan runtime fields">

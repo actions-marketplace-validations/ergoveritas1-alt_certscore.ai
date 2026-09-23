@@ -1,3 +1,4 @@
+import { readConsentActionLabelFields } from "./consent-action-label-fields.js";
 import { terminalConsentDecisionRead } from "./terminal-consent-decision.js";
 import { inspectCustomAcceptControl, isCustomAcceptControlCandidate, sameCustomAcceptControlBinding } from "./custom-accept-control.js";
 import { prioritizeConsentActionRecipes, consentActionBindingDeadline, liveConsentActionCmp } from "./consent-action-recipe-priority.js";
@@ -80,7 +81,7 @@ import {
   installConsentActionDiscovery,
   type ConsentActionDiscovery,
 } from "./consent-action-discovery.js";
-import { normalizeActionStorageSnapshot } from "./action-storage-snapshot.js";
+import { actionStorageCollectionDiagnostics, normalizeActionStorageSnapshot, type ActionStorageCollectionDiagnostics } from "./action-storage-snapshot.js";
 
 type ResolverSnapshot = Omit<NonNullable<PostRefusalInteractionDiagnostics["resolver"]>["snapshots"][number], "attempt" | "elapsedMs">;
 type ResolverReporter = (snapshot: ResolverSnapshot) => void;
@@ -375,6 +376,7 @@ export async function runPostAcceptObserver(
   let page: Page | undefined;
   let graphCapture: Awaited<ReturnType<typeof installRuntimeGraphCapture>> | undefined;
   let actionDiscovery: ConsentActionDiscovery | undefined;
+  const storageCollectionDiagnostics: { preAction?: ActionStorageCollectionDiagnostics; postAction?: ActionStorageCollectionDiagnostics } = {};
 
   const cancellation = () => {
     if (!effectiveSignal?.aborted) return false;
@@ -463,6 +465,7 @@ export async function runPostAcceptObserver(
         activeRequestIdsAtAcceptanceRegistration,
       },
       storage: {
+        collectionDiagnostics: storageCollectionDiagnostics,
         ...(fields.preActionCapturedAtMs !== undefined
           ? { preActionCapturedAtMs: fields.preActionCapturedAtMs }
           : {}),
@@ -733,7 +736,7 @@ export async function runPostAcceptObserver(
     selectedRecipe = resolution.recipe;
     let control = resolution.control;
     let confirmationScope = resolution.scope;
-    const preActionStorage = await captureStorage(context, page, observationTargetUrl, limitations);
+    const preActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, undefined, (d) => { storageCollectionDiagnostics.preAction = d; });
     const preActionCapturedAtMs = elapsed(parentScanStartedAtMs);
     if (cancellation()) {
       return await finalize({
@@ -1021,7 +1024,7 @@ export async function runPostAcceptObserver(
       cancellation();
       let postActionStorage: PostRefusalStorageItem[] | undefined;
       if (!effectiveSignal?.aborted && targetStillAuthorized()) {
-        postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations).catch(() => undefined);
+        postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, undefined, (d) => { storageCollectionDiagnostics.postAction = d; }).catch(() => undefined);
       }
       const capturedWrites = !effectiveSignal?.aborted && targetStillAuthorized()
         ? await readStorageWrites(page).catch(() => []) : [];
@@ -1129,7 +1132,7 @@ export async function runPostAcceptObserver(
     } else if (observationResult.reason !== "window_elapsed") {
       limitations.push(`observation_early_exit:${observationResult.reason}`);
     }
-    const postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, graphCapture?.cookies);
+    const postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, graphCapture?.cookies, (d) => { storageCollectionDiagnostics.postAction = d; });
     void graphCapture?.snapshotStorage();
     const postActionCapturedAtMs = elapsed(parentScanStartedAtMs);
     const requests = classifyRequests(
@@ -1718,18 +1721,8 @@ async function normalizedAcceptLocatorLabels(locator: Locator) {
   const handle = await locator.elementHandle({ timeout: 100 }).catch(() => undefined);
   if (!handle) return [];
   try {
-    const labels = await handle.evaluate((element) => {
-      const htmlElement = element as HTMLElement;
-      return [
-        element.getAttribute("aria-label"),
-        "value" in htmlElement && typeof (htmlElement as HTMLInputElement).value === "string"
-          ? (htmlElement as HTMLInputElement).value
-          : undefined,
-        htmlElement.innerText,
-        element.textContent,
-        element.getAttribute("title"),
-      ].filter((value): value is string => Boolean(value?.trim()));
-    }).catch(() => [] as string[]);
+    const fields = await handle.evaluate(readConsentActionLabelFields).catch(() => ({}));
+    const labels = Object.values(fields).filter((value): value is string => Boolean(value?.trim()));
     return [...new Set(labels.map(normalizeAcceptControlLabel).filter(Boolean))];
   } finally {
     await handle.dispose().catch(() => undefined);
@@ -2374,22 +2367,27 @@ async function captureStorage(
   targetUrl: string,
   limitations: string[],
   onCookies?: (cookies: unknown[]) => void,
+  onDiagnostics?: (diagnostics: ActionStorageCollectionDiagnostics) => void,
 ): Promise<PostRefusalStorageItem[]> {
+  let pageStorageAvailable = true;
   const pageStorage = await page.evaluate(() => {
     let localStorage: Array<[string, string]> = [];
     let sessionStorage: Array<[string, string]> = [];
-    try { localStorage = Object.entries(window.localStorage).slice(0, 384); } catch {}
-    try { sessionStorage = Object.entries(window.sessionStorage).slice(0, 384); } catch {}
-    return { localStorage, sessionStorage };
-  }).catch(() => ({
-    localStorage: [] as Array<[string, string]>,
-    sessionStorage: [] as Array<[string, string]>,
-  }));
+    let localStorageAvailable = true; let sessionStorageAvailable = true;
+    try { localStorage = Object.entries(window.localStorage).slice(0, 385); } catch { localStorageAvailable = false; }
+    try { sessionStorage = Object.entries(window.sessionStorage).slice(0, 385); } catch { sessionStorageAvailable = false; }
+    return { localStorage, sessionStorage, localStorageAvailable, sessionStorageAvailable };
+  }).catch(() => {
+    pageStorageAvailable = false;
+    return { localStorage: [] as Array<[string, string]>, sessionStorage: [] as Array<[string, string]>, localStorageAvailable: false, sessionStorageAvailable: false };
+  });
   let snapshotUrl = new URL(targetUrl);
   try { snapshotUrl = new URL(page.url()); } catch {}
   const hostname = snapshotUrl.hostname;
   const origin = snapshotUrl.origin;
+  let cookiesAvailable = true;
   const rawCookies = await context.cookies().catch(() => {
+    cookiesAvailable = false;
     limitations.push("cookie_snapshot_unavailable");
     return [];
   });
@@ -2415,7 +2413,7 @@ async function captureStorage(
       }),
     }));
   }
-  for (const [name, value] of normalized.localStorage) {
+  for (const [name, value] of normalized.localStorage.slice(0, 384)) {
     items.push(classifyStorageItem({
       storageType: "local_storage",
       name,
@@ -2425,7 +2423,7 @@ async function captureStorage(
       identityHash: postRefusalStorageIdentityHash({ storageType: "local_storage", name, origin }),
     }));
   }
-  for (const [name, value] of normalized.sessionStorage) {
+  for (const [name, value] of normalized.sessionStorage.slice(0, 384)) {
     items.push(classifyStorageItem({
       storageType: "session_storage",
       name,
@@ -2435,9 +2433,22 @@ async function captureStorage(
       identityHash: postRefusalStorageIdentityHash({ storageType: "session_storage", name, origin }),
     }));
   }
-  return items.sort((left, right) =>
+  const retainedItems = items.sort((left, right) =>
     Number(right.nonEssential) - Number(left.nonEssential) || storageKey(left).localeCompare(storageKey(right))
   ).slice(0, MAX_STORAGE_ITEMS);
+  const retainedCount = (type: PostRefusalStorageItem["storageType"]) => retainedItems.filter((item) => item.storageType === type).length;
+  const channel = (count: number, dropped: number, available: boolean) => ({
+    count: Math.min(count, 384), dropped, available, limit: MAX_STORAGE_ITEMS,
+    retainedCount: 0,
+    ...(count > 384 ? { sampled: true, sampledDroppedCount: 1 } : {}),
+  });
+  const diagnostics = actionStorageCollectionDiagnostics({
+    cookies: { ...channel(normalized.cookies.length, normalized.droppedCookies, cookiesAvailable), retainedCount: retainedCount("cookie") },
+    localStorage: { ...channel(normalized.localStorage.length, normalized.droppedLocalStorage, pageStorageAvailable && pageStorage.localStorageAvailable), retainedCount: retainedCount("local_storage") },
+    sessionStorage: { ...channel(normalized.sessionStorage.length, normalized.droppedSessionStorage, pageStorageAvailable && pageStorage.sessionStorageAvailable), retainedCount: retainedCount("session_storage") },
+  });
+  onDiagnostics?.(diagnostics);
+  return retainedItems;
 }
 
 function classifyStorageItem(input: {

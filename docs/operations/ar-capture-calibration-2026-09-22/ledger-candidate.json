@@ -1,0 +1,71 @@
+{
+  "entries": {
+    "https://ulakbim.gov.tr/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T19:58:19.114Z",
+      "lastContactAt": "2026-09-22T19:58:19.114Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://ulakbim.gov.tr/"
+    },
+    "https://mpsv.cz/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T19:33:09.817Z",
+      "lastContactAt": "2026-09-22T19:33:09.817Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://mpsv.cz/"
+    },
+    "https://etersoft.ru/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T19:35:55.068Z",
+      "lastContactAt": "2026-09-22T19:35:55.068Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://etersoft.ru/"
+    },
+    "https://postnord.com/": {
+      "consecutiveNoGoCount": 1,
+      "cooldownUntil": "2026-10-20T19:36:33.933Z",
+      "lastContactAt": "2026-09-22T19:36:33.933Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [
+        "potential_security_challenge",
+        "scan_no_go_corroborated",
+        "consent_proof:bot_challenge:301",
+        "runtime_evidence:bot_challenge:301"
+      ],
+      "lastOutcome": "no_go",
+      "state": "blocked",
+      "url": "https://postnord.com/"
+    },
+    "https://zhaw.ch/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T19:57:18.613Z",
+      "lastContactAt": "2026-09-22T19:57:18.613Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://zhaw.ch/"
+    },
+    "https://qualys.eu/": {
+      "consecutiveNoGoCount": 0,
+      "cooldownUntil": "2026-10-20T19:59:17.705Z",
+      "lastContactAt": "2026-09-22T19:59:17.705Z",
+      "lastContactSource": "calibration",
+      "lastNoGoReasons": [],
+      "lastOutcome": "completed",
+      "state": "cooldown",
+      "url": "https://qualys.eu/"
+    }
+  },
+  "ledgerVersion": "certscore.scan_quality_calibration_ledger.1",
+  "updatedAt": "2026-09-22T19:59:53.742Z"
+}

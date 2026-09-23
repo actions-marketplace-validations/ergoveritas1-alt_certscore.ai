@@ -28,7 +28,8 @@ test("late proof rejects a stale hidden control without dispatching it", async (
       recipeId: recipe.recipeId, selectorHint: recipe.selectorHint,
     });
     clicks = await page.evaluate(() => (window as unknown as { __clicks: number }).__clicks);
-    assert.deepEqual(result, { status: "label_unverifiable", reason: "resolved_control_no_longer_actionable" });
+    // The existing scope guard rejects hidden ancestry before hit-target proof.
+    assert.deepEqual(result, { status: "label_unverifiable", reason: "resolved_control_scope_not_interactive" });
     assert.equal(clicks, 0);
   } finally {
     await browser.close();
@@ -66,12 +67,17 @@ test("changed labels remain non-actionable and malformed storage remains limited
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
-    await page.setContent('<button id="consent-action">Manage preferences</button>');
+    await page.setContent('<button id="consent-action" onclick="window.__clicks++">Accept all</button>');
+    const selected = page.locator(recipe.selectorHint);
+    assert.equal(await selected.innerText(), "Accept all");
+    await page.evaluate(() => { (window as unknown as { __clicks: number }).__clicks = 0; });
+    await selected.evaluate(element => { element.textContent = "Manage preferences"; });
     const result = await buildConsentActionControlProof({
-      action: "accept", control: page.locator(recipe.selectorHint), observedAtMs: 1,
+      action: "accept", control: selected, observedAtMs: 1,
       page, recipeId: recipe.recipeId, selectorHint: recipe.selectorHint,
     });
     assert.equal(result.status, "label_mismatch");
+    assert.equal(await page.evaluate(() => (window as unknown as { __clicks: number }).__clicks), 0);
 
     const snapshot = normalizeActionStorageSnapshot({
       cookies: [{ name: "", value: "", domain: "example.test", path: "/" }, null],

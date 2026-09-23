@@ -1,3 +1,4 @@
+import { readConsentActionLabelFields } from "./consent-action-label-fields.js";
 import { terminalConsentDecisionRead } from "./terminal-consent-decision.js";
 import { prioritizeConsentActionRecipes, consentActionBindingDeadline, liveConsentActionCmp } from "./consent-action-recipe-priority.js";
 import type { ActionTcfData } from "./consent-action-tcf-state.js";
@@ -78,7 +79,7 @@ import {
   installConsentActionDiscovery,
   type ConsentActionDiscovery,
 } from "./consent-action-discovery.js";
-import { normalizeActionStorageSnapshot } from "./action-storage-snapshot.js";
+import { actionStorageCollectionDiagnostics, normalizeActionStorageSnapshot, type ActionStorageCollectionDiagnostics } from "./action-storage-snapshot.js";
 
 const POST_REFUSAL_SOURCE = "post_refusal_observer";
 const DEFAULT_OBSERVATION_WINDOW_MS = 8_000;
@@ -407,6 +408,7 @@ export async function runPostRefusalObserver(
   let decisionEvidence: PostRefusalEvidencePacket["decisionEvidence"] = {
     policyVersion: "semantic_consent_registration.v2", decision: "unknown", basis: "unverified",
   };
+  const storageCollectionDiagnostics: { preAction?: ActionStorageCollectionDiagnostics; postAction?: ActionStorageCollectionDiagnostics } = {};
   const captureCoverage = { requestsDroppedBeforeAction: 0, requestsDroppedAfterAction: 0 };
   const interactionDiagnostics: PostRefusalInteractionDiagnostics = {
     resolver: {
@@ -504,6 +506,7 @@ export async function runPostRefusalObserver(
         activeRequestIdsAtRefusalRegistration: activeRequestIdsAtRegistration,
       },
       storage: {
+        collectionDiagnostics: storageCollectionDiagnostics,
         ...(fields.preActionCapturedAtMs !== undefined
           ? { preActionCapturedAtMs: fields.preActionCapturedAtMs }
           : {}),
@@ -1000,7 +1003,7 @@ export async function runPostRefusalObserver(
     selectedRecipe = resolution.recipe;
     let control = resolution.control;
 
-    let preActionStorage = await captureStorage(context, page, observationTargetUrl, limitations);
+    let preActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, undefined, (d) => { storageCollectionDiagnostics.preAction = d; });
     let preActionCapturedAtEpochMs = Date.now();
     let preActionCapturedAtMs = elapsed(parentScanStartedAtMs, preActionCapturedAtEpochMs);
     if (cancellation()) {
@@ -1112,7 +1115,7 @@ export async function runPostRefusalObserver(
         },
         preActionCapturedAtMs,
         preActionStorage,
-        postActionStorage: await captureStorage(context, page, observationTargetUrl, limitations).catch(() => []),
+        postActionStorage: await captureStorage(context, page, observationTargetUrl, limitations, undefined, (d) => { storageCollectionDiagnostics.postAction = d; }).catch(() => []),
         requests: classifyRequests(retainedRequests(), parentScanStartedAtMs),
       });
     }
@@ -1145,6 +1148,8 @@ export async function runPostRefusalObserver(
         page,
         observationTargetUrl,
         limitations,
+        undefined,
+        (d) => { storageCollectionDiagnostics.preAction = d; },
       ).catch(() => undefined);
       if (refreshedPreActionStorage) {
         preActionStorage = refreshedPreActionStorage;
@@ -1235,6 +1240,8 @@ export async function runPostRefusalObserver(
             page,
             observationTargetUrl,
             limitations,
+            undefined,
+            (d) => { storageCollectionDiagnostics.preAction = d; },
           ).catch(() => undefined);
           if (!refreshedPreActionStorage) {
             throw new Error("pre_action_storage_baseline_refresh_unavailable");
@@ -1387,7 +1394,7 @@ export async function runPostRefusalObserver(
       limitations.push("refusal_registration_not_confirmed");
       let postActionStorage: PostRefusalStorageItem[] | undefined;
       if (!input.signal?.aborted && targetStillAuthorized()) {
-        postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations).catch(() => undefined);
+        postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, undefined, (d) => { storageCollectionDiagnostics.postAction = d; }).catch(() => undefined);
       }
       const capturedWrites = !input.signal?.aborted && targetStillAuthorized()
         ? await readStorageWrites(page).catch(() => []) : [];
@@ -1534,7 +1541,7 @@ export async function runPostRefusalObserver(
           elapsed(parentScanStartedAtMs, tcfDataObservedAtEpochMs),
         )
       : undefined;
-    const postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, graphCapture?.cookies);
+    const postActionStorage = await captureStorage(context, page, observationTargetUrl, limitations, graphCapture?.cookies, (d) => { storageCollectionDiagnostics.postAction = d; });
     void graphCapture?.snapshotStorage();
     const postActionStorageObservedAtEpochMs = Date.now();
     const postActionCapturedAtMs = elapsed(
@@ -1723,6 +1730,7 @@ async function captureStorage(
   targetUrl: string,
   limitations?: string[],
   onCookies?: (cookies: unknown[]) => void,
+  onDiagnostics?: (diagnostics: ActionStorageCollectionDiagnostics) => void,
 ): Promise<PostRefusalStorageItem[]> {
   const pageStorage = await page.evaluate(() => {
     let localStorage: Array<[string, string]> = [];
@@ -1763,7 +1771,9 @@ async function captureStorage(
   }
   const targetHostname = snapshotUrl.hostname;
   const targetOrigin = snapshotUrl.origin;
+  let cookiesAvailable = true;
   const rawCookies = await context.cookies().catch(() => {
+    cookiesAvailable = false;
     if (!limitations?.includes("cookie_snapshot_unavailable")) {
       limitations?.push("cookie_snapshot_unavailable");
     }
@@ -1820,12 +1830,24 @@ async function captureStorage(
       }),
     }));
   }
-  return items
+  const retainedItems = items
     .sort((left, right) =>
       Number(right.nonEssential) - Number(left.nonEssential) ||
       storageItemKey(left).localeCompare(storageItemKey(right))
     )
     .slice(0, MAX_STORAGE_ITEMS);
+  const retainedCount = (type: PostRefusalStorageItem["storageType"]) => retainedItems.filter((item) => item.storageType === type).length;
+  const channel = (count: number, dropped: number, available: boolean) => ({
+    count: Math.min(count, MAX_STORAGE_ITEMS * 4), dropped, available, limit: MAX_STORAGE_ITEMS,
+    retainedCount: 0,
+    ...(count > MAX_STORAGE_ITEMS * 4 ? { sampled: true, sampledDroppedCount: 1 } : {}),
+  });
+  onDiagnostics?.(actionStorageCollectionDiagnostics({
+    cookies: { ...channel(normalized.cookies.length, normalized.droppedCookies, cookiesAvailable), retainedCount: retainedCount("cookie") },
+    localStorage: { ...channel(normalized.localStorage.length, normalized.droppedLocalStorage, pageStorage.localStorageAvailable), retainedCount: retainedCount("local_storage") },
+    sessionStorage: { ...channel(normalized.sessionStorage.length, normalized.droppedSessionStorage, pageStorage.sessionStorageAvailable), retainedCount: retainedCount("session_storage") },
+  }));
+  return retainedItems;
 }
 
 function classifyStorageItem(input: {
@@ -2364,18 +2386,8 @@ async function normalizedLocatorLabels(locator: Locator) {
   const handle = await locator.elementHandle({ timeout: 100 }).catch(() => undefined);
   if (!handle) return [];
   try {
-    const labels = await handle.evaluate((element) => {
-      const htmlElement = element as HTMLElement;
-      return [
-        element.getAttribute("aria-label"),
-        "value" in htmlElement && typeof (htmlElement as HTMLInputElement).value === "string"
-          ? (htmlElement as HTMLInputElement).value
-          : undefined,
-        htmlElement.innerText,
-        element.textContent,
-        element.getAttribute("title"),
-      ].filter((value): value is string => Boolean(value?.trim()));
-    }).catch(() => [] as string[]);
+    const fields = await handle.evaluate(readConsentActionLabelFields).catch(() => ({}));
+    const labels = Object.values(fields).filter((value): value is string => Boolean(value?.trim()));
     return [...new Set(labels.map(normalizeControlLabel).filter(Boolean))];
   } finally {
     await handle.dispose().catch(() => undefined);

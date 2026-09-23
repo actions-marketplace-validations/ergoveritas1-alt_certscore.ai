@@ -56,6 +56,8 @@ import {
   detectConsentUi,
   LATE_CONSENT_GEOMETRY_SHADOW_BUDGET_MS,
   preConsentRuntimeScanner,
+  RUNTIME_PAGE_INVENTORY_UNAVAILABLE,
+  RUNTIME_PAGE_INVENTORY_LOADING,
   readRapidFirstLayerConsentUiObservation,
   readDeclaredDocumentLanguage,
   reconcileConsentUiRecapture,
@@ -1996,6 +1998,14 @@ export function deriveRuntimeCoverageSummary(input: {
     if (preConsentRun.errors.some((error) => /headed local fallback used/i.test(error))) {
       fallbackModesUsed.push("headed");
       notes.push("Headed local fallback was used after a headless runtime navigation failure.");
+    }
+    if (preConsentRun.errors.includes(RUNTIME_PAGE_INVENTORY_LOADING)) {
+      limitationKeys.push("runtime_page_inventory_document_loading");
+      notes.push("Runtime DOM inventory was captured before the document finished parsing; later scripts, frames and collection surfaces may be missing. Retained observations remain available; absence is not established.");
+    }
+    if (preConsentRun.errors.includes(RUNTIME_PAGE_INVENTORY_UNAVAILABLE)) {
+      limitationKeys.push("runtime_page_inventory_unavailable");
+      notes.push("Bounded runtime page inventory capture did not complete; absence of scripts, storage or collection surfaces is not established. Independently retained runtime observations remain available.");
     }
   }
 

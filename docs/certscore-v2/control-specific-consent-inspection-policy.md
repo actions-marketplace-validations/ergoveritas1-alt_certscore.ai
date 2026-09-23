@@ -41,3 +41,24 @@ After release, measure fresh ordinary scans using the canonical calibration cont
 No new browser lane, invocation, screenshot, retry, wait window, model call, object write, capacity change or retention extension. The existing geometry read performs bounded additional bookkeeping and category reads. Replaying the 26 retained inventories for size only gives mean **604 bytes** of geometry metadata (maximum 1,043), plus about **472 bytes** of inspection metadata per assessment. At 100,000 scans/month and 30-day retention, a model with two geometry copies and four assessment/projection copies adds approximately **0.309 GB** before rare category-state payloads.
 
 Expected incremental cost remains **below $0.10/month** at that volume, allowing for small category payloads and existing provisioned database capacity; this is an estimate, not measured billing. S3 charges depend on storage volume/class and request count ([AWS pricing](https://aws.amazon.com/s3/pricing/)); this change adds bytes to existing objects, without additional requests. No capacity increase is included. Any later approach reaching the repository's $1/month threshold needs separate approval.
+
+## September 22 observation vocabulary and conflicting inspection evidence
+
+`consent-control-label-registry.v6` adds exact, consent-context-bound observation
+phrases in Turkish, Romanian, Czech, Dutch, Russian, English, Spanish and German,
+including full necessary-only phrases. They remain observation-only. Opposing
+labels, transactional/informational controls, missing consent context, hidden or
+disabled elements and other canonical capture guards still apply. This registry
+update does not expand the action classifier or authorize additional clicks.
+
+Assessment projector 2.2.1 reconciles a generic complete inventory against the
+current same-document, loader-bound typed control inspection. A current limited or
+invalid structural inspection prevents that generic inventory from proving absence.
+Current unresolved per-control semantics also remain unknown. Direct positive
+observations remain usable; an older auxiliary failure must not veto a later bound
+complete primary inventory. Per-control completeness remains independent.
+
+This is a fresh-materialization correction within assessment contract 2.2. Stored
+2.0/2.1/2.2 assessments retain their original version, provenance and conclusions on
+read; no automatic backfill is performed. A diagnostic replay of retained evidence
+is not a new producer-bound observation and must not be persisted as one.

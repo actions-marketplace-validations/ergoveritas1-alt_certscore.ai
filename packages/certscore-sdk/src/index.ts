@@ -1,3 +1,4 @@
+export { isSuccessfulChoicePath } from "./choice-path-execution.js";
 export { CertScoreClient } from "./client.js";
 export type { RuntimeEvidenceGraphProjection, RuntimeEvidenceGraph, RuntimeEvidenceGraphNode, RuntimeEvidenceGraphEdge } from "./runtime-evidence-graph.js";
 export {
@@ -14,6 +15,7 @@ export {
 export type {
   ReportEvidencePage,
   AfterActionSummary,
+  ChoicePathExecution,
   AgentInterpretation,
   ApiV2RequestOptions,
   Capabilities,

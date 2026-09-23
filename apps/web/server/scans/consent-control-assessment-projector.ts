@@ -215,6 +215,7 @@ function geometryInput(
       : "complete";
   const verifiedInspection = verifyConsentControlInspection(raw.controlInspection, raw.candidates);
   return {
+    ...(raw.controlInspection !== undefined && !verifiedInspection ? { inspectionInvalid: true } : {}),
     ...(assessmentStatus === "complete" && tokenBoundToCanonicalDocument && verifiedInspection
       ? { controlInspection: verifiedInspection } : {}),
     artifactVersion: typeof raw.artifactVersion === "string" ? raw.artifactVersion : null,

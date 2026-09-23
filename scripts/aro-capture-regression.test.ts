@@ -16,7 +16,10 @@ const fixturePath = path.resolve(
 
 test("replays the reviewed non-Ergo A/R/O corpus through the canonical boundary", () => {
   const corpus = loadAroReplayCorpus(fixturePath);
+  const historical = JSON.stringify(corpus.cases.map(item => item.storedAssessment));
   const report = replayAroCaptureRegression(corpus);
+  assert.equal(JSON.stringify(corpus.cases.map(item => item.storedAssessment)), historical);
+  assert.ok(corpus.cases.every(item => item.storedAssessment.artifactVersion === "2.1"));
 
   assert.equal(report.inputCases, corpus.cases.length);
   assert.equal(report.replayedCases, corpus.cases.length);
