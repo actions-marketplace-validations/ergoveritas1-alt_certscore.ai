@@ -15,7 +15,9 @@ const scanId = completed.scanId;
 console.log(
   completed.gpcResponse?.observation?.status, // capture completion
   completed.gpcResponse?.status, // paired response
+  completed.postAcceptObservation?.execution, // path completion, separate from confirmation
   completed.postAcceptObservation?.afterAction,
+  completed.postRefusalObservation?.execution,
   completed.postRefusalObservation?.afterAction,
   completed.postAcceptObservation?.verdict,
   completed.postRefusalObservation?.verdict
