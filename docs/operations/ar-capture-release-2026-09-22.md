@@ -68,3 +68,31 @@ to unknown only in the new materialization policy; this does not rewrite storage
 The clean-validation report remains the historical record. This report records the
 subsequent correction and release decision. Operational verification is recorded
 with the final release artifacts, not inferred from local prototype results.
+
+## Final local release evidence
+
+- Six Chromium inventory fixtures passed, including exhausted reads, successful
+  recovery, a streamed still-loading document and a fully parsed document.
+- The isolated same-work benchmark retained identical script/network counts and
+  exactly one atomic read in each variant. Five parsed-page pairs had deltas
+  −34, −11, −8, +5 and +5ms (median −8ms, sample p95/max +5ms). The streaming
+  pair retained one script/request/inventory in both versions; only the current
+  version correctly marked coverage partial. This is not a public-site latency claim.
+- All five owned passive canaries matched expected A/R/O through independently
+  verified Ireland HTTP/browser egress (63.33.9.201). They are excluded from
+  customer statistics. Their five contacts were persisted and verified against
+  a fresh central export; both temporary access rules were independently absent.
+- SDK 29 tests, MCP 142 tests, hosted MCP 47 tests and focused web integration
+  checks passed. MCP A/R guidance is conditional so unrelated no-go responses
+  retain their existing bounded guidance and disclaimer.
+- Workspace typecheck passed. The first web build exhausted the local 8GB heap;
+  a fresh checkout of the committed source built successfully with the same 8GB
+  limit in 84 seconds. No production memory/build configuration was changed.
+- A pre-existing consent fixture incorrectly required exactly a 10s stable exit;
+  it also failed against deployed source. The test now requires the actual ≥2s
+  stability interval and existing 10s/12s checkpoint bounds. It passes in isolation;
+  scanner checkpoint behavior is unchanged.
+
+The remaining canonical release gates and deployment outcome are retained in the
+release artifacts and final deployment verification. No initial calibration
+baseline promotion is implied by this corrective release.

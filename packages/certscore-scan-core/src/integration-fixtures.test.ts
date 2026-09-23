@@ -2194,7 +2194,7 @@ test("pre-consent runtime scanner recaptures late settings controls from high-co
       "high-confidence CMP recapture should use the navigation-relative adaptive gate path",
     );
     assert.equal(
-      observation?.inventoryDiagnostics?.timingMarkers.includes("gate_10s:calibrated_stable_partial_exit"),
+      observation?.inventoryDiagnostics?.timingMarkers.some((marker) => /^gate_(10|12)s:calibrated_stable_partial_exit$/.test(marker)),
       true,
       `accept/settings-only evidence should use the calibrated partial exit: ${JSON.stringify({
         markers: observation?.inventoryDiagnostics?.timingMarkers,
@@ -2208,11 +2208,15 @@ test("pre-consent runtime scanner recaptures late settings controls from high-co
       true,
       "adaptive CMP recapture should stop before the hard cap when partial controls stop improving",
     );
-    assert.match(
-      gateCheckpoints?.detail ?? "",
-      /8s:progress:n\d+:@\d+.*10s:stable_exit:n\d+:@\d+/,
-      "checkpoint telemetry should retain the progress and stable states used by the probability-informed exit",
-    );
+    // The semantic read may finish after the nominal 8s checkpoint. A 10s
+    // checkpoint then has less than two seconds of stability and must wait for
+    // the existing 12s checkpoint; asserting a fixed 10s exit encourages an early exit.
+    const checkpoints = [...(gateCheckpoints?.detail ?? "").matchAll(/(\d+)s:(\w+):n\d+:@(\d+)/g)];
+    const progress = checkpoints.find((row) => row[1] === "8" && row[2] === "progress");
+    const stable = checkpoints.find((row) => row[2] === "stable_exit");
+    assert.ok(progress && stable, "retain both progress and stable exit telemetry");
+    assert.ok(["10", "12"].includes(stable[1]), "exit at the first eligible bounded checkpoint");
+    assert.ok(Number(stable[3]) - Number(progress[3]) >= 2_000, "never shorten the stability requirement");
   } finally {
     await server.close();
     await rm(tempRoot, { recursive: true, force: true });
