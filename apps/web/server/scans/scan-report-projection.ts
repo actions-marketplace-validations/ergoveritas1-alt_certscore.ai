@@ -1,5 +1,6 @@
 import "server-only";
 import { projectScanReportNoGo, resolveScanReportScore } from "../../lib/scans/scan-report-disposition";
+import { getLocalV2DagReportInput } from "./local-v2-dag-report";
 
 import { createHash } from "node:crypto";
 import { presentRuntimeGraphForRead } from "./runtime-evidence-graph-projection";
@@ -836,6 +837,11 @@ export async function persistScanReportProjection(
     score_version: value.scoreVersion,
     top_finding_count: value.topFindingCount
   };
+  // The verified local-v2 bundle materializer sets this count from the
+  // assessed homepage outcome. A missing count is not evidence of a page.
+  const materializedPagesScanned = getLocalV2DagReportInput(scanRecord)
+    ? numberValue(sourceSnapshot?.pages_scanned)
+    : null;
   const persistedProjection = await measureReportProjectionPhase(
     scanRecord.scan.id,
     "payload_normalize_and_serialize",
@@ -851,7 +857,7 @@ export async function persistScanReportProjection(
     "database_persist",
     () => query(
     `insert into public.scan_snapshots (
-       scan_id, organization_id, domain_id, pages_requested, pages_scanned,
+       scan_id, organization_id, domain_id, pages_requested, pages_scanned, homepage_fetch_status,
        certscore_overall, admin_industry_label, top_finding_count,
        report_finding_count, site_language_primary, scan_outcome,
        stop_reason_code, stop_reason_detail, stop_reason_label,
@@ -872,7 +878,7 @@ export async function persistScanReportProjection(
      )
      select s.id, s.organization_id, s.domain_id,
             greatest(coalesce(s.pages_requested, s.pages_scanned, 1), 1),
-            coalesce(s.pages_scanned, 0),
+            coalesce($44::int, s.pages_scanned, 0), coalesce($45::text, 'skipped'),
             $2, $3, $4, $5, $6, $7, $8, $9, $10,
             $11, $12, $13, $14, $15::date, $16, $17, $18, $19, $20, $21::timestamptz,
             $22, $23, $24, $25, $26::jsonb,
@@ -898,7 +904,9 @@ export async function persistScanReportProjection(
                limit 1
             ), '') = coalesce($42::text, '')
      on conflict (scan_id) do update
-       set certscore_overall = excluded.certscore_overall,
+       set pages_scanned = excluded.pages_scanned,
+           homepage_fetch_status = case when $44::int is null then scan_snapshots.homepage_fetch_status else excluded.homepage_fetch_status end,
+           certscore_overall = excluded.certscore_overall,
            admin_industry_label = excluded.admin_industry_label,
            top_finding_count = excluded.top_finding_count,
            report_finding_count = excluded.report_finding_count,
@@ -983,13 +991,25 @@ export async function persistScanReportProjection(
       persistedProjection.sizeBytes,
       generation.eventCount,
       generation.latestEventId,
-      [...SCAN_REPORT_PROJECTION_NON_SOURCE_EVENT_TYPES]
+      [...SCAN_REPORT_PROJECTION_NON_SOURCE_EVENT_TYPES],
+      materializedPagesScanned,
+      materializedPagesScanned !== null ? stringValue(sourceSnapshot?.homepage_fetch_status) : null
     ]
     )
   );
 
   if (persistence.rowCount !== 1) {
     throw new StaleScanReportProjectionSourceError(scanRecord.scan.id);
+  }
+
+  if (materializedPagesScanned !== null) {
+    await query(
+      `update public.scans
+          set pages_scanned = $2::int
+        where id = $1::uuid
+          and pages_scanned is distinct from $2::int`,
+      [scanRecord.scan.id, materializedPagesScanned]
+    );
   }
 
   // The projection payload is already normalized in memory. Priming this

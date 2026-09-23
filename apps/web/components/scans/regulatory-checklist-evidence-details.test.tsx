@@ -4,6 +4,24 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RegulatoryChecklistActiveTrace, RegulatoryChecklistCorrectionSteps, RegulatoryChecklistEvidenceDetails } from "./regulatory-checklist-evidence-details";
 
+test("evidence details exposes the retained request and its decision context", () => {
+  const html = renderToStaticMarkup(createElement(RegulatoryChecklistEvidenceDetails, {
+    jsonPayload: JSON.stringify({ retainedEvidence: { smokingGunEvidence: [{
+      consentState: "pre_consent",
+      eventId: "request_7",
+      purpose: "advertising",
+      sourceModule: "runtime-evidence",
+      timestampMs: 482,
+      url: "https://ads.example.test/pixel",
+    }] } }),
+  }));
+  assert.match(html, /Decisive retained examples/);
+  assert.match(html, /Open observed URL/);
+  assert.match(html, /Consent: pre_consent/);
+  assert.match(html, /Event: request_7/);
+  assert.match(html, /Observed: 482 ms/);
+});
+
 test("RegulatoryChecklistActiveTrace renders a concise end-user result explanation", () => {
   const html = renderToStaticMarkup(
     createElement(RegulatoryChecklistActiveTrace, {

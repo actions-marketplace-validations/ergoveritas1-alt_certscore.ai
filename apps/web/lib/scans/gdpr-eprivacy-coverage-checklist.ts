@@ -1027,7 +1027,8 @@ function mergeCoverageOutcomePreconsentTimingEvidence(input: {
       ) ||
       (
         input.rowId === "pre_consent_third_party_tracking" &&
-        input.coverageOutcome.criticalEvidence.retainedEvidence.trackerPriority
+        input.coverageOutcome.criticalEvidence.retainedEvidence.trackerPriority &&
+        input.criticalEvidence.pipeline.projectionStage !== "unified_finding"
       )
     )
   ) {
@@ -1551,6 +1552,13 @@ function normalizeFindingStatus(
     findings.some((finding) => !isFindingPresentationStatusSufficientForCoverageRow(definition.id, finding))
   ) {
     return "Insufficient evidence";
+  }
+
+  if (
+    definition.id === "reject_all_path_availability" &&
+    findings.every((finding) => ["reject_button_missing", "accept_more_prominent_than_reject"].includes(finding.unifiedFindingId))
+  ) {
+    return "Review signal";
   }
 
   return definition.defaultFindingStatus;
@@ -2251,7 +2259,9 @@ function specializeChecklistRow(input: {
       };
     }
 
-  if (input.definition.id === "pre_consent_third_party_tracking" && input.coverageOutcome?.criticalEvidence.retainedEvidence.trackerPriority) {
+  if (input.definition.id === "pre_consent_third_party_tracking" &&
+    input.findings.length === 0 && (input.projectedFindings?.length ?? 0) === 0 &&
+    input.coverageOutcome?.criticalEvidence.retainedEvidence.trackerPriority) {
     const statusBasis = input.coverageOutcome.criticalEvidence.statusBasis;
     const tagManagerOnly = input.coverageOutcome.criticalEvidence.retainedEvidence.tagManagerOnly === true;
     const serviceConnectionOnly = input.coverageOutcome.criticalEvidence.retainedEvidence.serviceConnectionOnly === true;
@@ -3171,7 +3181,9 @@ function addDeducibilityDemotion(
 }
 
 function scanQualityVisualNoGoObserved(input: GdprEprivacyCoverageChecklistInput) {
-  return input.unifiedFindings.some((finding) => finding.unifiedFindingId === "scan_quality_visual_no_go") ||
+  return input.unifiedFindings.some((finding) =>
+    finding.unifiedFindingId === "scan_quality_visual_no_go" &&
+    finding.presentationDecision.status === "surface") ||
     (input.projectedFindings ?? []).some((finding) => finding.id === "scan_quality_visual_no_go");
 }
 
@@ -3506,8 +3518,8 @@ export function deriveGdprEprivacyCoverageChecklist(
         ? combinedReplayFingerprintingOutcome
         : canonicalPreconsentStorageOutcome ??
           synthesizedPreconsentCookieOutcome ??
-          synthesizedPreconsentTrackingOutcome ??
-          directCoverageOutcome;
+          directCoverageOutcome ??
+          synthesizedPreconsentTrackingOutcome;
     const matchingFindings = definition.findingIds.flatMap((id) => {
       const finding = findingsById.get(id);
       return finding && isFindingEligibleForCoverageRow(definition.id, finding) ? [finding] : [];
@@ -3521,9 +3533,9 @@ export function deriveGdprEprivacyCoverageChecklist(
       coverageOutcome &&
       (
         Boolean(canonicalPreconsentStorageOutcome) ||
-        shouldPreferCoverageOutcomeForMissingReject(definition.id, coverageOutcome) ||
+        (matchingFindings.length === 0 && shouldPreferCoverageOutcomeForMissingReject(definition.id, coverageOutcome)) ||
         shouldPreferCoverageOutcomeForConsentChoiceQuality(definition.id, coverageOutcome) ||
-        shouldPreferCoverageOutcomeForContextualInfrastructure(definition.id, coverageOutcome) ||
+        (matchingFindings.length === 0 && matchingProjectedFindings.length === 0 && shouldPreferCoverageOutcomeForContextualInfrastructure(definition.id, coverageOutcome)) ||
         shouldPreferGdprTransparencyCoverageOutcome(definition.id, coverageOutcome)
       )
     ) {
@@ -3695,6 +3707,11 @@ export function deriveGdprEprivacyCoverageChecklist(
 
   return collapseSessionReplayDiagnosticRows(rows
     .map((item) => applyVisualNoGoUiControlGuard(item, visualNoGoObserved))
+    .map((item) => visualNoGoObserved && item.status === "Not observed" &&
+      !item.id.startsWith("transport_security_") &&
+      !isGdprTransparencyReportRowId(item.id)
+      ? addDeducibilityDemotion(item, "Not testable", "The normal public page was not reached; this absence cannot be evaluated from the retained scan context.", "scan_quality_no_go_page_dependent_absence", "not_testable")
+      : item)
     .map(applyChecklistEvidenceDeducibilityGuard))
     .map(canonicalizeGdprTransparencyChecklistItem);
 }

@@ -19,7 +19,7 @@ function comparisonCoverageSummary(assessment: GpcResponseAssessment) {
   if (assessment.status !== "indeterminate") {
     return assessment.status === "responsive"
       ? "The matched passive comparison observed reduced classified tracking activity with GPC."
-      : "The matched passive comparison did not observe a qualifying reduction in classified tracking activity with GPC.";
+      : "The matched passive comparison did not observe a qualifying reduction in classified tracking activity with GPC. This observation alone is not a legal compliance conclusion.";
   }
 
   const limits = new Set(assessment.comparison.limitationKeys);

@@ -53,6 +53,64 @@ function surface(candidates: Candidate[], input: Partial<Pick<
   };
 }
 
+test("rights passages cannot supply legal-basis or retention disclosure credit", () => {
+  const result = adaptGdprTransparencyTopicCandidatesForProduction({
+    isTargetRelevantPrivacyPolicy: true,
+    pageUrl: "https://example.test/privacy",
+    policyTextQuality: { usable: true },
+    surface: surface([
+      candidate({
+        topic: "legal_basis",
+        evidenceText: "F. Right to object. You may object to processing of personal data based on our legitimate interests for direct marketing.",
+        matchedLocale: "en",
+        matchedTerm: "legitimate interests",
+      }),
+      candidate({
+        topic: "data_retention",
+        evidenceText: "C. Right to erasure. You may request that personal data be erased to comply with a legal obligation.",
+        matchedLocale: "en",
+        matchedTerm: "erased",
+      }),
+    ]),
+  });
+  assert.deepEqual(result.acceptedProductionSignals, []);
+  assert.deepEqual(result.dispositions.map((row) => row.rejectReason), [
+    "candidate_topic_invariants_failed", "candidate_topic_invariants_failed",
+  ]);
+});
+
+test("marketing copy without data processing does not supply purposes credit", () => {
+  const result = adaptGdprTransparencyTopicCandidatesForProduction({
+    isTargetRelevantPrivacyPolicy: true,
+    pageUrl: "https://example.test/privacy",
+    policyTextQuality: { usable: true },
+    surface: surface([candidate({
+      topic: "processing_purposes",
+      evidenceText: "Join our live entertainment community and start interacting for free.",
+      matchedLocale: "en",
+      matchedTerm: "interacting for free",
+    })]),
+  });
+  assert.equal(result.acceptedProductionSignals.length, 0);
+});
+
+test("DPO contact explicitly scoped to another site cannot credit the target", () => {
+  const result = adaptGdprTransparencyTopicCandidatesForProduction({
+    isTargetRelevantPrivacyPolicy: true,
+    pageUrl: "https://reach.example/privacy",
+    targetUrl: "https://belfastlive.example/",
+    policyTextQuality: { usable: true },
+    surface: surface([candidate({
+      topic: "dpo_contact",
+      evidenceText: "Consumers of The Mirror ES: If you use https://themirror.example/es/, please email the Data Protection Officer at privacidad@reach.example.",
+      matchedLocale: "en",
+      matchedTerm: "Data Protection Officer",
+    })], { normalizedUrl: "https://reach.example/privacy", url: "https://reach.example/privacy" }),
+  });
+  assert.equal(result.acceptedProductionSignals.length, 0);
+  assert.equal(result.dispositions[0]?.rejectReason, "candidate_topic_invariants_failed");
+});
+
 test("GDPR Transparency production evidence profile uses multilingual Article 13 evidence by default", () => {
   assert.equal(
     normalizeGdprTransparencyProductionEvidenceProfile(undefined),

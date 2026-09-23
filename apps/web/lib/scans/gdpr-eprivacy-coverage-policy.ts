@@ -8826,6 +8826,13 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
           ? "Supervisory authority complaint disclosure evidence was retained: authority/regulator complaint language confirms the row, with nearby privacy contact context retained as supporting context."
         : `${config.label} evidence was retained in public policy-surface evidence.`,
       [
+        getString(effectiveArticle13Signal, ["selectedPolicySectionUrl", "selected_policy_section_url", "surfaceUrl"])
+          ? `Policy URL: ${getString(effectiveArticle13Signal, ["selectedPolicySectionUrl", "selected_policy_section_url", "surfaceUrl"])}`
+          : null,
+        displayTextMatchEvidence ? `Excerpt: ${displayTextMatchEvidence}` : null,
+        getString(effectiveArticle13Signal, ["selectedPolicySectionHeading", "selected_policy_section_heading"])
+          ? `Section: ${getString(effectiveArticle13Signal, ["selectedPolicySectionHeading", "selected_policy_section_heading"])}`
+          : null,
         config.rowId === "privacy_notice_availability"
           ? "Evidence: privacy policy surface retained"
           : config.rowId === "international_transfers_disclosure"
@@ -8833,7 +8840,6 @@ function derivePolicyDisclosureOutcome(input: GdprEprivacyCoveragePolicyInput, c
             : config.rowId === "supervisory_authority_complaint_disclosure"
               ? "Evidence: authority/regulator complaint language"
             : `Evidence: ${config.label}`,
-        displayTextMatchEvidence ? `Excerpt: ${displayTextMatchEvidence}` : null,
         supportingContactContext ? `Supporting contact context: ${supportingContactContext}` : null,
         supportingTransferSafeguardsContext ? `Supporting transfer safeguards context: ${supportingTransferSafeguardsContext}` : null,
         ...getStringArray(summary, ["privacyPolicyUrls", "privacy_policy_urls"]).map((url) => `Policy URL: ${url}`).slice(0, 2)

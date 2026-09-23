@@ -82,6 +82,7 @@ export type GdprTransparencyDiscardedArticle13Signal = {
 export type GdprTransparencyTopicEvidenceAdapterInput = {
   isTargetRelevantPrivacyPolicy?: boolean;
   pageUrl?: string | null;
+  targetUrl?: string | null;
   policyTextQuality?: {
     usable?: boolean | null;
   } | null;
@@ -244,6 +245,7 @@ function boundCanonicalRetainedSignal(
     const evidenceText =
       signal.selectedPolicySectionExcerpt ?? signal.evidenceText ?? "";
     return Boolean(evidenceText) &&
+      !candidateScopedToOtherSite(input, candidate.topic, evidenceText) &&
       article13DisclosureRejectReason(evidenceText, candidate.topic, {
         mode: "retained_report",
       }) === null &&
@@ -279,6 +281,9 @@ function rejectReasonForCandidate(
   if (input.policyTextQuality?.usable === false || !policySurfaceLooksUsable(input.surface)) {
     return "policy_text_quality_not_usable";
   }
+  if (candidateScopedToOtherSite(input, candidate.topic, candidate.evidenceText)) {
+    return "candidate_topic_invariants_failed";
+  }
   if (candidate.classifierProvenance !== "gdpr_transparency_topic_classifier.v1") {
     return "candidate_missing_classifier_provenance";
   }
@@ -307,6 +312,24 @@ function rejectReasonForCandidate(
   return article13RejectReason;
 }
 
+function candidateScopedToOtherSite(
+  input: GdprTransparencyTopicEvidenceAdapterInput,
+  topic: Article13DisclosureType,
+  evidenceText: string,
+) {
+  if (topic !== "dpo_contact") return false;
+  const scopedSite = /\b(?:consumers|visitors|users) of\b.{0,100}?(https?:\/\/[^\s/]+(?:\/[^\s]*)?)/i.exec(evidenceText)?.[1];
+  if (!scopedSite) return false;
+  if (!input.targetUrl) return true;
+  try {
+    const target = new URL(input.targetUrl).hostname.replace(/^www\./i, "").toLowerCase();
+    const cited = new URL(scopedSite).hostname.replace(/^www\./i, "").toLowerCase();
+    return cited !== target;
+  } catch {
+    return true;
+  }
+}
+
 function isContextBoundCanonicalCandidate(candidate: GdprTransparencyTopicCandidate) {
   if (
     !PRIVACY_CONTEXT_BOUND_DISCLOSURE_TOPICS.has(candidate.topic) ||
@@ -323,6 +346,7 @@ function isContextBoundCanonicalCandidate(candidate: GdprTransparencyTopicCandid
 
 function candidateMatchesKnownCrossTopicFalsePositive(candidate: GdprTransparencyTopicCandidate) {
   const text = normalizeArticle13Whitespace(candidate.evidenceText);
+  const rightsSection = /^(?:[A-Z]\.\s*)?right to (?:object|erasure|be forgotten|access|rectification|restrict|portability)\b/i.test(text);
   switch (candidate.topic) {
     case "controller_contact":
       return (
@@ -359,6 +383,8 @@ function candidateMatchesKnownCrossTopicFalsePositive(candidate: GdprTransparenc
       );
     case "processing_purposes":
       return (
+        (candidate.matchedLocale === "en" &&
+          !/\b(?:personal data|personal information|your data|your information|this information|account data|information we collect|data we collect|cookies|processing of data)\b/i.test(text)) ||
         (candidate.matchedLocale === "ru" &&
           /определя(?:ет|ющие) цели обработки персональных данных.{0,240}персональные данные\s*[—–-]/iu.test(text)) ||
         (candidate.matchedLocale === "it" &&
@@ -366,8 +392,13 @@ function candidateMatchesKnownCrossTopicFalsePositive(candidate: GdprTransparenc
           !/(?:al fine di|allo scopo di|per (?:fornire|erogare|gestire|migliorare|rispondere|proteggere))/iu.test(text))
       );
     case "data_retention":
-      return candidate.matchedLocale === "it" &&
-        /privacy policy del singolo social network/iu.test(text);
+      return (candidate.matchedLocale === "en" && rightsSection &&
+        !/\b(?:retention period|how long we (?:keep|retain)|we (?:keep|retain|store) (?:your |the )?(?:personal )?(?:data|information) for)\b/i.test(text)) ||
+        (candidate.matchedLocale === "it" &&
+          /privacy policy del singolo social network/iu.test(text));
+    case "legal_basis":
+      return candidate.matchedLocale === "en" && rightsSection &&
+        !/\b(?:legal basis|lawful basis|basis for processing|article 6|we (?:rely on|process (?:your |the )?(?:personal )?(?:data|information) (?:on|under) the basis))\b/i.test(text);
     case "data_subject_rights":
       return (
         (candidate.matchedLocale === "en" &&
